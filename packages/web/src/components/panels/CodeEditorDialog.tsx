@@ -21,6 +21,7 @@ import { Sparkle, Check, X, Spinner, Lightning, Code, MagicWand, TerminalWindow,
 import { useFlowStore } from '../../store/flowStore';
 import { useUiStore } from '../../store/uiStore';
 import { API_BASE_URL } from '../../lib/api';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 
 interface CodeEditorDialogProps {
   open: boolean;
@@ -33,7 +34,7 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
   const updateNodeData = useFlowStore((s) => s.updateNodeData);
   const isDarkMode = useUiStore((s) => s.isDarkMode);
   const node = nodes.find((n) => n.id === nodeId);
-  
+
   const [code, setCode] = useState(node?.data.code || '');
   const [isAiPanelOpen, setIsAiPanelOpen] = useState(true);
   const [prompt, setPrompt] = useState('');
@@ -42,7 +43,7 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
   const [provider, setProvider] = useState('openrouter');
   const [model, setModel] = useState('google/gemini-2.5-flash');
 
-  const [skills, setSkills] = useState<{id: string, name: string, content: string}[]>([]);
+  const [skills, setSkills] = useState<{ id: string, name: string, content: string }[]>([]);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
 
   const editorRef = useRef<any>(null);
@@ -91,7 +92,7 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
     if (!prompt) return;
     setIsGenerating(true);
     setGeneratedCode('');
-    
+
     try {
       let finalPrompt = prompt;
       if (selectedSkills.length > 0) {
@@ -135,10 +136,10 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
             try {
               const data = JSON.parse(line.slice(6));
               fullCode += data.text;
-              
+
               let cleanedCode = fullCode.replace(/^```(javascript|python|js|ts)?\n/i, '').replace(/\n```$/, '');
               setGeneratedCode(cleanedCode);
-            } catch {}
+            } catch { }
           }
         }
       }
@@ -169,7 +170,7 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
       >
         <DialogHeader className="px-5 py-4 border-b border-border bg-muted/30 flex flex-row items-center justify-between shrink-0 relative">
           <div className="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-primary/30 via-primary to-primary/30" />
-          
+
           <div className="flex items-center gap-3">
             <div className="flex items-center justify-center w-8 h-8 bg-background border border-border shadow-sm text-foreground">
               <TerminalWindow size={16} weight="duotone" />
@@ -183,7 +184,7 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
               </DialogDescription>
             </div>
           </div>
-          
+
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
@@ -236,7 +237,7 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
                     Code Generation
                   </span>
                 </div>
-                
+
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
@@ -258,8 +259,8 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
                       <label className="text-[10px] text-muted-foreground font-semibold flex items-center gap-1.5">
                         Model Name
                       </label>
-                      <Input 
-                        value={model} 
+                      <Input
+                        value={model}
                         onChange={e => setModel(e.target.value)}
                         className="h-8 text-xs bg-background hover:bg-accent/50 transition-colors shadow-sm"
                         placeholder="google/gemini-2.5-flash"
@@ -285,7 +286,7 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
                             key={skill.id}
                             checked={selectedSkills.includes(skill.id)}
                             onCheckedChange={(checked) => {
-                              setSelectedSkills(prev => 
+                              setSelectedSkills(prev =>
                                 checked ? [...prev, skill.id] : prev.filter(id => id !== skill.id)
                               )
                             }}
@@ -308,8 +309,8 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
                       placeholder="Describe what the code should do in natural language..."
                       className="w-full h-[100px] text-[13px] p-3 border border-border bg-background resize-none focus:ring-1 focus:ring-primary focus:border-primary outline-none shadow-inner placeholder:text-muted-foreground/30 transition-all leading-relaxed"
                     />
-                    <Button 
-                      className="w-full h-9 text-xs font-bold shadow-md hover:shadow-lg transition-all relative overflow-hidden group" 
+                    <Button
+                      className="w-full h-9 text-xs font-bold shadow-md hover:shadow-lg transition-all relative overflow-hidden group"
                       onClick={handleGenerate}
                       disabled={isGenerating || !prompt}
                     >
@@ -329,9 +330,9 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
                       <span className="text-[11px] font-bold text-emerald-500 uppercase tracking-widest">Preview</span>
                       <span className="text-[9px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5">Diff Ready</span>
                     </div>
-                    
+
                     <div className="flex-1 relative overflow-hidden border border-emerald-500/40 shadow-inner bg-background min-h-0">
-                       <Editor
+                      <Editor
                         height="100%"
                         language={language}
                         theme={monacoTheme}
@@ -346,7 +347,7 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
                         }}
                       />
                     </div>
-                    
+
                     <div className="flex gap-2 pt-1 shrink-0">
                       <Button onClick={acceptGeneratedCode} className="flex-1 bg-emerald-600 hover:bg-emerald-700 h-9 font-bold text-xs shadow-md">
                         <Check size={14} className="mr-1.5" weight="bold" /> Accept Code

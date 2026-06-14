@@ -5,7 +5,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { Plus, Trash, Key, PencilSimple, Folder, UploadSimple, FolderPlus, CaretRight } from '@phosphor-icons/react';
+import { Plus, Trash, PencilSimple, Folder, UploadSimple, FolderPlus, CaretRight, TabsIcon } from '@phosphor-icons/react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { SkillEditorDialog, type Skill } from '../panels/SkillEditorDialog';
 
@@ -33,7 +33,7 @@ export function ResourcesPage() {
   const [secrets, setSecrets] = useState<Secret[]>([]);
   const [skills, setSkills] = useState<Skill[]>([]);
   const [files, setFiles] = useState<FileEntry[]>([]);
-  
+
   // Dialog state
   const [isSecretDialogOpen, setIsSecretDialogOpen] = useState(false);
   const [secretForm, setSecretForm] = useState({ key: '', value: '', is_secret: true });
@@ -42,7 +42,7 @@ export function ResourcesPage() {
   const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
-  
+
   const [isFolderDialogOpen, setIsFolderDialogOpen] = useState(false);
   const [folderName, setFolderName] = useState('');
   const [currentPath, setCurrentPath] = useState<string[]>([]);
@@ -117,10 +117,10 @@ export function ResourcesPage() {
   const saveSkill = async (skill: Skill) => {
     try {
       const method = skill.id ? 'PUT' : 'POST';
-      const url = skill.id 
-        ? `${API_BASE_URL}/api/resources/skills/${skill.id}` 
+      const url = skill.id
+        ? `${API_BASE_URL}/api/resources/skills/${skill.id}`
         : `${API_BASE_URL}/api/resources/skills`;
-        
+
       await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
@@ -216,25 +216,25 @@ export function ResourcesPage() {
     <div className="flex-1 flex flex-col h-full bg-background overflow-hidden animate-in fade-in p-6">
       <div className="max-w-5xl mx-auto w-full flex-1 flex flex-col">
         <h1 className="text-2xl font-bold mb-6 flex items-center gap-2">
-          <Key className="text-primary" /> Resources
+          <TabsIcon className="text-primary" /> Resources
         </h1>
 
         <Tabs defaultValue="secrets" className="flex-1 flex flex-col min-h-0">
           <TabsList className="w-full justify-start border-b rounded-none h-10 bg-transparent p-0 gap-4">
-            <TabsTrigger 
-              value="secrets" 
+            <TabsTrigger
+              value="secrets"
               className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-2 data-[state=active]:shadow-none"
             >
               Secrets & API Keys
             </TabsTrigger>
-            <TabsTrigger 
-              value="skills" 
+            <TabsTrigger
+              value="skills"
               className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-2 data-[state=active]:shadow-none"
             >
               Custom Skills
             </TabsTrigger>
-            <TabsTrigger 
-              value="files" 
+            <TabsTrigger
+              value="files"
               className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-2 data-[state=active]:shadow-none"
             >
               Files / Storage
@@ -328,7 +328,7 @@ export function ResourcesPage() {
               <div>
                 <p className="text-sm text-muted-foreground mb-1">Local file system storage mapped to node access.</p>
                 <div className="flex items-center gap-1 text-sm font-medium">
-                  <button 
+                  <button
                     onClick={() => setCurrentPath([])}
                     className="hover:text-primary transition-colors hover:underline"
                   >
@@ -337,7 +337,7 @@ export function ResourcesPage() {
                   {currentPath.map((part, idx) => (
                     <div key={idx} className="flex items-center gap-1">
                       <CaretRight size={12} className="text-muted-foreground" />
-                      <button 
+                      <button
                         onClick={() => setCurrentPath(currentPath.slice(0, idx + 1))}
                         className="hover:text-primary transition-colors hover:underline"
                       >
@@ -377,8 +377,8 @@ export function ResourcesPage() {
                     files.map(file => {
                       const isFolder = file.mime_type === 'inode/directory';
                       return (
-                        <TableRow 
-                          key={file.id} 
+                        <TableRow
+                          key={file.id}
                           className={isFolder ? "cursor-pointer hover:bg-muted/50 transition-colors group" : ""}
                           onClick={() => { if (isFolder) setCurrentPath([...currentPath, file.name]); }}
                         >
@@ -416,19 +416,19 @@ export function ResourcesPage() {
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">Key</label>
-              <Input 
-                placeholder="OPENROUTER_API_KEY" 
-                value={secretForm.key} 
-                onChange={e => setSecretForm(s => ({ ...s, key: e.target.value.toUpperCase().replace(/\s+/g, '_') }))} 
+              <Input
+                placeholder="OPENROUTER_API_KEY"
+                value={secretForm.key}
+                onChange={e => setSecretForm(s => ({ ...s, key: e.target.value.toUpperCase().replace(/\s+/g, '_') }))}
               />
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">Value</label>
-              <Input 
+              <Input
                 type="password"
-                placeholder="sk-or-v1-..." 
-                value={secretForm.value} 
-                onChange={e => setSecretForm(s => ({ ...s, value: e.target.value }))} 
+                placeholder="sk-or-v1-..."
+                value={secretForm.value}
+                onChange={e => setSecretForm(s => ({ ...s, value: e.target.value }))}
               />
             </div>
           </div>
@@ -455,10 +455,10 @@ export function ResourcesPage() {
             <DialogDescription>Add a new folder to organize your files.</DialogDescription>
           </DialogHeader>
           <div className="py-4">
-            <Input 
-              placeholder="e.g. dataset-v1" 
-              value={folderName} 
-              onChange={e => setFolderName(e.target.value)} 
+            <Input
+              placeholder="e.g. dataset-v1"
+              value={folderName}
+              onChange={e => setFolderName(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') createFolder(); }}
             />
           </div>
