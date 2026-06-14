@@ -50,8 +50,18 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/resources/skills`)
       .then(res => res.json())
-      .then(data => setSkills(data))
-      .catch(console.error);
+      .then(data => {
+        if (Array.isArray(data)) {
+          setSkills(data);
+        } else {
+          console.error('Failed to load skills, got:', data);
+          setSkills([]);
+        }
+      })
+      .catch(err => {
+        console.error(err);
+        setSkills([]);
+      });
   }, []);
 
   useEffect(() => {
@@ -270,7 +280,7 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
                       <DropdownMenuContent className="w-64">
                         <DropdownMenuLabel>Custom Skills</DropdownMenuLabel>
                         <DropdownMenuSeparator />
-                        {skills.map(skill => (
+                        {Array.isArray(skills) && skills.map(skill => (
                           <DropdownMenuCheckboxItem
                             key={skill.id}
                             checked={selectedSkills.includes(skill.id)}
@@ -283,7 +293,7 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
                             {skill.name}
                           </DropdownMenuCheckboxItem>
                         ))}
-                        {skills.length === 0 && <div className="p-2 text-xs text-muted-foreground text-center">No skills available</div>}
+                        {(!Array.isArray(skills) || skills.length === 0) && <div className="p-2 text-xs text-muted-foreground text-center">No skills available</div>}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
