@@ -6,6 +6,10 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runFlow } from "./runner/flow-runner.js";
+import { initDb } from "./db/database.js";
+import { resourcesRouter } from "./routes/resources.js";
+import { aiRouter } from "./routes/ai.js";
+import { flowsRouter } from "./routes/flows.js";
 import type { GraphJson } from "@zaa-tool/shared";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -14,6 +18,11 @@ export function startServer(port = 4000) {
     const app = express();
     app.use(cors());
     app.use(express.json());
+
+    // ── Routes ────────────────────────────────────────────
+    app.use("/api/resources", resourcesRouter);
+    app.use("/api/ai", aiRouter);
+    app.use("/api/flows", flowsRouter);
 
     // ── Health ────────────────────────────────────────────
     app.get("/api/health", (_req, res) => {
@@ -35,9 +44,11 @@ export function startServer(port = 4000) {
         }
     });
 
-    // ── Create HTTP server ───────────────────────────────
+    // ── Initialize DB and Server ─────────────────────────
     let server: ReturnType<typeof app.listen>;
     try {
+        initDb().catch(console.error);
+        
         server = app.listen(port, () => {
             console.log(`✅ Server listening on http://localhost:${port}`);
         });

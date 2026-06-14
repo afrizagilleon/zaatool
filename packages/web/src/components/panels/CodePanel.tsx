@@ -7,6 +7,7 @@ import {
   ArrowsClockwise,
   Plus,
   Trash,
+  ArrowsOutSimple,
 } from '@phosphor-icons/react';
 import { useFlowStore } from '../../store/flowStore';
 import { useUiStore } from '../../store/uiStore';
@@ -21,6 +22,8 @@ import {
   SelectValue,
 } from '../ui/select';
 import { Textarea } from '../ui/textarea';
+import { CodeEditorDialog } from './CodeEditorDialog';
+import { useState } from 'react';
 
 const FIELD_TYPES: SchemaField['type'][] = ['string', 'number', 'boolean', 'array', 'object'];
 
@@ -122,6 +125,8 @@ export function CodePanel() {
   const updateSchemaField = useFlowStore((s) => s.updateSchemaField);
   const removeNode = useFlowStore((s) => s.removeNode);
   const setCodePanelOpen = useUiStore((s) => s.setCodePanelOpen);
+
+  const [editorOpen, setEditorOpen] = useState(false);
 
   const activeNode = nodes.find((n) => n.id === activeNodeId);
 
@@ -265,12 +270,23 @@ export function CodePanel() {
         {/* Code textarea */}
         {(isCodeNode || nodeType === 'if') && (
           <div className="space-y-1.5 flex flex-col h-[200px]">
-            <label
-              htmlFor="node-code-textarea"
-              className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground"
-            >
-              Code
-            </label>
+            <div className="flex items-center justify-between">
+              <label
+                htmlFor="node-code-textarea"
+                className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground"
+              >
+                Code
+              </label>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-5 px-1.5 text-[10px] text-primary hover:text-primary hover:bg-primary/10"
+                onClick={() => setEditorOpen(true)}
+              >
+                <ArrowsOutSimple size={12} className="mr-1" />
+                Focus Editor
+              </Button>
+            </div>
             <Textarea
               id="node-code-textarea"
               value={activeNode.data.code || ''}
@@ -304,6 +320,12 @@ export function CodePanel() {
           onUpdateField={(index, patch) => updateSchemaField(activeNode.id, 'outputsSchema', index, patch)}
         />
       </div>
+
+      <CodeEditorDialog
+        open={editorOpen}
+        onOpenChange={setEditorOpen}
+        nodeId={activeNode.id}
+      />
     </aside>
   );
 }

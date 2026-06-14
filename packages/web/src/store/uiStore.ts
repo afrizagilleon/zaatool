@@ -8,6 +8,8 @@ interface UiState {
   isConsolePanelOpen: boolean;
   isAiPanelOpen: boolean;
 
+  layoutDirection: 'LR' | 'TB';
+
   setActiveTab: (tab: UiState['activeTab']) => void;
   toggleDarkMode: () => void;
   toggleNodePalette: () => void;
@@ -15,6 +17,7 @@ interface UiState {
   toggleConsolePanel: () => void;
   toggleAiPanel: () => void;
   setCodePanelOpen: (open: boolean) => void;
+  setLayoutDirection: (dir: 'LR' | 'TB') => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -24,6 +27,7 @@ export const useUiStore = create<UiState>((set) => ({
   isCodePanelOpen: true,
   isConsolePanelOpen: true,
   isAiPanelOpen: false,
+  layoutDirection: 'LR',
 
   setActiveTab: (tab) => set({ activeTab: tab }),
 
@@ -51,4 +55,6 @@ export const useUiStore = create<UiState>((set) => ({
     set((state) => ({ isAiPanelOpen: !state.isAiPanelOpen })),
 
   setCodePanelOpen: (open) => set({ isCodePanelOpen: open }),
+
+  setLayoutDirection: (dir) => set({ layoutDirection: dir }),
 }));

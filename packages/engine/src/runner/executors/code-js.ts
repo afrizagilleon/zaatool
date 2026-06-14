@@ -8,7 +8,7 @@ export class JsCodeExecutor implements NodeExecutor {
         const timeout = (node.data.config?.timeout as number) ?? 5000;
 
         const result = await runJsNode(code, inputs, timeout, (level, msg) => {
-            context.ee?.emit("node:log", { type: "node:log", nodeId: node.id, level, msg });
+            context.ee?.emit("node:log", { type: "node:log", nodeId: node.id, level, payload: msg });
         });
 
         result.logs.forEach(l => console.log(`  [${l.level}] ${l.msg}`));

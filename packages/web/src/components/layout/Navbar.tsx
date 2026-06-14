@@ -6,6 +6,8 @@ import {
   Sidebar,
   Terminal,
   Sparkle,
+  FloppyDisk,
+  FolderOpen
 } from '@phosphor-icons/react';
 import { useUiStore } from '../../store/uiStore';
 import { useEngineStore } from '../../store/engineStore';
@@ -13,10 +15,12 @@ import { useFlowStore } from '../../store/flowStore';
 import { useAutoLayout } from '../../hooks/useAutoLayout';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
+import { API_BASE_URL } from '../../lib/api';
+import { useState, useEffect } from 'react';
 
 const navTabs = [
   { id: 'editor' as const, label: 'Node Editor', disabled: false },
-  { id: 'resources' as const, label: 'Resources', disabled: true },
+  { id: 'resources' as const, label: 'Resources', disabled: false },
   { id: 'deploys' as const, label: 'Deploys', disabled: true },
 ] as const;
 
@@ -36,12 +40,67 @@ export function Navbar() {
   const wsConnected = useEngineStore((s) => s.wsConnected);
   const runFlow = useEngineStore((s) => s.runFlow);
   const getGraphJson = useFlowStore((s) => s.getGraphJson);
+  const loadFromJson = useFlowStore((s) => s.loadFromJson);
   const autoLayout = useAutoLayout();
+  const layoutDirection = useUiStore((s) => s.layoutDirection);
+  const setLayoutDirection = useUiStore((s) => s.setLayoutDirection);
+
+  const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    // Initial auto-load
+    handleLoad();
+  }, []);
 
   const handleRun = () => {
     if (isRunning) return;
     const graph = getGraphJson();
     runFlow(graph);
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      const graph = getGraphJson();
+      const res = await fetch(`${API_BASE_URL}/api/flows`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: graph.id,
+          name: graph.name,
+          graph_json: graph
+        })
+      });
+      if (!res.ok) throw new Error('Failed to save');
+      // Toast notification could go here
+    } catch (e) {
+      console.error(e);
+      alert('Failed to save flow to database.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleLoad = async () => {
+    setIsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/flows`);
+      if (!res.ok) throw new Error('Failed to load');
+      const flows = await res.json();
+      if (flows.length > 0) {
+        const latestFlow = flows[0];
+        const parsedGraph = typeof latestFlow.graph_json === 'string' 
+          ? JSON.parse(latestFlow.graph_json) 
+          : latestFlow.graph_json;
+        loadFromJson(parsedGraph);
+      }
+    } catch (e) {
+      console.error(e);
+      // Fails silently on first run if DB empty
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -110,16 +169,49 @@ export function Navbar() {
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Auto Layout button */}
-      <Button
-        id="navbar-auto-layout"
-        onClick={() => autoLayout('TB')}
-        variant="ghost"
-        className="h-7 px-2 text-xs font-semibold mr-1 text-muted-foreground"
-        title="Auto layout (Vertical)"
-      >
-        T
-      </Button>
+      {/* Storage Actions */}
+      <div className="flex items-center gap-1 mr-4 border-r border-border pr-4">
+        <Button
+          onClick={handleSave}
+          disabled={isSaving}
+          variant="ghost"
+          className="h-7 px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+        >
+          {isSaving ? <Spinner size={14} className="animate-spin mr-1.5" /> : <FloppyDisk size={14} className="mr-1.5" />}
+          Save
+        </Button>
+        <Button
+          onClick={handleLoad}
+          disabled={isLoading}
+          variant="ghost"
+          className="h-7 px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+        >
+          {isLoading ? <Spinner size={14} className="animate-spin mr-1.5" /> : <FolderOpen size={14} className="mr-1.5" />}
+          Load
+        </Button>
+      </div>
+
+      {/* Auto Layout buttons */}
+      <div className="flex items-center bg-muted/30 p-0.5 mr-1">
+        <Button
+          id="navbar-layout-tb"
+          onClick={() => { setLayoutDirection('TB'); autoLayout('TB'); }}
+          variant="ghost"
+          className={cn("h-6 px-2 text-[11px] font-semibold", layoutDirection === 'TB' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:bg-muted/50")}
+          title="Auto layout (Vertical)"
+        >
+          V
+        </Button>
+        <Button
+          id="navbar-layout-lr"
+          onClick={() => { setLayoutDirection('LR'); autoLayout('LR'); }}
+          variant="ghost"
+          className={cn("h-6 px-2 text-[11px] font-semibold", layoutDirection === 'LR' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:bg-muted/50")}
+          title="Auto layout (Horizontal)"
+        >
+          H
+        </Button>
+      </div>
 
       {/* Console toggle */}
       <Button
