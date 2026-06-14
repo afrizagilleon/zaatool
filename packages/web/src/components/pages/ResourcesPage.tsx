@@ -5,7 +5,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { Plus, Trash, Key, PencilSimple, Folder, UploadSimple, FolderPlus } from '@phosphor-icons/react';
+import { Plus, Trash, Key, PencilSimple, Folder, UploadSimple, FolderPlus, CaretRight } from '@phosphor-icons/react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { SkillEditorDialog, type Skill } from '../panels/SkillEditorDialog';
 
@@ -45,6 +45,7 @@ export function ResourcesPage() {
   
   const [isFolderDialogOpen, setIsFolderDialogOpen] = useState(false);
   const [folderName, setFolderName] = useState('');
+  const [currentPath, setCurrentPath] = useState<string[]>([]);
 
   useEffect(() => {
     if (activeTab === 'resources') {
@@ -74,12 +75,20 @@ export function ResourcesPage() {
 
   const fetchFiles = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/resources/files`);
-      if (res.ok) setFiles(await res.json());
+      const dirQuery = currentPath.length > 0 ? `?dir=${encodeURIComponent(currentPath.join('/'))}` : '';
+      const res = await fetch(`${API_BASE_URL}/api/resources/files${dirQuery}`);
+      if (res.ok) {
+        const data = await res.json();
+        setFiles(data);
+      }
     } catch (e) {
-      console.warn('Failed to fetch files:', e);
+      console.error('Failed to fetch files:', e);
     }
   };
+
+  useEffect(() => {
+    fetchFiles();
+  }, [currentPath]);
 
   const saveSecret = async () => {
     try {
@@ -156,7 +165,8 @@ export function ResourcesPage() {
     formData.append('file', file);
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/resources/files`, {
+      const dirQuery = currentPath.length > 0 ? `?dir=${encodeURIComponent(currentPath.join('/'))}` : '';
+      const res = await fetch(`${API_BASE_URL}/api/resources/files${dirQuery}`, {
         method: 'POST',
         body: formData,
       });
@@ -176,10 +186,11 @@ export function ResourcesPage() {
   const createFolder = async () => {
     if (!folderName.trim()) return;
     try {
+      const dirParam = currentPath.length > 0 ? currentPath.join('/') : '';
       const res = await fetch(`${API_BASE_URL}/api/resources/folders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: folderName.trim() }),
+        body: JSON.stringify({ name: folderName.trim(), dir: dirParam }),
       });
       if (res.ok) {
         setIsFolderDialogOpen(false);
@@ -314,11 +325,29 @@ export function ResourcesPage() {
           {/* FILES TAB */}
           <TabsContent value="files" className="flex-1 overflow-auto py-6 m-0 border-none outline-none">
             <div className="flex justify-between items-center mb-4">
-              <p className="text-sm text-muted-foreground">Uploaded files stored in MinIO object storage.</p>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 px-2 py-1 border border-border/50">
-                  <Folder size={14} /> MinIO
+              <div>
+                <p className="text-sm text-muted-foreground mb-1">Local file system storage mapped to node access.</p>
+                <div className="flex items-center gap-1 text-sm font-medium">
+                  <button 
+                    onClick={() => setCurrentPath([])}
+                    className="hover:text-primary transition-colors hover:underline"
+                  >
+                    Storage
+                  </button>
+                  {currentPath.map((part, idx) => (
+                    <div key={idx} className="flex items-center gap-1">
+                      <CaretRight size={12} className="text-muted-foreground" />
+                      <button 
+                        onClick={() => setCurrentPath(currentPath.slice(0, idx + 1))}
+                        className="hover:text-primary transition-colors hover:underline"
+                      >
+                        {part}
+                      </button>
+                    </div>
+                  ))}
                 </div>
+              </div>
+              <div className="flex items-center gap-4">
                 <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileChange} />
                 <Button size="sm" variant="outline" onClick={() => setIsFolderDialogOpen(true)}>
                   <FolderPlus size={14} className="mr-2" />
@@ -348,17 +377,21 @@ export function ResourcesPage() {
                     files.map(file => {
                       const isFolder = file.mime_type === 'inode/directory';
                       return (
-                        <TableRow key={file.id}>
+                        <TableRow 
+                          key={file.id} 
+                          className={isFolder ? "cursor-pointer hover:bg-muted/50 transition-colors group" : ""}
+                          onClick={() => { if (isFolder) setCurrentPath([...currentPath, file.name]); }}
+                        >
                           <TableCell className="text-sm font-medium">
-                            <div className="flex items-center gap-2">
-                              {isFolder ? <Folder size={16} weight="fill" className="text-muted-foreground" /> : null}
+                            <div className="flex items-center gap-2 group-hover:text-primary transition-colors">
+                              {isFolder ? <Folder size={16} weight="fill" className="text-muted-foreground group-hover:text-primary transition-colors" /> : null}
                               {file.name}
                             </div>
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground font-mono">{file.mime_type || '—'}</TableCell>
                           <TableCell className="text-xs text-muted-foreground">{isFolder ? '—' : formatBytes(file.size_bytes)}</TableCell>
                           <TableCell className="text-right">
-                            <Button variant="ghost" size="icon" onClick={() => deleteFile(file.id)} className="h-7 w-7 text-destructive hover:bg-destructive/10">
+                            <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); deleteFile(file.id); }} className="h-7 w-7 text-destructive hover:bg-destructive/10">
                               <Trash size={14} />
                             </Button>
                           </TableCell>

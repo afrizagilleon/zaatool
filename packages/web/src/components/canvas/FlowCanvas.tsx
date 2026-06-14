@@ -99,7 +99,7 @@ export function FlowCanvas() {
        body: JSON.stringify({
          id: flowId,
          name: flowName,
-         graphJson: JSON.stringify(graphJson),
+         graph_json: graphJson,
        }),
      });
      if (!res.ok) throw new Error('Failed to save');

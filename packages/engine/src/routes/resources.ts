@@ -2,32 +2,31 @@ import { Router } from "express";
 import { v4 as uuidv4 } from "uuid";
 import { pool } from "../db/database.js";
 import multer from "multer";
-import * as Minio from "minio";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
-const minioClient = new Minio.Client({
-  endPoint: process.env.MINIO_ENDPOINT || 'localhost',
-  port: parseInt(process.env.MINIO_PORT || '9000'),
-  useSSL: process.env.MINIO_USE_SSL === 'true',
-  accessKey: process.env.MINIO_ROOT_USER || 'minioadmin',
-  secretKey: process.env.MINIO_ROOT_PASSWORD || 'minioadmin'
-});
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const STORAGE_DIR = path.join(__dirname, "../../storage");
 
-const BUCKET_NAME = 'zaa-files';
-
-// Ensure bucket exists
-async function initMinio() {
-  try {
-    const exists = await minioClient.bucketExists(BUCKET_NAME);
-    if (!exists) {
-      await minioClient.makeBucket(BUCKET_NAME, 'us-east-1');
-    }
-  } catch (err) {
-    console.error("Failed to init MinIO bucket:", err);
-  }
+if (!fs.existsSync(STORAGE_DIR)) {
+  fs.mkdirSync(STORAGE_DIR, { recursive: true });
 }
-initMinio();
 
-const upload = multer({ storage: multer.memoryStorage() });
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = req.query.dir ? String(req.query.dir) : '';
+    const targetDir = path.join(STORAGE_DIR, dir);
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+    }
+    cb(null, targetDir);
+  },
+  filename: (req, file, cb) => {
+    cb(null, file.originalname);
+  }
+});
+const upload = multer({ storage });
 
 const router = Router();
 
@@ -173,46 +172,77 @@ router.delete("/flows/:id", async (req, res) => {
   }
 });
 
-// --- Files ---
-router.get("/files", async (req, res) => {
+// --- Files (Local File System) ---
+router.get("/files", (req, res) => {
   try {
-    const { rows } = await pool.query("SELECT * FROM files ORDER BY created_at DESC");
-    res.json(rows);
+    const dir = req.query.dir ? String(req.query.dir) : '';
+    const targetPath = path.join(STORAGE_DIR, dir);
+    
+    if (!fs.existsSync(targetPath)) {
+      return res.json([]);
+    }
+
+    const items = fs.readdirSync(targetPath, { withFileTypes: true });
+    const result = items.map(item => {
+      const stats = fs.statSync(path.join(targetPath, item.name));
+      return {
+        id: Buffer.from(path.join(dir, item.name).replace(/\\/g, '/')).toString('base64'),
+        name: item.name,
+        path: path.join(dir, item.name).replace(/\\/g, '/'),
+        mime_type: item.isDirectory() ? 'inode/directory' : '',
+        size_bytes: stats.size,
+        created_at: stats.birthtime
+      };
+    });
+    
+    // Sort directories first
+    result.sort((a, b) => {
+      if (a.mime_type === 'inode/directory' && b.mime_type !== 'inode/directory') return -1;
+      if (a.mime_type !== 'inode/directory' && b.mime_type === 'inode/directory') return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-router.post("/files", upload.single("file"), async (req, res) => {
+router.post("/files", upload.single("file"), (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: "No file provided" });
     }
     
-    const file = req.file;
-    const id = uuidv4();
-    const objectName = `${id}-${file.originalname}`;
-    
-    await minioClient.putObject(BUCKET_NAME, objectName, file.buffer, file.size, {
-      'Content-Type': file.mimetype
+    const dir = req.query.dir ? String(req.query.dir) : '';
+    const itemPath = path.join(dir, req.file.originalname).replace(/\\/g, '/');
+    const stats = fs.statSync(req.file.path);
+
+    res.json({
+      id: Buffer.from(itemPath).toString('base64'),
+      name: req.file.originalname,
+      path: itemPath,
+      mime_type: req.file.mimetype,
+      size_bytes: stats.size,
+      created_at: stats.birthtime
     });
-    
-    const { rows } = await pool.query(
-      "INSERT INTO files (id, name, path, mime_type, size_bytes) VALUES ($1, $2, $3, $4, $5) RETURNING *",
-      [id, file.originalname, objectName, file.mimetype, file.size]
-    );
-    res.json(rows[0]);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-router.delete("/files/:id", async (req, res) => {
+router.delete("/files/:id", (req, res) => {
   try {
-    const { rows } = await pool.query("SELECT path FROM files WHERE id = $1", [req.params.id]);
-    if (rows.length > 0) {
-      await minioClient.removeObject(BUCKET_NAME, rows[0].path);
-      await pool.query("DELETE FROM files WHERE id = $1", [req.params.id]);
+    const itemPath = Buffer.from(req.params.id, 'base64').toString('utf-8');
+    const fullPath = path.join(STORAGE_DIR, itemPath);
+    
+    if (fs.existsSync(fullPath)) {
+      const stat = fs.statSync(fullPath);
+      if (stat.isDirectory()) {
+        fs.rmSync(fullPath, { recursive: true, force: true });
+      } else {
+        fs.unlinkSync(fullPath);
+      }
     }
     res.json({ success: true });
   } catch (err: any) {
@@ -220,23 +250,29 @@ router.delete("/files/:id", async (req, res) => {
   }
 });
 
-router.post("/folders", async (req, res) => {
+router.post("/folders", (req, res) => {
   try {
-    const { name } = req.body;
+    const { name, dir } = req.body;
     if (!name) return res.status(400).json({ error: "Folder name is required" });
     
-    // Ensure name ends with /
-    const folderName = name.endsWith('/') ? name : name + '/';
-    const id = uuidv4();
+    const currentDir = dir ? String(dir) : '';
+    const folderPath = path.join(STORAGE_DIR, currentDir, name);
     
-    // Create an empty object in MinIO to represent the folder
-    await minioClient.putObject(BUCKET_NAME, folderName, '');
+    if (!fs.existsSync(folderPath)) {
+      fs.mkdirSync(folderPath, { recursive: true });
+    }
     
-    const { rows } = await pool.query(
-      "INSERT INTO files (id, name, path, mime_type, size_bytes) VALUES ($1, $2, $3, $4, $5) RETURNING *",
-      [id, name, folderName, 'inode/directory', 0]
-    );
-    res.json(rows[0]);
+    const itemPath = path.join(currentDir, name).replace(/\\/g, '/');
+    const stats = fs.statSync(folderPath);
+
+    res.json({
+      id: Buffer.from(itemPath).toString('base64'),
+      name: name,
+      path: itemPath,
+      mime_type: 'inode/directory',
+      size_bytes: stats.size,
+      created_at: stats.birthtime
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

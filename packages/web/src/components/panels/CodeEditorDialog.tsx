@@ -9,7 +9,14 @@ import {
 } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 import { Sparkle, Check, X, Spinner, Lightning, Code, MagicWand, TerminalWindow, BookOpen } from '@phosphor-icons/react';
 import { useFlowStore } from '../../store/flowStore';
 import { useUiStore } from '../../store/uiStore';
@@ -36,7 +43,7 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
   const [model, setModel] = useState('google/gemini-2.5-flash');
 
   const [skills, setSkills] = useState<{id: string, name: string, content: string}[]>([]);
-  const [selectedSkill, setSelectedSkill] = useState<string>('none');
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
 
   const editorRef = useRef<any>(null);
 
@@ -76,8 +83,14 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
     setGeneratedCode('');
     
     try {
-      const skillContent = selectedSkill !== 'none' ? skills.find(s => s.id === selectedSkill)?.content : '';
-      const finalPrompt = skillContent ? `${skillContent}\n\nTask: ${prompt}` : prompt;
+      let finalPrompt = prompt;
+      if (selectedSkills.length > 0) {
+        const skillsContent = selectedSkills
+          .map(id => skills.find(s => s.id === id)?.content)
+          .filter(Boolean)
+          .join('\n\n---\n\n');
+        finalPrompt = `${skillsContent}\n\nTask: ${prompt}`;
+      }
 
       const res = await fetch(`${API_BASE_URL}/api/ai/generate`, {
         method: 'POST',
@@ -246,19 +259,33 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
 
                   <div className="space-y-1.5">
                     <label className="text-[10px] text-muted-foreground font-semibold flex items-center gap-1.5">
-                      <BookOpen size={12} /> Use Custom Skill
+                      <BookOpen size={12} /> Use Custom Skills
                     </label>
-                    <Select value={selectedSkill} onValueChange={setSelectedSkill}>
-                      <SelectTrigger className="h-8 text-xs bg-background hover:bg-accent/50 transition-colors shadow-sm">
-                        <SelectValue placeholder="Select a skill (optional)" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none" className="text-xs italic text-muted-foreground">No custom skill</SelectItem>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" className="w-full justify-start h-8 text-xs font-normal bg-background hover:bg-accent/50 shadow-sm px-3">
+                          {selectedSkills.length === 0 ? "Select skills..." : `${selectedSkills.length} selected`}
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent className="w-64">
+                        <DropdownMenuLabel>Custom Skills</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
                         {skills.map(skill => (
-                          <SelectItem key={skill.id} value={skill.id} className="text-xs">{skill.name}</SelectItem>
+                          <DropdownMenuCheckboxItem
+                            key={skill.id}
+                            checked={selectedSkills.includes(skill.id)}
+                            onCheckedChange={(checked) => {
+                              setSelectedSkills(prev => 
+                                checked ? [...prev, skill.id] : prev.filter(id => id !== skill.id)
+                              )
+                            }}
+                          >
+                            {skill.name}
+                          </DropdownMenuCheckboxItem>
                         ))}
-                      </SelectContent>
-                    </Select>
+                        {skills.length === 0 && <div className="p-2 text-xs text-muted-foreground text-center">No skills available</div>}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
 
                   <div className="space-y-2">
