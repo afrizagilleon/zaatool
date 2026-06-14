@@ -31,10 +31,18 @@ export async function initDb() {
       CREATE TABLE IF NOT EXISTS skills (
         id VARCHAR(255) PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
+        description TEXT,
         content TEXT NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+      
+      DO $$
+      BEGIN
+        ALTER TABLE skills ADD COLUMN description TEXT;
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
     `);
 
     // Secrets & Variables

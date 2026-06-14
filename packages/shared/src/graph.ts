@@ -4,6 +4,8 @@ export interface GraphJson {
   name: string;
   nodes: NodeDef[];
   edges: EdgeDef[];
+  viewport?: { x: number; y: number; zoom: number };
+  layoutDirection?: 'LR' | 'TB';
 }
 
 export interface NodeDef {

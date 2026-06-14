@@ -4,6 +4,7 @@ import {
   applyEdgeChanges,
   addEdge,
 } from '@xyflow/react';
+import { useUiStore } from './uiStore';
 import type {
   Connection,
   Edge,
@@ -21,9 +22,14 @@ export type FlowNodeData = NodeDef['data'] & {
 export type FlowNode = Node<FlowNodeData, string>;
 
 export interface FlowState {
+  id: string;
+  name: string;
   nodes: FlowNode[];
   edges: Edge[];
   activeNodeId: string | null;
+  viewport: { x: number; y: number; zoom: number };
+
+  setViewport: (viewport: { x: number; y: number; zoom: number }) => void;
 
   onNodesChange: OnNodesChange<FlowNode>;
   onEdgesChange: OnEdgesChange;
@@ -46,9 +52,14 @@ let nodeIdCounter = 0;
 export const generateNodeId = () => `node_${Date.now()}_${nodeIdCounter++}`;
 
 export const useFlowStore = create<FlowState>((set, get) => ({
+  id: 'flow-1',
+  name: 'My Flow',
   nodes: [],
   edges: [],
   activeNodeId: null,
+  viewport: { x: 0, y: 0, zoom: 1 },
+
+  setViewport: (viewport) => set({ viewport }),
 
   onNodesChange: (changes) => {
     set({
@@ -140,11 +151,16 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   },
 
   getGraphJson: () => {
-    const { nodes, edges } = get();
+    const { id, name, nodes, edges, viewport } = get();
+    // Retrieve layoutDirection from uiStore (safe to read synchronously)
+    const layoutDirection = useUiStore.getState().layoutDirection;
+
     return {
       version: '2.0',
-      id: 'flow-1',
-      name: 'My Flow',
+      id,
+      name,
+      viewport,
+      layoutDirection,
       nodes: nodes.map((n) => ({
         id: n.id,
         type: n.type as NodeDef['type'],
@@ -170,6 +186,9 @@ export const useFlowStore = create<FlowState>((set, get) => ({
 
   loadFromJson: (graph: GraphJson) => {
     set({
+      id: graph.id || 'flow-1',
+      name: graph.name || 'Untitled Flow',
+      viewport: graph.viewport || { x: 0, y: 0, zoom: 1 },
       nodes: graph.nodes.map((n) => ({
         id: n.id,
         type: n.type,
@@ -188,5 +207,9 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       })),
       activeNodeId: null,
     });
+    
+    if (graph.layoutDirection) {
+      useUiStore.getState().setLayoutDirection(graph.layoutDirection);
+    }
   },
 }));

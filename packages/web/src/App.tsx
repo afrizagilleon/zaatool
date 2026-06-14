@@ -6,6 +6,7 @@ import { CodePanel } from './components/panels/CodePanel';
 import { AiPanel } from './components/panels/AiPanel';
 import { RunConsole } from './components/panels/RunConsole';
 import { ResourcesPage } from './components/pages/ResourcesPage';
+import { WorkflowsPage } from './components/pages/WorkflowsPage';
 import { useUiStore } from './store/uiStore';
 
 function App() {
@@ -34,6 +35,7 @@ function App() {
         )}
 
         {activeTab === 'resources' && <ResourcesPage />}
+        {activeTab === 'workflows' && <WorkflowsPage />}
 
         {/* Far Right: AI Assistant */}
         {isAiPanelOpen && <AiPanel />}

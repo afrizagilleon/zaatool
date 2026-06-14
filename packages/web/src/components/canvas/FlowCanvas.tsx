@@ -6,11 +6,14 @@ import {
  MiniMap,
  BackgroundVariant,
  useReactFlow,
+ useOnViewportChange,
 } from '@xyflow/react';
 import type { Connection, Edge, ColorMode } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import { useEffect } from 'react';
 
 import { useFlowStore, generateNodeId } from '../../store/flowStore';
+import { API_BASE_URL } from '../../lib/api';
 import type { FlowNodeData } from '../../store/flowStore';
 import { useUiStore } from '../../store/uiStore';
 import { CodeNode } from '../nodes/CodeNode';
@@ -73,7 +76,66 @@ export function FlowCanvas() {
  const isDarkMode = useUiStore((s) => s.isDarkMode);
  const setCodePanelOpen = useUiStore((s) => s.setCodePanelOpen);
 
- const { screenToFlowPosition } = useReactFlow();
+ const { screenToFlowPosition, setViewport } = useReactFlow();
+ const setStoreViewport = useFlowStore((s) => s.setViewport);
+ const flowId = useFlowStore((s) => s.id);
+ const flowName = useFlowStore((s) => s.name);
+ const getGraphJson = useFlowStore((s) => s.getGraphJson);
+
+ // Sync viewport changes back to store
+ useOnViewportChange({
+   onChange: (viewport) => {
+     setStoreViewport(viewport);
+   },
+ });
+
+ // Handle Ctrl+S and AutoSave logic
+ const saveFlow = useCallback(async () => {
+   try {
+     const graphJson = getGraphJson();
+     const res = await fetch(`${API_BASE_URL}/api/flows`, {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify({
+         id: flowId,
+         name: flowName,
+         graphJson: JSON.stringify(graphJson),
+       }),
+     });
+     if (!res.ok) throw new Error('Failed to save');
+     console.log('Saved flow successfully');
+   } catch (err) {
+     console.error(err);
+   }
+ }, [getGraphJson, flowId, flowName]);
+
+ // Debounced auto-save
+ useEffect(() => {
+   const timeout = setTimeout(() => {
+     saveFlow();
+   }, 5000); // Auto-save after 5 seconds of inactivity
+   return () => clearTimeout(timeout);
+ }, [nodes, edges, saveFlow]);
+
+ // Ctrl+S Manual Save
+ useEffect(() => {
+   const handleKeyDown = (e: KeyboardEvent) => {
+     if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+       e.preventDefault();
+       saveFlow();
+     }
+   };
+   window.addEventListener('keydown', handleKeyDown);
+   return () => window.removeEventListener('keydown', handleKeyDown);
+ }, [saveFlow]);
+
+ // Restore Viewport on Mount
+ useEffect(() => {
+   const storeViewport = useFlowStore.getState().viewport;
+   if (storeViewport) {
+     setViewport(storeViewport);
+   }
+ }, [setViewport, flowId]);
 
  const isValidConnection = useCallback((connection: Connection | Edge) => {
  const { source, target, sourceHandle, targetHandle } = connection;
@@ -182,6 +244,7 @@ export function FlowCanvas() {
  onNodeClick={handleNodeClick}
  onPaneClick={handlePaneClick}
  colorMode={colorMode}
+ defaultViewport={useFlowStore.getState().viewport}
  fitView
  snapToGrid
  snapGrid={[16, 16]}

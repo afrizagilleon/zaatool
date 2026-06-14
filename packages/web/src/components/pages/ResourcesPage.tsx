@@ -1,13 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useUiStore } from '../../store/uiStore';
 import { API_BASE_URL } from '../../lib/api';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { Plus, Trash, Key, PencilSimple, Folder } from '@phosphor-icons/react';
+import { Plus, Trash, Key, PencilSimple, Folder, UploadSimple, FolderPlus } from '@phosphor-icons/react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
-import { Textarea } from '../ui/textarea';
+import { SkillEditorDialog, type Skill } from '../panels/SkillEditorDialog';
 
 interface Secret {
   id: string;
@@ -17,12 +17,7 @@ interface Secret {
   created_at: string;
 }
 
-interface Skill {
-  id: string;
-  name: string;
-  content: string;
-  created_at: string;
-}
+
 
 interface FileEntry {
   id: string;
@@ -44,7 +39,12 @@ export function ResourcesPage() {
   const [secretForm, setSecretForm] = useState({ key: '', value: '', is_secret: true });
 
   const [isSkillDialogOpen, setIsSkillDialogOpen] = useState(false);
-  const [skillForm, setSkillForm] = useState({ id: '', name: '', content: '' });
+  const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  
+  const [isFolderDialogOpen, setIsFolderDialogOpen] = useState(false);
+  const [folderName, setFolderName] = useState('');
 
   useEffect(() => {
     if (activeTab === 'resources') {
@@ -105,20 +105,20 @@ export function ResourcesPage() {
     }
   };
 
-  const saveSkill = async () => {
+  const saveSkill = async (skill: Skill) => {
     try {
-      const method = skillForm.id ? 'PUT' : 'POST';
-      const url = skillForm.id 
-        ? `${API_BASE_URL}/api/resources/skills/${skillForm.id}` 
+      const method = skill.id ? 'PUT' : 'POST';
+      const url = skill.id 
+        ? `${API_BASE_URL}/api/resources/skills/${skill.id}` 
         : `${API_BASE_URL}/api/resources/skills`;
         
       await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(skillForm),
+        body: JSON.stringify(skill),
       });
       setIsSkillDialogOpen(false);
-      setSkillForm({ id: '', name: '', content: '' });
+      setEditingSkill(null);
       fetchSkills();
     } catch (e) {
       console.error('Failed to save skill:', e);
@@ -140,6 +140,54 @@ export function ResourcesPage() {
       fetchFiles();
     } catch (e) {
       console.error('Failed to delete file:', e);
+    }
+  };
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/resources/files`, {
+        method: 'POST',
+        body: formData,
+      });
+      if (res.ok) {
+        fetchFiles();
+      } else {
+        console.error('Upload failed');
+      }
+    } catch (err) {
+      console.error('Failed to upload file:', err);
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const createFolder = async () => {
+    if (!folderName.trim()) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/resources/folders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: folderName.trim() }),
+      });
+      if (res.ok) {
+        setIsFolderDialogOpen(false);
+        setFolderName('');
+        fetchFiles();
+      }
+    } catch (err) {
+      console.error('Failed to create folder:', err);
     }
   };
 
@@ -225,7 +273,7 @@ export function ResourcesPage() {
           <TabsContent value="skills" className="flex-1 overflow-auto py-6 m-0 border-none outline-none">
             <div className="flex justify-between items-center mb-4">
               <p className="text-sm text-muted-foreground">Provide custom instructions or context for the AI Code-Gen.</p>
-              <Button onClick={() => { setSkillForm({id:'', name:'', content:''}); setIsSkillDialogOpen(true); }} size="sm">
+              <Button onClick={() => { setEditingSkill(null); setIsSkillDialogOpen(true); }} size="sm">
                 <Plus className="mr-2" size={14} /> Add Skill
               </Button>
             </div>
@@ -235,7 +283,7 @@ export function ResourcesPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-[200px]">Name</TableHead>
-                    <TableHead>Preview</TableHead>
+                    <TableHead>Description</TableHead>
                     <TableHead className="w-[100px] text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -246,9 +294,9 @@ export function ResourcesPage() {
                     skills.map(skill => (
                       <TableRow key={skill.id}>
                         <TableCell className="font-medium text-sm">{skill.name}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground truncate max-w-md">{skill.content.slice(0, 80)}...</TableCell>
+                        <TableCell className="text-xs text-muted-foreground truncate max-w-md">{skill.description || <span className="italic opacity-50">No description</span>}</TableCell>
                         <TableCell className="text-right">
-                          <Button variant="ghost" size="icon" onClick={() => { setSkillForm(skill); setIsSkillDialogOpen(true); }} className="h-7 w-7 text-muted-foreground">
+                          <Button variant="ghost" size="icon" onClick={() => { setEditingSkill(skill); setIsSkillDialogOpen(true); }} className="h-7 w-7 text-muted-foreground">
                             <PencilSimple size={14} />
                           </Button>
                           <Button variant="ghost" size="icon" onClick={() => deleteSkill(skill.id)} className="h-7 w-7 text-destructive hover:bg-destructive/10">
@@ -267,8 +315,19 @@ export function ResourcesPage() {
           <TabsContent value="files" className="flex-1 overflow-auto py-6 m-0 border-none outline-none">
             <div className="flex justify-between items-center mb-4">
               <p className="text-sm text-muted-foreground">Uploaded files stored in MinIO object storage.</p>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Folder size={14} /> MinIO Storage
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/50 px-2 py-1 border border-border/50">
+                  <Folder size={14} /> MinIO
+                </div>
+                <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileChange} />
+                <Button size="sm" variant="outline" onClick={() => setIsFolderDialogOpen(true)}>
+                  <FolderPlus size={14} className="mr-2" />
+                  New Folder
+                </Button>
+                <Button size="sm" onClick={handleUploadClick} disabled={isUploading}>
+                  <UploadSimple size={14} className="mr-2" />
+                  {isUploading ? 'Uploading...' : 'Upload File'}
+                </Button>
               </div>
             </div>
 
@@ -286,18 +345,26 @@ export function ResourcesPage() {
                   {files.length === 0 ? (
                     <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground h-24">No files uploaded yet</TableCell></TableRow>
                   ) : (
-                    files.map(file => (
-                      <TableRow key={file.id}>
-                        <TableCell className="text-sm font-medium">{file.name}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground font-mono">{file.mime_type || '—'}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{formatBytes(file.size_bytes)}</TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="ghost" size="icon" onClick={() => deleteFile(file.id)} className="h-7 w-7 text-destructive hover:bg-destructive/10">
-                            <Trash size={14} />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
+                    files.map(file => {
+                      const isFolder = file.mime_type === 'inode/directory';
+                      return (
+                        <TableRow key={file.id}>
+                          <TableCell className="text-sm font-medium">
+                            <div className="flex items-center gap-2">
+                              {isFolder ? <Folder size={16} weight="fill" className="text-muted-foreground" /> : null}
+                              {file.name}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground font-mono">{file.mime_type || '—'}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{isFolder ? '—' : formatBytes(file.size_bytes)}</TableCell>
+                          <TableCell className="text-right">
+                            <Button variant="ghost" size="icon" onClick={() => deleteFile(file.id)} className="h-7 w-7 text-destructive hover:bg-destructive/10">
+                              <Trash size={14} />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>
@@ -340,34 +407,31 @@ export function ResourcesPage() {
       </Dialog>
 
       {/* Dialog for Skills */}
-      <Dialog open={isSkillDialogOpen} onOpenChange={setIsSkillDialogOpen}>
-        <DialogContent className="max-w-2xl">
+      <SkillEditorDialog
+        open={isSkillDialogOpen}
+        onOpenChange={setIsSkillDialogOpen}
+        skill={editingSkill}
+        onSave={saveSkill}
+      />
+
+      {/* Dialog for Folders */}
+      <Dialog open={isFolderDialogOpen} onOpenChange={setIsFolderDialogOpen}>
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle>{skillForm.id ? 'Edit Skill' : 'Add Skill'}</DialogTitle>
-            <DialogDescription>Provide custom instructions or code context for the AI assistant.</DialogDescription>
+            <DialogTitle>Create Folder</DialogTitle>
+            <DialogDescription>Add a new folder to organize your files.</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Name</label>
-              <Input 
-                placeholder="e.g., Python Data Parsing" 
-                value={skillForm.name} 
-                onChange={e => setSkillForm(s => ({ ...s, name: e.target.value }))} 
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Content (Markdown/Text)</label>
-              <Textarea 
-                placeholder="Provide instructions, context, or code examples..." 
-                className="h-48 font-mono text-sm"
-                value={skillForm.content} 
-                onChange={e => setSkillForm(s => ({ ...s, content: e.target.value }))} 
-              />
-            </div>
+          <div className="py-4">
+            <Input 
+              placeholder="e.g. dataset-v1" 
+              value={folderName} 
+              onChange={e => setFolderName(e.target.value)} 
+              onKeyDown={e => { if (e.key === 'Enter') createFolder(); }}
+            />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsSkillDialogOpen(false)}>Cancel</Button>
-            <Button onClick={saveSkill} disabled={!skillForm.name || !skillForm.content}>Save</Button>
+            <Button variant="outline" onClick={() => setIsFolderDialogOpen(false)}>Cancel</Button>
+            <Button onClick={createFolder} disabled={!folderName.trim()}>Create</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

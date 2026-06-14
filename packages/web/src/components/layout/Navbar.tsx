@@ -7,7 +7,7 @@ import {
   Terminal,
   Sparkle,
   FloppyDisk,
-  FolderOpen
+  RocketLaunch
 } from '@phosphor-icons/react';
 import { useUiStore } from '../../store/uiStore';
 import { useEngineStore } from '../../store/engineStore';
@@ -17,11 +17,12 @@ import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
 import { API_BASE_URL } from '../../lib/api';
 import { useState, useEffect } from 'react';
+import { Tabs, TabsList, TabsTrigger } from '../ui/tabs';
 
 const navTabs = [
-  { id: 'editor' as const, label: 'Node Editor', disabled: false },
+  { id: 'workflows' as const, label: 'Workflows', disabled: false },
+  { id: 'editor' as const, label: 'Editor', disabled: false },
   { id: 'resources' as const, label: 'Resources', disabled: false },
-  { id: 'deploys' as const, label: 'Deploys', disabled: true },
 ] as const;
 
 export function Navbar() {
@@ -46,7 +47,7 @@ export function Navbar() {
   const setLayoutDirection = useUiStore((s) => s.setLayoutDirection);
 
   const [isSaving, setIsSaving] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [, setIsLoading] = useState(false);
 
   useEffect(() => {
     // Initial auto-load
@@ -90,8 +91,8 @@ export function Navbar() {
       const flows = await res.json();
       if (flows.length > 0) {
         const latestFlow = flows[0];
-        const parsedGraph = typeof latestFlow.graph_json === 'string' 
-          ? JSON.parse(latestFlow.graph_json) 
+        const parsedGraph = typeof latestFlow.graph_json === 'string'
+          ? JSON.parse(latestFlow.graph_json)
           : latestFlow.graph_json;
         loadFromJson(parsedGraph);
       }
@@ -123,6 +124,21 @@ export function Navbar() {
       {/* Divider */}
       <div className="w-px h-5 bg-border mr-1" />
 
+      {/* Center: Tabs */}
+      <Tabs
+        value={activeTab}
+        onValueChange={(val: string) => setActiveTab(val as any)}
+        className="w-[300px]"
+      >
+        <TabsList className="grid w-full grid-cols-3 h-7 p-0.5">
+          {navTabs.map((tab) => (
+            <TabsTrigger key={tab.id} value={tab.id} className="text-xs h-6" disabled={tab.disabled}>
+              {tab.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+
       {/* Palette toggle */}
       <Button
         id="navbar-toggle-palette"
@@ -130,7 +146,7 @@ export function Navbar() {
         variant="ghost"
         size="icon"
         className={cn(
-          'w-7 h-7',
+          'w-7 h-7 ml-1',
           isNodePaletteOpen
             ? 'bg-accent text-foreground'
             : 'text-muted-foreground'
@@ -140,37 +156,11 @@ export function Navbar() {
         <Sidebar size={15} weight="duotone" />
       </Button>
 
-      {/* Nav tabs */}
-      <nav className="flex items-center gap-0.5 ml-1">
-        {navTabs.map((tab) => (
-          <Button
-            key={tab.id}
-            id={`navbar-tab-${tab.id}`}
-            disabled={tab.disabled}
-            onClick={() => !tab.disabled && setActiveTab(tab.id)}
-            variant="ghost"
-            className={cn(
-              'h-7 px-2.5 text-xs font-medium',
-              activeTab === tab.id
-                ? 'bg-accent text-foreground'
-                : 'text-muted-foreground'
-            )}
-          >
-            {tab.label}
-            {tab.disabled && (
-              <span className="ml-1 text-[9px] text-muted-foreground/40 uppercase tracking-wide">
-                soon
-              </span>
-            )}
-          </Button>
-        ))}
-      </nav>
-
       {/* Spacer */}
       <div className="flex-1" />
 
       {/* Storage Actions */}
-      <div className="flex items-center gap-1 mr-4 border-r border-border pr-4">
+      <div className="flex items-center gap-1 mr-2">
         <Button
           onClick={handleSave}
           disabled={isSaving}
@@ -180,15 +170,18 @@ export function Navbar() {
           {isSaving ? <Spinner size={14} className="animate-spin mr-1.5" /> : <FloppyDisk size={14} className="mr-1.5" />}
           Save
         </Button>
-        <Button
-          onClick={handleLoad}
-          disabled={isLoading}
-          variant="ghost"
-          className="h-7 px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground"
-        >
-          {isLoading ? <Spinner size={14} className="animate-spin mr-1.5" /> : <FolderOpen size={14} className="mr-1.5" />}
-          Load
+
+        <div className="h-4 w-px bg-border mx-1" />
+
+        <Button variant="ghost" size="sm" className="h-7 px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground relative group" disabled>
+          <RocketLaunch size={16} className="mr-1.5" />
+          Deploy
+          <span className="absolute -top-1 -right-2 text-[8px] bg-primary/20 text-primary px-1 font-bold group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+            SOON
+          </span>
         </Button>
+
+        <div className="h-4 w-px bg-border mx-1" />
       </div>
 
       {/* Auto Layout buttons */}
