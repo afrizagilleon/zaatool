@@ -1,0 +1,103 @@
+{
+  "version": "2.0",
+  "id": "flow_001",
+  "name": "Tambah angka lalu format",
+  "nodes": [
+    {
+      "id": "n0",
+      "type": "code",
+      "runtime": "node",
+      "position": {
+        "x": 0,
+        "y": 100
+      },
+      "data": {
+        "label": "percobaan",
+        "code": "return { huhu: { a: 1, b: 2 } }",
+        "outputsSchema": [
+          {
+            "name": "huhu",
+            "type": "object"
+          }
+        ],
+        "config": {
+          "timeout": 5000
+        }
+      }
+    },
+    {
+      "id": "n1",
+      "type": "code",
+      "runtime": "node",
+      "position": {
+        "x": 100,
+        "y": 100
+      },
+      "data": {
+        "label": "Tambah angka",
+        "code": "console.log('rambutan');return { result: inputs.a.a + inputs.a.b }",
+        "inputsSchema": [
+          {
+            "name": "a",
+            "type": "object"
+          },
+          {
+            "name": "b",
+            "type": "number"
+          }
+        ],
+        "outputsSchema": [
+          {
+            "name": "result",
+            "type": "number"
+          }
+        ],
+        "config": {
+          "timeout": 5000
+        }
+      }
+    },
+    {
+      "id": "n2",
+      "type": "code",
+      "runtime": "node",
+      "position": {
+        "x": 400,
+        "y": 100
+      },
+      "data": {
+        "label": "Format ke string",
+        "code": "return { message: `Hasilnya adalah: ${inputs.result}` }",
+        "inputsSchema": [
+          {
+            "name": "result",
+            "type": "number"
+          }
+        ],
+        "outputsSchema": [
+          {
+            "name": "message",
+            "type": "string"
+          }
+        ],
+        "config": {}
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e1",
+      "source": "n0",
+      "sourceHandle": "huhu",
+      "target": "n1",
+      "targetHandle": "a"
+    },
+    {
+      "id": "e2",
+      "source": "n1",
+      "sourceHandle": "result",
+      "target": "n2",
+      "targetHandle": "result"
+    }
+  ]
+}

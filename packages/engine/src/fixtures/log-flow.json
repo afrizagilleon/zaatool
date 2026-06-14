@@ -1,0 +1,16 @@
+{
+    "nodes": [
+        {
+            "id": "n1",
+            "type": "code",
+            "runtime": "node",
+            "data": {
+                "label": "Log node",
+                "code": "console.log('Hello from JS'); return { ok: true }",
+                "inputsSchema": [],
+                "outputsSchema": []
+            }
+        }
+    ],
+    "edges": []
+}

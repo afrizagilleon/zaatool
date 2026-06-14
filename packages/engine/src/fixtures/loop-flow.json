@@ -1,0 +1,93 @@
+{
+  "version": "2.0",
+  "id": "loop_flow",
+  "name": "Loop Flow",
+  "nodes": [
+    {
+      "id": "n_start",
+      "type": "code",
+      "runtime": "node",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "label": "Start Node",
+        "code": "return { array: [1, 2, 3, 4] };",
+        "inputsSchema": [],
+        "outputsSchema": [
+          {
+            "name": "array",
+            "type": "array"
+          }
+        ]
+      }
+    },
+    {
+      "id": "n_loop",
+      "type": "loop",
+      "position": {
+        "x": 150,
+        "y": 0
+      },
+      "data": {
+        "label": "Loop over list",
+        "inputsSchema": [
+          {
+            "name": "list",
+            "type": "array"
+          }
+        ],
+        "outputsSchema": [
+          {
+            "name": "item",
+            "type": "number"
+          }
+        ]
+      }
+    },
+    {
+      "id": "n_body",
+      "type": "code",
+      "runtime": "node",
+      "position": {
+        "x": 300,
+        "y": 0
+      },
+      "data": {
+        "label": "Body Node",
+        "code": "console.log('LOOP BODY RUNNING FOR ITEM:', inputs.item); return { hehe : inputs.item};",
+        "inputsSchema": [
+          {
+            "name": "item",
+            "type": "number"
+          }
+        ],
+        "outputsSchema": []
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_start_to_loop",
+      "source": "n_start",
+      "sourceHandle": "array",
+      "target": "n_loop",
+      "targetHandle": "list"
+    },
+    {
+      "id": "e_loop_to_body_item",
+      "source": "n_loop",
+      "sourceHandle": "item",
+      "target": "n_body",
+      "targetHandle": "item"
+    },
+    {
+      "id": "e_loop_to_body_run",
+      "source": "n_loop",
+      "sourceHandle": "body",
+      "target": "n_body",
+      "targetHandle": "run"
+    }
+  ]
+}

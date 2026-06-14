@@ -1,0 +1,50 @@
+{
+    "nodes": [
+        {
+            "id": "n1",
+            "type": "code",
+            "runtime": "node",
+            "data": {
+                "label": "Generate angka",
+                "code": "return { numbers: [1, 2, 3, 4, 5] }",
+                "inputsSchema": [],
+                "outputsSchema": [
+                    {
+                        "name": "numbers",
+                        "type": "array"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "n2",
+            "type": "code",
+            "runtime": "python",
+            "data": {
+                "label": "Hitung rata-rata",
+                "code": "def main(inputs):\n    nums = inputs['numbers']\n    return {'avg': sum(nums) / len(nums)}",
+                "inputsSchema": [
+                    {
+                        "name": "numbers",
+                        "type": "array"
+                    }
+                ],
+                "outputsSchema": [
+                    {
+                        "name": "avg",
+                        "type": "number"
+                    }
+                ]
+            }
+        }
+    ],
+    "edges": [
+        {
+            "id": "e1",
+            "source": "n1",
+            "sourceHandle": "numbers",
+            "target": "n2",
+            "targetHandle": "numbers"
+        }
+    ]
+}

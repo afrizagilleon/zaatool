@@ -1,0 +1,17 @@
+node_modules/
+dist/
+build/
+.env
+.env.*
+!.env.example
+.DS_Store
+coverage/
+playwright-report/
+test-results/
+.vscode/
+
+# Agent context files
+MEMORY.md
+PROGRESS.md
+ARCHITECTURE.md
+RULES.md

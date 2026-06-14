@@ -1,0 +1,83 @@
+{
+  "version": "2.0",
+  "id": "if_flow",
+  "name": "If Condition Flow",
+  "nodes": [
+    {
+      "id": "n_start",
+      "type": "code",
+      "runtime": "node",
+      "position": { "x": 0, "y": 0 },
+      "data": {
+        "label": "Start Node",
+        "code": "return { val: 10 };",
+        "inputsSchema": [],
+        "outputsSchema": [
+          { "name": "val", "type": "number" }
+        ]
+      }
+    },
+    {
+      "id": "n_if",
+      "type": "if",
+      "position": { "x": 150, "y": 0 },
+      "data": {
+        "label": "Check If > 5",
+        "code": "return { condition: inputs.val > 5 };",
+        "inputsSchema": [
+          { "name": "val", "type": "number" }
+        ],
+        "outputsSchema": [
+          { "name": "condition", "type": "boolean" }
+        ]
+      }
+    },
+    {
+      "id": "n_true",
+      "type": "code",
+      "runtime": "node",
+      "position": { "x": 300, "y": -100 },
+      "data": {
+        "label": "True Branch Node",
+        "code": "console.log('EXECUTING TRUE BRANCH'); return { result: 'ran true' };",
+        "inputsSchema": [],
+        "outputsSchema": []
+      }
+    },
+    {
+      "id": "n_false",
+      "type": "code",
+      "runtime": "node",
+      "position": { "x": 300, "y": 100 },
+      "data": {
+        "label": "False Branch Node",
+        "code": "console.log('EXECUTING FALSE BRANCH'); return { result: 'ran false' };",
+        "inputsSchema": [],
+        "outputsSchema": []
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_start_to_if",
+      "source": "n_start",
+      "sourceHandle": "val",
+      "target": "n_if",
+      "targetHandle": "val"
+    },
+    {
+      "id": "e_if_to_true",
+      "source": "n_if",
+      "sourceHandle": "true",
+      "target": "n_true",
+      "targetHandle": "run"
+    },
+    {
+      "id": "e_if_to_false",
+      "source": "n_if",
+      "sourceHandle": "false",
+      "target": "n_false",
+      "targetHandle": "run"
+    }
+  ]
+}
