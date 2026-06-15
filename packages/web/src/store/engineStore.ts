@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { GraphJson } from '@zaa-tool/shared';
 import { useFlowStore } from './flowStore';
+import { EngineClient } from '../lib/engine-client';
 
 export interface LogEntry {
   id: string;
@@ -66,7 +67,131 @@ export const useEngineStore = create<EngineState>((set, get) => ({
     });
 
     try {
-      const ws = new WebSocket('ws://localhost:4000');
+      const ws = EngineClient.connectWebSocket(
+        (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            const eventType: string = data.event || data.type || 'system';
+            const nodeId: string | undefined = data.nodeId;
+
+            switch (eventType) {
+              case 'node:start': {
+                set((state) => ({
+                  logs: [
+                    ...state.logs,
+                    createLogEntry('node:start', `Node "${nodeId}" started`, nodeId),
+                  ],
+                  nodeStatuses: { ...state.nodeStatuses, ...(nodeId ? { [nodeId]: 'running' as const } : {}) },
+                }));
+                break;
+              }
+
+              case 'node:log': {
+                const payload = data.payload ?? data.data ?? data.message ?? data.msg ?? '';
+                const msg = typeof payload === 'string' ? payload : JSON.stringify(payload);
+                set((state) => ({
+                  logs: [
+                    ...state.logs,
+                    createLogEntry('node:log', msg, nodeId, { payload }),
+                  ],
+                }));
+                break;
+              }
+
+              case 'node:done': {
+                const duration = data.duration ?? data.elapsed;
+                set((state) => ({
+                  logs: [
+                    ...state.logs,
+                    createLogEntry(
+                      'node:done',
+                      `Node "${nodeId}" completed${duration != null ? ` in ${duration}ms` : ''}`,
+                      nodeId,
+                      { duration },
+                    ),
+                  ],
+                  nodeStatuses: { ...state.nodeStatuses, ...(nodeId ? { [nodeId]: 'done' as const } : {}) },
+                  activeHandles: {
+                    ...state.activeHandles,
+                    ...(nodeId && (data.activeHandle || data.activeHandles)
+                      ? { [nodeId]: [].concat(data.activeHandle || data.activeHandles) }
+                      : {})
+                  },
+                }));
+                if (nodeId && data.inferredOutputsSchema) {
+                  updateNodeSchema(nodeId, data.inferredOutputsSchema);
+                }
+                break;
+              }
+
+              case 'node:error': {
+                const errMsg = data.error ?? data.message ?? 'Unknown error';
+                set((state) => ({
+                  logs: [
+                    ...state.logs,
+                    createLogEntry('node:error', `Error in "${nodeId}": ${errMsg}`, nodeId),
+                  ],
+                  nodeStatuses: { ...state.nodeStatuses, ...(nodeId ? { [nodeId]: 'error' as const } : {}) },
+                }));
+                break;
+              }
+
+              case 'flow:done': {
+                const totalDuration = data.duration ?? data.elapsed;
+                set((state) => ({
+                  logs: [
+                    ...state.logs,
+                    createLogEntry(
+                      'flow:done',
+                      `Flow completed${totalDuration != null ? ` in ${totalDuration}ms` : ''}`,
+                      undefined,
+                      { duration: totalDuration },
+                    ),
+                  ],
+                  isRunning: false,
+                }));
+                ws.close();
+                break;
+              }
+
+              default: {
+                set((state) => ({
+                  logs: [
+                    ...state.logs,
+                    createLogEntry('system', JSON.stringify(data)),
+                  ],
+                }));
+              }
+            }
+          } catch {
+            set((state) => ({
+              logs: [...state.logs, createLogEntry('system', event.data)],
+            }));
+          }
+        },
+        () => {
+          const state = get();
+          if (state.isRunning) {
+            set((s) => ({
+              logs: [...s.logs, createLogEntry('system', 'Connection closed')],
+              isRunning: false,
+              wsConnected: false,
+            }));
+          } else {
+            set({ wsConnected: false });
+          }
+        },
+        () => {
+          set((state) => ({
+            logs: [
+              ...state.logs,
+              createLogEntry('system', 'WebSocket connection error'),
+            ],
+            isRunning: false,
+            wsConnected: false,
+          }));
+        }
+      );
 
       ws.onopen = async () => {
         set((state) => ({
@@ -78,11 +203,7 @@ export const useEngineStore = create<EngineState>((set, get) => ({
         }));
 
         try {
-          const response = await fetch('http://localhost:4000/api/run', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(graph),
-          });
+          const response = await EngineClient.runFlow(graph);
 
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -98,132 +219,6 @@ export const useEngineStore = create<EngineState>((set, get) => ({
           ws.close();
         }
       };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          const eventType: string = data.event || data.type || 'system';
-          const nodeId: string | undefined = data.nodeId;
-
-          switch (eventType) {
-            case 'node:start': {
-              set((state) => ({
-                logs: [
-                  ...state.logs,
-                  createLogEntry('node:start', `Node "${nodeId}" started`, nodeId),
-                ],
-                nodeStatuses: { ...state.nodeStatuses, ...(nodeId ? { [nodeId]: 'running' as const } : {}) },
-              }));
-              break;
-            }
-
-            case 'node:log': {
-              const payload = data.payload ?? data.data ?? data.message ?? data.msg ?? '';
-              const msg = typeof payload === 'string' ? payload : JSON.stringify(payload);
-              set((state) => ({
-                logs: [
-                  ...state.logs,
-                  createLogEntry('node:log', msg, nodeId, { payload }),
-                ],
-              }));
-              break;
-            }
-
-            case 'node:done': {
-              const duration = data.duration ?? data.elapsed;
-              set((state) => ({
-                logs: [
-                  ...state.logs,
-                  createLogEntry(
-                    'node:done',
-                    `Node "${nodeId}" completed${duration != null ? ` in ${duration}ms` : ''}`,
-                    nodeId,
-                    { duration },
-                  ),
-                ],
-                nodeStatuses: { ...state.nodeStatuses, ...(nodeId ? { [nodeId]: 'done' as const } : {}) },
-                activeHandles: {
-                  ...state.activeHandles,
-                  ...(nodeId && (data.activeHandle || data.activeHandles)
-                    ? { [nodeId]: [].concat(data.activeHandle || data.activeHandles) }
-                    : {})
-                },
-              }));
-              if (data.inferredOutputsSchema) {
-                updateNodeSchema(nodeId, data.inferredOutputsSchema);
-              }
-              break;
-            }
-
-            case 'node:error': {
-              const errMsg = data.error ?? data.message ?? 'Unknown error';
-              set((state) => ({
-                logs: [
-                  ...state.logs,
-                  createLogEntry('node:error', `Error in "${nodeId}": ${errMsg}`, nodeId),
-                ],
-                nodeStatuses: { ...state.nodeStatuses, ...(nodeId ? { [nodeId]: 'error' as const } : {}) },
-              }));
-              break;
-            }
-
-            case 'flow:done': {
-              const totalDuration = data.duration ?? data.elapsed;
-              set((state) => ({
-                logs: [
-                  ...state.logs,
-                  createLogEntry(
-                    'flow:done',
-                    `Flow completed${totalDuration != null ? ` in ${totalDuration}ms` : ''}`,
-                    undefined,
-                    { duration: totalDuration },
-                  ),
-                ],
-                isRunning: false,
-              }));
-              ws.close();
-              break;
-            }
-
-            default: {
-              set((state) => ({
-                logs: [
-                  ...state.logs,
-                  createLogEntry('system', JSON.stringify(data)),
-                ],
-              }));
-            }
-          }
-        } catch {
-          set((state) => ({
-            logs: [...state.logs, createLogEntry('system', event.data)],
-          }));
-        }
-      };
-
-      ws.onclose = () => {
-        const state = get();
-        if (state.isRunning) {
-          set((s) => ({
-            logs: [...s.logs, createLogEntry('system', 'Connection closed')],
-            isRunning: false,
-            wsConnected: false,
-          }));
-        } else {
-          set({ wsConnected: false });
-        }
-      };
-
-      ws.onerror = () => {
-        set((state) => ({
-          logs: [
-            ...state.logs,
-            createLogEntry('system', 'WebSocket connection error'),
-          ],
-          isRunning: false,
-          wsConnected: false,
-        }));
-      };
     } catch (e) {
       set((state) => ({
         logs: [
@@ -235,7 +230,7 @@ export const useEngineStore = create<EngineState>((set, get) => ({
     }
   },
 }));
+
 function updateNodeSchema(nodeId: string, inferredOutputsSchema: any) {
   useFlowStore.getState().updateNodeData(nodeId, { inferredOutputsSchema });
 }
-

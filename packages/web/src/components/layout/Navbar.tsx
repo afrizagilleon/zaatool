@@ -7,16 +7,15 @@ import {
   Terminal,
   Sparkle,
   FloppyDisk,
-  RocketLaunch
+  RocketLaunch,
 } from '@phosphor-icons/react';
 import { useUiStore } from '../../store/uiStore';
 import { useEngineStore } from '../../store/engineStore';
-import { useFlowStore } from '../../store/flowStore';
 import { useAutoLayout } from '../../hooks/useAutoLayout';
+import { useNavbarActions } from '../../hooks/useNavbarActions';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
-import { API_BASE_URL } from '../../lib/api';
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs';
 
 const navTabs = [
@@ -39,70 +38,16 @@ export function Navbar() {
 
   const isRunning = useEngineStore((s) => s.isRunning);
   const wsConnected = useEngineStore((s) => s.wsConnected);
-  const runFlow = useEngineStore((s) => s.runFlow);
-  const getGraphJson = useFlowStore((s) => s.getGraphJson);
-  const loadFromJson = useFlowStore((s) => s.loadFromJson);
   const autoLayout = useAutoLayout();
   const layoutDirection = useUiStore((s) => s.layoutDirection);
   const setLayoutDirection = useUiStore((s) => s.setLayoutDirection);
 
-  const [isSaving, setIsSaving] = useState(false);
-  const [, setIsLoading] = useState(false);
+  const { isSaving, run, save, load } = useNavbarActions();
 
   useEffect(() => {
     // Initial auto-load
-    handleLoad();
-  }, []);
-
-  const handleRun = () => {
-    if (isRunning) return;
-    const graph = getGraphJson();
-    runFlow(graph);
-  };
-
-  const handleSave = async () => {
-    setIsSaving(true);
-    try {
-      const graph = getGraphJson();
-      const res = await fetch(`${API_BASE_URL}/api/flows`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: graph.id,
-          name: graph.name,
-          graph_json: graph
-        })
-      });
-      if (!res.ok) throw new Error('Failed to save');
-      // Toast notification could go here
-    } catch (e) {
-      console.error(e);
-      alert('Failed to save flow to database.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleLoad = async () => {
-    setIsLoading(true);
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/flows`);
-      if (!res.ok) throw new Error('Failed to load');
-      const flows = await res.json();
-      if (flows.length > 0) {
-        const latestFlow = flows[0];
-        const parsedGraph = typeof latestFlow.graph_json === 'string'
-          ? JSON.parse(latestFlow.graph_json)
-          : latestFlow.graph_json;
-        loadFromJson(parsedGraph);
-      }
-    } catch (e) {
-      console.error(e);
-      // Fails silently on first run if DB empty
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    load();
+  }, [load]);
 
   return (
     <header
@@ -147,9 +92,7 @@ export function Navbar() {
         size="icon"
         className={cn(
           'w-7 h-7 ml-1',
-          isNodePaletteOpen
-            ? 'bg-accent text-foreground'
-            : 'text-muted-foreground'
+          isNodePaletteOpen ? 'bg-accent text-foreground' : 'text-muted-foreground'
         )}
         title="Toggle node palette"
       >
@@ -162,18 +105,27 @@ export function Navbar() {
       {/* Storage Actions */}
       <div className="flex items-center gap-1 mr-2">
         <Button
-          onClick={handleSave}
+          onClick={save}
           disabled={isSaving}
           variant="ghost"
           className="h-7 px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground"
         >
-          {isSaving ? <Spinner size={14} className="animate-spin mr-1.5" /> : <FloppyDisk size={14} className="mr-1.5" />}
+          {isSaving ? (
+            <Spinner size={14} className="animate-spin mr-1.5" />
+          ) : (
+            <FloppyDisk size={14} className="mr-1.5" />
+          )}
           Save
         </Button>
 
         <div className="h-4 w-px bg-border mx-1" />
 
-        <Button variant="ghost" size="sm" className="h-7 px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground relative group" disabled>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground relative group"
+          disabled
+        >
           <RocketLaunch size={16} className="mr-1.5" />
           Deploy
           <span className="absolute -top-1 -right-2 text-[8px] bg-primary/20 text-primary px-1 font-bold group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
@@ -188,18 +140,30 @@ export function Navbar() {
       <div className="flex items-center bg-muted/30 p-0.5 mr-1">
         <Button
           id="navbar-layout-tb"
-          onClick={() => { setLayoutDirection('TB'); autoLayout('TB'); }}
+          onClick={() => {
+            setLayoutDirection('TB');
+            autoLayout('TB');
+          }}
           variant="ghost"
-          className={cn("h-6 px-2 text-[11px] font-semibold", layoutDirection === 'TB' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:bg-muted/50")}
+          className={cn(
+            'h-6 px-2 text-[11px] font-semibold',
+            layoutDirection === 'TB' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:bg-muted/50'
+          )}
           title="Auto layout (Vertical)"
         >
           V
         </Button>
         <Button
           id="navbar-layout-lr"
-          onClick={() => { setLayoutDirection('LR'); autoLayout('LR'); }}
+          onClick={() => {
+            setLayoutDirection('LR');
+            autoLayout('LR');
+          }}
           variant="ghost"
-          className={cn("h-6 px-2 text-[11px] font-semibold", layoutDirection === 'LR' ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:bg-muted/50")}
+          className={cn(
+            'h-6 px-2 text-[11px] font-semibold',
+            layoutDirection === 'LR' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:bg-muted/50'
+          )}
           title="Auto layout (Horizontal)"
         >
           H
@@ -214,9 +178,7 @@ export function Navbar() {
         size="icon"
         className={cn(
           'w-7 h-7 mr-1',
-          isConsolePanelOpen
-            ? 'bg-accent text-foreground'
-            : 'text-muted-foreground'
+          isConsolePanelOpen ? 'bg-accent text-foreground' : 'text-muted-foreground'
         )}
         title="Toggle console"
       >
@@ -231,9 +193,7 @@ export function Navbar() {
         size="icon"
         className={cn(
           'w-7 h-7 mr-1',
-          isAiPanelOpen
-            ? 'bg-primary/20 text-primary'
-            : 'text-muted-foreground'
+          isAiPanelOpen ? 'bg-primary/20 text-primary' : 'text-muted-foreground'
         )}
         title="Toggle AI Assistant"
       >
@@ -249,12 +209,10 @@ export function Navbar() {
         <div
           className={cn(
             'w-1.5 h-1.5 transition-colors',
-            wsConnected ? 'bg-status-done' : 'bg-status-idle',
+            wsConnected ? 'bg-status-done' : 'bg-status-idle'
           )}
         />
-        <span className="hidden sm:inline">
-          {wsConnected ? 'Connected' : 'Offline'}
-        </span>
+        <span className="hidden sm:inline">{wsConnected ? 'Connected' : 'Offline'}</span>
       </div>
 
       {/* Dark mode toggle */}
@@ -266,17 +224,13 @@ export function Navbar() {
         className="w-7 h-7 text-muted-foreground"
         title={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
       >
-        {isDarkMode ? (
-          <Sun size={15} weight="duotone" />
-        ) : (
-          <Moon size={15} weight="duotone" />
-        )}
+        {isDarkMode ? <Sun size={15} weight="duotone" /> : <Moon size={15} weight="duotone" />}
       </Button>
 
       {/* Run button */}
       <Button
         id="navbar-run-button"
-        onClick={handleRun}
+        onClick={run}
         disabled={isRunning}
         variant="default"
         className={cn(
