@@ -6,12 +6,14 @@ import { JsCodeExecutor } from "./executors/code-js.js";
 import { PythonCodeExecutor } from "./executors/code-python.js";
 import { IfExecutor } from "./executors/if.js";
 import { LoopExecutor } from "./executors/loop.js";
+import { inferSchema } from "../utils/infer-schema.js";
 
 // Register the executors to allow open-closed extension
 executorRegistry.set("code:node", new JsCodeExecutor());
 executorRegistry.set("code:python", new PythonCodeExecutor());
 executorRegistry.set("if", new IfExecutor());
 executorRegistry.set("loop", new LoopExecutor());
+
 
 /**
  * Traverses downstream starting from target of matching edges to identify all nodes in the body.
@@ -130,13 +132,17 @@ export async function runFlow(graph: GraphJson, ee?: EventEmitter) {
                 throw new Error(`Error executing node ${nodeId}: ${result.error}`);
             }
 
-            ee?.emit("node:done", { 
-                type: "node:done", 
-                nodeId, 
-                output: result.output ?? {}, 
+            const inferredOutputs = Object.entries(result.output ?? {} as Record<string, unknown>)
+                .map(([key, val]) => inferSchema(val, key));
+
+            ee?.emit("node:done", {
+                type: "node:done",
+                nodeId,
+                output: result.output ?? {},
                 ms: Date.now() - startTime,
                 activeHandle: result.activeHandle,
-                activeHandles: result.activeHandles
+                activeHandles: result.activeHandles,
+                inferredOutputsSchema: inferredOutputs
             });
 
             scope.set(nodeId, result.output ?? {});
@@ -210,13 +216,16 @@ export async function runFlow(graph: GraphJson, ee?: EventEmitter) {
             break;
         }
 
-        ee?.emit("node:done", { 
-            type: "node:done", 
-            nodeId, 
-            output: result.output ?? {}, 
+        const inferredOutputs = Object.entries(result.output ?? {} as Record<string, unknown>)
+            .map(([key, val]) => inferSchema(val, key));
+        ee?.emit("node:done", {
+            type: "node:done",
+            nodeId,
+            output: result.output ?? {},
             ms: Date.now() - startTime,
             activeHandle: result.activeHandle,
-            activeHandles: result.activeHandles
+            activeHandles: result.activeHandles,
+            inferredOutputsSchema: inferredOutputs
         });
 
         globalScope.set(nodeId, result.output ?? {});

@@ -11,7 +11,7 @@ import {
 } from '@phosphor-icons/react';
 import { useFlowStore } from '../../store/flowStore';
 import { useUiStore } from '../../store/uiStore';
-import type { SchemaField } from '@zaa-tool/shared';
+import { type SchemaField, SCHEMA_FIELD_TYPES } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import {
@@ -24,8 +24,6 @@ import {
 import { Textarea } from '../ui/textarea';
 import { CodeEditorDialog } from './CodeEditorDialog';
 import { useState } from 'react';
-
-const FIELD_TYPES: SchemaField['type'][] = ['string', 'number', 'boolean', 'array', 'object'];
 
 function SchemaEditor({
   label,
@@ -95,7 +93,7 @@ function SchemaEditor({
                 <SelectValue placeholder="Type" />
               </SelectTrigger>
               <SelectContent>
-                {FIELD_TYPES.map((t) => (
+                {SCHEMA_FIELD_TYPES.map((t) => (
                   <SelectItem key={t} value={t} className="text-[10px]">
                     {t}
                   </SelectItem>
@@ -174,19 +172,19 @@ export function CodePanel() {
     nodeType === 'if'
       ? GitBranch
       : nodeType === 'loop'
-      ? ArrowsClockwise
-      : runtime === 'python'
-      ? BracketsCurly
-      : Code;
+        ? ArrowsClockwise
+        : runtime === 'python'
+          ? BracketsCurly
+          : Code;
 
   const accentClass =
     nodeType === 'if'
       ? 'text-node-if'
       : nodeType === 'loop'
-      ? 'text-node-loop'
-      : runtime === 'python'
-      ? 'text-node-code-py'
-      : 'text-node-code';
+        ? 'text-node-loop'
+        : runtime === 'python'
+          ? 'text-node-code-py'
+          : 'text-node-code';
 
   return (
     <aside

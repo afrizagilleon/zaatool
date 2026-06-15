@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { GraphJson } from '@zaa-tool/shared';
+import { useFlowStore } from './flowStore';
 
 export interface LogEntry {
   id: string;
@@ -148,6 +149,9 @@ export const useEngineStore = create<EngineState>((set, get) => ({
                     : {})
                 },
               }));
+              if (data.inferredOutputsSchema) {
+                updateNodeSchema(nodeId, data.inferredOutputsSchema);
+              }
               break;
             }
 
@@ -231,3 +235,7 @@ export const useEngineStore = create<EngineState>((set, get) => ({
     }
   },
 }));
+function updateNodeSchema(nodeId: string, inferredOutputsSchema: any) {
+  useFlowStore.getState().updateNodeData(nodeId, { inferredOutputsSchema });
+}
+

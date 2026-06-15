@@ -17,6 +17,7 @@ import type { GraphJson, NodeDef, SchemaField } from '@zaa-tool/shared';
 
 export type FlowNodeData = NodeDef['data'] & {
   runtime?: 'node' | 'python';
+  inferredOutputsSchema?: SchemaField[];
 };
 
 export type FlowNode = Node<FlowNodeData, string>;

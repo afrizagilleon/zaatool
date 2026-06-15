@@ -31,6 +31,7 @@ interface CodeEditorDialogProps {
 
 export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialogProps) {
   const nodes = useFlowStore((s) => s.nodes);
+  const edges = useFlowStore((s) => s.edges);
   const updateNodeData = useFlowStore((s) => s.updateNodeData);
   const isDarkMode = useUiStore((s) => s.isDarkMode);
   const node = nodes.find((n) => n.id === nodeId);
@@ -103,6 +104,19 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
         finalPrompt = `${skillsContent}\n\nTask: ${prompt}`;
       }
 
+      // Get upstream nodes (immediate parents connected to target handles of this node)
+      const upstreamEdges = edges.filter((e) => e.target === nodeId);
+      const upstreamNodes = upstreamEdges
+        .map((e) => {
+          const sourceNode = nodes.find((n) => n.id === e.source);
+          if (!sourceNode) return null;
+          return {
+            label: sourceNode.data.label || sourceNode.id,
+            outputsSchema: sourceNode.data.inferredOutputsSchema || sourceNode.data.outputsSchema || []
+          };
+        })
+        .filter((n): n is { label: string; outputsSchema: any[] } => n !== null);
+
       const res = await fetch(`${API_BASE_URL}/api/ai/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -113,11 +127,22 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
             inputsSchema: node.data.inputsSchema || [],
             outputsSchema: node.data.outputsSchema || []
           },
-          upstreamNodes: [],
+          // upstreamNodes, -> still not useful
           provider,
           model
         })
       });
+      // console.log(JSON.stringify({
+      //   instruction: finalPrompt,
+      //   runtime,
+      //   thisNode: {
+      //     inputsSchema: node.data.inputsSchema || [],
+      //     outputsSchema: node.data.outputsSchema || []
+      //   },
+      //   // upstreamNodes, ->
+      //   provider,
+      //   model
+      // }))
 
       if (!res.ok) throw new Error(await res.text());
 

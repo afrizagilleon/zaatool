@@ -31,9 +31,16 @@ export interface EdgeDef {
   isActive?: string;
 }
 
+export const SCHEMA_FIELD_TYPES = ['string', 'number', 'boolean', 'array', 'object', 'any'] as const;
+export type SchemaFieldType = typeof SCHEMA_FIELD_TYPES[number];
+
 export interface SchemaField {
   name: string;
-  type: "string" | "number" | "boolean" | "array" | "object";
+  type: SchemaFieldType;
+  description?: string;
+  fields?: SchemaField[]; // for type "object", this is the defintion of the object type (recursive)
+  items?: SchemaField; // for type "array", this is the defintion of the array items type
+  required?: boolean;
 }
 
 
