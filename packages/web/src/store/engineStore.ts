@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import type { GraphJson } from '@zaa-tool/shared';
-import { useFlowStore } from './flowStore';
-import { EngineClient } from '../lib/engine-client';
+import { useFlowStore } from './flowStore.js';
+import { EngineClient } from '../lib/engine-client.js';
+import { API_BASE_URL } from '../lib/api.js';
 
 export interface LogEntry {
   id: string;
@@ -23,7 +24,7 @@ interface EngineState {
   activeHandles: Record<string, string[]>;
 
   clearLogs: () => void;
-  runFlow: (graph: GraphJson) => void;
+  runFlow: (graph: GraphJson, startNodeId?: string) => void;
   resetNodeStatuses: () => void;
 }
 
@@ -53,14 +54,14 @@ export const useEngineStore = create<EngineState>((set, get) => ({
 
   resetNodeStatuses: () => set({ nodeStatuses: {}, activeHandles: {} }),
 
-  runFlow: async (graph: GraphJson) => {
+  runFlow: async (graph: GraphJson, startNodeId?: string) => {
     const initialStatuses: Record<string, NodeStatus> = {};
     graph.nodes.forEach((n) => {
       initialStatuses[n.id] = 'idle';
     });
 
     set({
-      logs: [createLogEntry('system', 'Connecting to engine…')],
+      logs: [createLogEntry('system', startNodeId ? `Connecting to engine starting from ${startNodeId}…` : 'Connecting to engine…')],
       isRunning: true,
       nodeStatuses: initialStatuses,
       activeHandles: {},
@@ -100,6 +101,27 @@ export const useEngineStore = create<EngineState>((set, get) => ({
 
               case 'node:done': {
                 const duration = data.duration ?? data.elapsed;
+                const nodeOutput = data.output ?? {};
+
+                // Propagate outputs to downstream inputs
+                if (nodeId) {
+                  const flowStore = useFlowStore.getState();
+                  flowStore.updateNodeData(nodeId, { outputs: nodeOutput });
+
+                  const outgoingEdges = flowStore.edges.filter((e) => e.source === nodeId);
+                  for (const edge of outgoingEdges) {
+                    const targetNode = flowStore.nodes.find((n) => n.id === edge.target);
+                    if (targetNode && edge.targetHandle && edge.sourceHandle) {
+                      const currentInputs = targetNode.data.inputs || {};
+                      const nextInputs = {
+                        ...currentInputs,
+                        [edge.targetHandle]: nodeOutput[edge.sourceHandle],
+                      };
+                      flowStore.updateNodeData(edge.target, { inputs: nextInputs });
+                    }
+                  }
+                }
+
                 set((state) => ({
                   logs: [
                     ...state.logs,
@@ -203,7 +225,11 @@ export const useEngineStore = create<EngineState>((set, get) => ({
         }));
 
         try {
-          const response = await EngineClient.runFlow(graph);
+          const response = await fetch(`${API_BASE_URL}/api/run`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ graph, startNodeId }),
+          });
 
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);

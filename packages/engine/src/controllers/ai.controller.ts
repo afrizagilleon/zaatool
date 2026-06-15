@@ -70,6 +70,7 @@ export class AiController {
       res.end();
     } catch (err: any) {
       console.error("AI Generation error:", err);
+      if (err.cause) console.error("Cause:", err.cause);
       if (!res.headersSent) {
         res.status(500).json({ error: err.message });
       } else {

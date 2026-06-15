@@ -18,18 +18,28 @@ export class FlowsService {
     return rows[0];
   }
 
-  async save(id: string | undefined, name: string | undefined, graphJson: any) {
+  async save(id: string | undefined, name: string | undefined, graphJson: any, dashboardLayout?: string) {
     const flowId = id || uuidv4();
     const flowName = name || "Untitled Flow";
     const jsonStr = typeof graphJson === "string" ? graphJson : JSON.stringify(graphJson);
 
-    await pool.query(
-      `INSERT INTO flows (id, name, graph_json) 
-       VALUES ($1, $2, $3) 
-       ON CONFLICT (id) DO UPDATE 
-       SET name = EXCLUDED.name, graph_json = EXCLUDED.graph_json, updated_at = CURRENT_TIMESTAMP`,
-      [flowId, flowName, jsonStr]
-    );
+    if (dashboardLayout !== undefined) {
+      await pool.query(
+        `INSERT INTO flows (id, name, graph_json, dashboard_layout) 
+         VALUES ($1, $2, $3, $4) 
+         ON CONFLICT (id) DO UPDATE 
+         SET name = EXCLUDED.name, graph_json = EXCLUDED.graph_json, dashboard_layout = EXCLUDED.dashboard_layout, updated_at = CURRENT_TIMESTAMP`,
+        [flowId, flowName, jsonStr, dashboardLayout]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO flows (id, name, graph_json) 
+         VALUES ($1, $2, $3) 
+         ON CONFLICT (id) DO UPDATE 
+         SET name = EXCLUDED.name, graph_json = EXCLUDED.graph_json, updated_at = CURRENT_TIMESTAMP`,
+        [flowId, flowName, jsonStr]
+      );
+    }
 
     return { success: true, id: flowId, name: flowName };
   }

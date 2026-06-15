@@ -34,8 +34,8 @@ export class FlowsController {
 
   async save(req: Request, res: Response) {
     try {
-      const { id, name, graph_json } = req.body;
-      const result = await flowsService.save(id, name, graph_json);
+      const { id, name, graph_json, dashboard_layout } = req.body;
+      const result = await flowsService.save(id, name, graph_json, dashboard_layout);
       res.json(result);
     } catch (e: any) {
       res.status(500).json({ error: e.message });

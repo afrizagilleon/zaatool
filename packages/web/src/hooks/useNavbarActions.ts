@@ -29,6 +29,7 @@ export function useNavbarActions() {
           id: graph.id,
           name: graph.name,
           graph_json: graph,
+          dashboard_layout: (graph as any).dashboardLayout,
         }),
       });
       if (!res.ok) throw new Error('Failed to save');

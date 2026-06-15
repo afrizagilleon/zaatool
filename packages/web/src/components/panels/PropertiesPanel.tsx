@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import {
   X,
   Code,
@@ -8,6 +8,11 @@ import {
   Plus,
   Trash,
   ArrowsOutSimple,
+  AppWindow,
+  Table as TableIcon,
+  TextAa,
+  Image as ImageIcon,
+  File as FileIcon
 } from '@phosphor-icons/react';
 import { useFlowStore } from '../../store/flowStore';
 import { useUiStore } from '../../store/uiStore';
@@ -23,7 +28,11 @@ import {
 } from '../ui/select';
 import { Textarea } from '../ui/textarea';
 import { CodeEditorDialog } from './CodeEditorDialog';
-import { useState } from 'react';
+import { UiInputProperties } from './properties/UiInputProperties';
+import { UiTableProperties } from './properties/UiTableProperties';
+import { UiTextProperties } from './properties/UiTextProperties';
+import { UiImageProperties } from './properties/UiImageProperties';
+import { FileProperties } from './properties/FileProperties';
 
 function SchemaEditor({
   label,
@@ -116,7 +125,7 @@ function SchemaEditor({
   );
 }
 
-export function CodePanel() {
+export function PropertiesPanel() {
   const activeNodeId = useFlowStore((s) => s.activeNodeId);
   const nodes = useFlowStore((s) => s.nodes);
   const updateNodeData = useFlowStore((s) => s.updateNodeData);
@@ -135,7 +144,7 @@ export function CodePanel() {
   if (!activeNode) {
     return (
       <aside
-        id="code-panel"
+        id="properties-panel"
         className="flex flex-col w-72 border-l border-border bg-background shrink-0 animate-slide-in-right"
       >
         <div className="flex items-center justify-between px-3 h-10 border-b border-border shrink-0">
@@ -143,7 +152,7 @@ export function CodePanel() {
             Properties
           </span>
           <Button
-            id="code-panel-close"
+            id="properties-panel-close"
             onClick={handleClose}
             variant="ghost"
             size="icon"
@@ -168,27 +177,116 @@ export function CodePanel() {
   const isCodeNode = nodeType === 'code';
   const runtime = activeNode.data.runtime ?? 'node';
 
-  const NodeIcon =
-    nodeType === 'if'
-      ? GitBranch
-      : nodeType === 'loop'
-        ? ArrowsClockwise
-        : runtime === 'python'
-          ? BracketsCurly
-          : Code;
+  const getNodeIconAndClass = () => {
+    switch (nodeType) {
+      case 'if': return { Icon: GitBranch, accent: 'text-node-if' };
+      case 'loop': return { Icon: ArrowsClockwise, accent: 'text-node-loop' };
+      case 'ui:input': return { Icon: AppWindow, accent: 'text-primary' };
+      case 'ui:table': return { Icon: TableIcon, accent: 'text-blue-500' };
+      case 'ui:text': return { Icon: TextAa, accent: 'text-green-500' };
+      case 'ui:image': return { Icon: ImageIcon, accent: 'text-purple-500' };
+      case 'file': return { Icon: FileIcon, accent: 'text-orange-500' };
+      default: return { Icon: runtime === 'python' ? BracketsCurly : Code, accent: runtime === 'python' ? 'text-node-code-py' : 'text-node-code' };
+    }
+  };
 
-  const accentClass =
-    nodeType === 'if'
-      ? 'text-node-if'
-      : nodeType === 'loop'
-        ? 'text-node-loop'
-        : runtime === 'python'
-          ? 'text-node-code-py'
-          : 'text-node-code';
+  const { Icon: NodeIcon, accent: accentClass } = getNodeIconAndClass();
+
+  const renderSpecificProperties = () => {
+    switch (nodeType) {
+      case 'ui:input': return <UiInputProperties nodeId={activeNode.id} />;
+      case 'ui:table': return <UiTableProperties nodeId={activeNode.id} />;
+      case 'ui:text': return <UiTextProperties nodeId={activeNode.id} />;
+      case 'ui:image': return <UiImageProperties nodeId={activeNode.id} />;
+      case 'file': return <FileProperties nodeId={activeNode.id} />;
+      default:
+        // Default to code/if/loop properties
+        return (
+          <>
+            {isCodeNode && (
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="node-runtime-select"
+                  className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground"
+                >
+                  Runtime
+                </label>
+                <Select
+                  value={runtime}
+                  onValueChange={(val) =>
+                    updateNodeData(activeNode.id, {
+                      runtime: val as 'node' | 'python',
+                    })
+                  }
+                >
+                  <SelectTrigger id="node-runtime-select" className="h-8 text-xs">
+                    <SelectValue placeholder="Select runtime" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="node" className="text-xs">JavaScript (Node.js)</SelectItem>
+                    <SelectItem value="python" className="text-xs">Python</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {(isCodeNode || nodeType === 'if') && (
+              <div className="space-y-1.5 flex flex-col h-[200px]">
+                <div className="flex items-center justify-between">
+                  <label
+                    htmlFor="node-code-textarea"
+                    className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground"
+                  >
+                    Code
+                  </label>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-5 px-1.5 text-[10px] text-primary hover:text-primary hover:bg-primary/10"
+                    onClick={() => setEditorOpen(true)}
+                  >
+                    <ArrowsOutSimple size={12} className="mr-1" />
+                    Focus Editor
+                  </Button>
+                </div>
+                <Textarea
+                  id="node-code-textarea"
+                  value={activeNode.data.code || ''}
+                  onChange={(e) => updateNodeData(activeNode.id, { code: e.target.value })}
+                  placeholder={
+                    runtime === 'python'
+                      ? '# Write your Python code here'
+                      : '// Write your JavaScript code here'
+                  }
+                  className="flex-1 text-[11px] leading-[18px] font-mono resize-none focus-visible:ring-1"
+                  spellCheck={false}
+                />
+              </div>
+            )}
+
+            <SchemaEditor
+              id="inputs-schema"
+              label="Inputs Schema"
+              fields={activeNode.data.inputsSchema || []}
+              onChange={(fields) => updateNodeData(activeNode.id, { inputsSchema: fields })}
+              onUpdateField={(index, patch) => updateSchemaField(activeNode.id, 'inputsSchema', index, patch)}
+            />
+
+            <SchemaEditor
+              id="outputs-schema"
+              label="Outputs Schema"
+              fields={activeNode.data.outputsSchema || []}
+              onChange={(fields) => updateNodeData(activeNode.id, { outputsSchema: fields })}
+              onUpdateField={(index, patch) => updateSchemaField(activeNode.id, 'outputsSchema', index, patch)}
+            />
+          </>
+        );
+    }
+  };
 
   return (
     <aside
-      id="code-panel"
+      id="properties-panel"
       className="flex flex-col w-72 border-l border-border bg-background shrink-0 animate-slide-in-right"
     >
       {/* Header */}
@@ -198,7 +296,7 @@ export function CodePanel() {
           {activeNode.data.label || nodeType}
         </span>
         <Button
-          id="code-panel-delete-node"
+          id="properties-panel-delete-node"
           onClick={() => removeNode(activeNode.id)}
           variant="ghost"
           size="icon"
@@ -208,7 +306,7 @@ export function CodePanel() {
           <Trash size={12} />
         </Button>
         <Button
-          id="code-panel-close-btn"
+          id="properties-panel-close-btn"
           onClick={handleClose}
           variant="ghost"
           size="icon"
@@ -237,86 +335,8 @@ export function CodePanel() {
           />
         </div>
 
-        {/* Runtime selector — only for code nodes */}
-        {isCodeNode && (
-          <div className="space-y-1.5">
-            <label
-              htmlFor="node-runtime-select"
-              className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground"
-            >
-              Runtime
-            </label>
-            <Select
-              value={runtime}
-              onValueChange={(val) =>
-                updateNodeData(activeNode.id, {
-                  runtime: val as 'node' | 'python',
-                })
-              }
-            >
-              <SelectTrigger id="node-runtime-select" className="h-8 text-xs">
-                <SelectValue placeholder="Select runtime" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="node" className="text-xs">JavaScript (Node.js)</SelectItem>
-                <SelectItem value="python" className="text-xs">Python</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-
-        {/* Code textarea */}
-        {(isCodeNode || nodeType === 'if') && (
-          <div className="space-y-1.5 flex flex-col h-[200px]">
-            <div className="flex items-center justify-between">
-              <label
-                htmlFor="node-code-textarea"
-                className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground"
-              >
-                Code
-              </label>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-5 px-1.5 text-[10px] text-primary hover:text-primary hover:bg-primary/10"
-                onClick={() => setEditorOpen(true)}
-              >
-                <ArrowsOutSimple size={12} className="mr-1" />
-                Focus Editor
-              </Button>
-            </div>
-            <Textarea
-              id="node-code-textarea"
-              value={activeNode.data.code || ''}
-              onChange={(e) => updateNodeData(activeNode.id, { code: e.target.value })}
-              placeholder={
-                runtime === 'python'
-                  ? '# Write your Python code here'
-                  : '// Write your JavaScript code here'
-              }
-              className="flex-1 text-[11px] leading-[18px] font-mono resize-none focus-visible:ring-1"
-              spellCheck={false}
-            />
-          </div>
-        )}
-
-        {/* Input schema */}
-        <SchemaEditor
-          id="inputs-schema"
-          label="Inputs Schema"
-          fields={activeNode.data.inputsSchema || []}
-          onChange={(fields) => updateNodeData(activeNode.id, { inputsSchema: fields })}
-          onUpdateField={(index, patch) => updateSchemaField(activeNode.id, 'inputsSchema', index, patch)}
-        />
-
-        {/* Output schema */}
-        <SchemaEditor
-          id="outputs-schema"
-          label="Outputs Schema"
-          fields={activeNode.data.outputsSchema || []}
-          onChange={(fields) => updateNodeData(activeNode.id, { outputsSchema: fields })}
-          onUpdateField={(index, patch) => updateSchemaField(activeNode.id, 'outputsSchema', index, patch)}
-        />
+        {/* Dynamic Properties based on Node Type */}
+        {renderSpecificProperties()}
       </div>
 
       <CodeEditorDialog

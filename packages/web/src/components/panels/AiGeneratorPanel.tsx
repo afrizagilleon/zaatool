@@ -36,6 +36,7 @@ interface AiGeneratorPanelProps {
   onAccept: () => void;
   onReject: () => void;
   isDarkMode: boolean;
+  placeholder?: string;
 }
 
 export function AiGeneratorPanel({
@@ -55,6 +56,7 @@ export function AiGeneratorPanel({
   onAccept,
   onReject,
   isDarkMode,
+  placeholder,
 }: AiGeneratorPanelProps) {
   const language = runtime === 'python' ? 'python' : runtime === 'text' ? 'markdown' : 'javascript';
   const monacoTheme = isDarkMode ? 'vs-dark' : 'light';
@@ -144,7 +146,7 @@ export function AiGeneratorPanel({
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder={runtime === 'text' ? "e.g. Write a prompt that reviewer checks for security flaws..." : "Describe what the code should do in natural language..."}
+              placeholder={placeholder || (runtime === 'text' ? "e.g. Write a prompt that reviewer checks for security flaws..." : "Describe what the code should do in natural language...")}
               className="w-full h-[100px] text-[13px] p-3 border border-border bg-background resize-none focus:ring-1 focus:ring-primary focus:border-primary outline-none shadow-inner placeholder:text-muted-foreground/30 transition-all leading-relaxed"
             />
             <Button

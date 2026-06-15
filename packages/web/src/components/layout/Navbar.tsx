@@ -8,20 +8,24 @@ import {
   Sparkle,
   FloppyDisk,
   RocketLaunch,
+  SignOut,
 } from '@phosphor-icons/react';
-import { useUiStore } from '../../store/uiStore';
-import { useEngineStore } from '../../store/engineStore';
-import { useAutoLayout } from '../../hooks/useAutoLayout';
-import { useNavbarActions } from '../../hooks/useNavbarActions';
-import { cn } from '../../lib/utils';
-import { Button } from '../ui/button';
+import { useUiStore } from '../../store/uiStore.js';
+import { useEngineStore } from '../../store/engineStore.js';
+import { useFlowStore } from '../../store/flowStore.js';
+import { useAuthStore } from '../../store/authStore.js';
+import { useAutoLayout } from '../../hooks/useAutoLayout.js';
+import { useNavbarActions } from '../../hooks/useNavbarActions.js';
+import { cn } from '../../lib/utils.js';
+import { Button } from '../ui/button.js';
 import { useEffect } from 'react';
-import { Tabs, TabsList, TabsTrigger } from '../ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from '../ui/tabs.js';
 
 const navTabs = [
   { id: 'workflows' as const, label: 'Workflows', disabled: false },
   { id: 'editor' as const, label: 'Editor', disabled: false },
   { id: 'resources' as const, label: 'Resources', disabled: false },
+  { id: 'deploys' as const, label: 'Dashboard', disabled: false },
 ] as const;
 
 export function Navbar() {
@@ -43,6 +47,8 @@ export function Navbar() {
   const setLayoutDirection = useUiStore((s) => s.setLayoutDirection);
 
   const { isSaving, run, save, load } = useNavbarActions();
+  const user = useAuthStore((s) => s.user);
+  const logout = useAuthStore((s) => s.logout);
 
   useEffect(() => {
     // Initial auto-load
@@ -69,13 +75,23 @@ export function Navbar() {
       {/* Divider */}
       <div className="w-px h-5 bg-border mr-1" />
 
+      {/* Current Workflow Label */}
+      <div className="flex flex-col justify-center px-2 mr-2 max-w-[150px]">
+        <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground leading-none mb-0.5">
+          Workflow
+        </span>
+        <span className="text-xs font-semibold text-foreground truncate leading-none">
+          {useFlowStore(s => s.name) || 'Untitled Flow'}
+        </span>
+      </div>
+
       {/* Center: Tabs */}
       <Tabs
         value={activeTab}
         onValueChange={(val: string) => setActiveTab(val as any)}
-        className="w-[300px]"
+        className="w-[380px]"
       >
-        <TabsList className="grid w-full grid-cols-3 h-7 p-0.5">
+        <TabsList className="grid w-full grid-cols-4 h-7 p-0.5">
           {navTabs.map((tab) => (
             <TabsTrigger key={tab.id} value={tab.id} className="text-xs h-6" disabled={tab.disabled}>
               {tab.label}
@@ -226,6 +242,27 @@ export function Navbar() {
       >
         {isDarkMode ? <Sun size={15} weight="duotone" /> : <Moon size={15} weight="duotone" />}
       </Button>
+
+      {/* User profile & Logout */}
+      {user && (
+        <>
+          <div className="h-4 w-px bg-border mx-1" />
+          <div className="flex items-center gap-2 pl-1">
+            <span className="text-[11px] font-semibold text-zinc-300 max-w-[80px] truncate" title={user.username}>
+              {user.username}
+            </span>
+            <Button
+              onClick={logout}
+              variant="ghost"
+              size="icon"
+              className="w-6 h-6 text-red-400 hover:text-red-300 hover:bg-red-950/20 rounded-md"
+              title="Logout"
+            >
+              <SignOut size={14} weight="bold" />
+            </Button>
+          </div>
+        </>
+      )}
 
       {/* Run button */}
       <Button

@@ -19,12 +19,22 @@ import { useUiStore } from '../../store/uiStore';
 import { CodeNode } from '../nodes/CodeNode';
 import { IfNode } from '../nodes/IfNode';
 import { LoopNode } from '../nodes/LoopNode';
+import { UiInputNode } from '../nodes/UiInputNode';
+import { UiTableNode } from '../nodes/UiTableNode';
+import { UiTextNode } from '../nodes/UiTextNode';
+import { UiImageNode } from '../nodes/UiImageNode';
+import { FileNode } from '../nodes/FileNode';
 import type { SchemaField } from '@zaa-tool/shared';
 
 const nodeTypes = {
- code: CodeNode,
- if: IfNode,
- loop: LoopNode,
+  code: CodeNode,
+  if: IfNode,
+  loop: LoopNode,
+  'ui:input': UiInputNode,
+  'ui:table': UiTableNode,
+  'ui:text': UiTextNode,
+  'ui:image': UiImageNode,
+  file: FileNode,
 };
 
 /** Default schemas for each node type when dropped */
@@ -61,6 +71,36 @@ const defaultNodeData: Record<string, () => FlowNodeData> = {
  { name: 'completed', type: 'object' },
  ],
  }),
+  'ui:input:': () => ({
+    label: 'Input Form',
+    uiSchema: { fields: [], layout: { columns: 1, triggerOn: 'submit' } },
+    inputsSchema: [],
+    outputsSchema: [{ name: 'values', type: 'object' }],
+  }),
+  'ui:table:': () => ({
+    label: 'Data Table',
+    tableConfig: { columns: [] },
+    inputsSchema: [{ name: 'data', type: 'table' }],
+    outputsSchema: [{ name: 'selectedRow', type: 'object' }],
+  }),
+  'ui:text:': () => ({
+    label: 'Text Display',
+    inputsSchema: [
+      { name: 'value', type: 'string' },
+      { name: 'format', type: 'string' }
+    ],
+    outputsSchema: [],
+  }),
+  'ui:image:': () => ({
+    label: 'Image',
+    inputsSchema: [{ name: 'src', type: 'image' }],
+    outputsSchema: [],
+  }),
+  'file:': () => ({
+    label: 'File Input',
+    inputsSchema: [],
+    outputsSchema: [{ name: 'file', type: 'string' }],
+  }),
 };
 
 export function FlowCanvas() {
@@ -137,29 +177,40 @@ export function FlowCanvas() {
    }
  }, [setViewport, flowId]);
 
- const isValidConnection = useCallback((connection: Connection | Edge) => {
- const { source, target, sourceHandle, targetHandle } = connection;
- if (!source || !target || !sourceHandle || !targetHandle) return false;
- if (source === target) return false;
+  const isValidConnection = useCallback((connection: Connection | Edge) => {
+    const { source, target, sourceHandle, targetHandle } = connection;
+    if (!source || !target || !sourceHandle || !targetHandle) return false;
+    if (source === target) return false;
 
- const state = useFlowStore.getState();
- const sourceNode = state.nodes.find((n) => n.id === source);
- const targetNode = state.nodes.find((n) => n.id === target);
+    const state = useFlowStore.getState();
+    const sourceNode = state.nodes.find((n) => n.id === source);
+    const targetNode = state.nodes.find((n) => n.id === target);
 
- if (!sourceNode || !targetNode) return false;
+    if (!sourceNode || !targetNode) return false;
 
- const outField = sourceNode.data.outputsSchema?.find(
- (f: SchemaField) => f.name === sourceHandle,
- );
- const inField = targetNode.data.inputsSchema?.find(
- (f: SchemaField) => f.name === targetHandle,
- );
+    const outField = sourceNode.data.outputsSchema?.find(
+      (f: SchemaField) => f.name === sourceHandle,
+    );
+    const inField = targetNode.data.inputsSchema?.find(
+      (f: SchemaField) => f.name === targetHandle,
+    );
 
- if (!outField || !inField) return false;
+    if (!outField || !inField) return false;
 
- // Allow same types, or allow 'object' to connect to anything
- return outField.type === inField.type || outField.type === 'object' || inField.type === 'object';
- }, []);
+    // Check if types are compatible
+    const isCompatibleType = (a: string, b: string) => {
+      if (a === b) return true;
+      if (a === 'object' || b === 'object' || a === 'any' || b === 'any') return true;
+      
+      // string, file, and image are compatible with each other since they all carry paths/strings
+      const stringTypes = ['string', 'file', 'image'];
+      if (stringTypes.includes(a) && stringTypes.includes(b)) return true;
+      
+      return false;
+    };
+
+    return isCompatibleType(outField.type, inField.type);
+  }, []);
 
  const onDragOver = useCallback((event: DragEvent) => {
  event.preventDefault();

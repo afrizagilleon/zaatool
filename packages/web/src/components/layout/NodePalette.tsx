@@ -5,6 +5,11 @@ import {
   GitBranch,
   ArrowsClockwise,
   MagnifyingGlass,
+  AppWindow,
+  Table as TableIcon,
+  TextAa,
+  Image as ImageIcon,
+  File as FileIcon
 } from '@phosphor-icons/react';
 import { cn } from '../../lib/utils';
 import { Input } from '../ui/input';
@@ -54,11 +59,53 @@ const paletteItems: PaletteItem[] = [
     accentClass: 'text-node-loop',
     bgClass: 'bg-node-loop/10 group-hover:bg-node-loop/15',
   },
+  {
+    type: 'ui:input',
+    label: 'Input Form',
+    description: 'Interactive form inputs',
+    icon: <AppWindow size={16} weight="duotone" />,
+    accentClass: 'text-primary',
+    bgClass: 'bg-primary/10 group-hover:bg-primary/15',
+  },
+  {
+    type: 'ui:table',
+    label: 'Data Table',
+    description: 'Display array data',
+    icon: <TableIcon size={16} weight="duotone" />,
+    accentClass: 'text-blue-500',
+    bgClass: 'bg-blue-500/10 group-hover:bg-blue-500/15',
+  },
+  {
+    type: 'ui:text',
+    label: 'Text Display',
+    description: 'Render text/markdown',
+    icon: <TextAa size={16} weight="duotone" />,
+    accentClass: 'text-green-500',
+    bgClass: 'bg-green-500/10 group-hover:bg-green-500/15',
+  },
+  {
+    type: 'ui:image',
+    label: 'Image',
+    description: 'Display an image URL',
+    icon: <ImageIcon size={16} weight="duotone" />,
+    accentClass: 'text-purple-500',
+    bgClass: 'bg-purple-500/10 group-hover:bg-purple-500/15',
+  },
+  {
+    type: 'file',
+    label: 'File Input',
+    description: 'Upload / pick a file',
+    icon: <FileIcon size={16} weight="duotone" />,
+    accentClass: 'text-orange-500',
+    bgClass: 'bg-orange-500/10 group-hover:bg-orange-500/15',
+  },
 ];
 
 const categories = [
   { label: 'Code', items: paletteItems.filter((i) => i.type === 'code') },
   { label: 'Control Flow', items: paletteItems.filter((i) => i.type === 'if' || i.type === 'loop') },
+  { label: 'UI Components', items: paletteItems.filter((i) => i.type.startsWith('ui:')) },
+  { label: 'Data', items: paletteItems.filter((i) => i.type === 'file') },
 ];
 
 export function NodePalette() {

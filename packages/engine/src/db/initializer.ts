@@ -58,6 +58,39 @@ export async function initDb() {
       );
     `);
 
+    // Users table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id VARCHAR(255) PRIMARY KEY,
+        username VARCHAR(100) UNIQUE NOT NULL,
+        password_hash VARCHAR(255) NOT NULL,
+        email VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Triggers table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS triggers (
+        id VARCHAR(255) PRIMARY KEY,
+        flow_id VARCHAR(255) NOT NULL,
+        type VARCHAR(50) NOT NULL,
+        config TEXT NOT NULL,
+        enabled BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Add dashboard_layout column to flows table
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE flows ADD COLUMN dashboard_layout TEXT;
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
+
     await client.query("COMMIT");
     console.log("✅ Database initialized successfully.");
   } catch (err) {

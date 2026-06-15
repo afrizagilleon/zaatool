@@ -18,6 +18,7 @@ import type { GraphJson, NodeDef, SchemaField } from '@zaa-tool/shared';
 export type FlowNodeData = NodeDef['data'] & {
   runtime?: 'node' | 'python';
   inferredOutputsSchema?: SchemaField[];
+  inputs?: Record<string, any>;
 };
 
 export type FlowNode = Node<FlowNodeData, string>;
@@ -29,8 +30,10 @@ export interface FlowState {
   edges: Edge[];
   activeNodeId: string | null;
   viewport: { x: number; y: number; zoom: number };
+  dashboardLayout: any;
 
   setViewport: (viewport: { x: number; y: number; zoom: number }) => void;
+  setDashboardLayout: (layout: any) => void;
 
   onNodesChange: OnNodesChange<FlowNode>;
   onEdgesChange: OnEdgesChange;
@@ -59,6 +62,8 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   edges: [],
   activeNodeId: null,
   viewport: { x: 0, y: 0, zoom: 1 },
+  dashboardLayout: { items: [] },
+  setDashboardLayout: (layout) => set({ dashboardLayout: layout }),
 
   setViewport: (viewport) => set({ viewport }),
 
@@ -152,7 +157,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   },
 
   getGraphJson: () => {
-    const { id, name, nodes, edges, viewport } = get();
+    const { id, name, nodes, edges, viewport, dashboardLayout } = get();
     // Retrieve layoutDirection from uiStore (safe to read synchronously)
     const layoutDirection = useUiStore.getState().layoutDirection;
 
@@ -162,6 +167,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       name,
       viewport,
       layoutDirection,
+      dashboardLayout,
       nodes: nodes.map((n) => ({
         id: n.id,
         type: n.type as NodeDef['type'],
@@ -173,6 +179,10 @@ export const useFlowStore = create<FlowState>((set, get) => ({
           inputsSchema: n.data.inputsSchema,
           outputsSchema: n.data.outputsSchema,
           config: n.data.config,
+          uiSchema: n.data.uiSchema,
+          tableConfig: n.data.tableConfig,
+          inputs: n.data.inputs,
+          values: n.data.values,
         },
       })),
       edges: edges.map((e) => ({
@@ -182,15 +192,16 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         target: e.target,
         targetHandle: e.targetHandle || '',
       })),
-    };
+    } as any;
   },
 
-  loadFromJson: (graph: GraphJson) => {
+  loadFromJson: (graph: any) => {
     set({
       id: graph.id || 'flow-1',
       name: graph.name || 'Untitled Flow',
       viewport: graph.viewport || { x: 0, y: 0, zoom: 1 },
-      nodes: graph.nodes.map((n) => ({
+      dashboardLayout: graph.dashboardLayout || { items: [] },
+      nodes: graph.nodes.map((n: any) => ({
         id: n.id,
         type: n.type,
         position: n.position,
@@ -199,7 +210,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
           runtime: n.runtime,
         },
       })),
-      edges: graph.edges.map((e) => ({
+      edges: graph.edges.map((e: any) => ({
         id: e.id,
         source: e.source,
         sourceHandle: e.sourceHandle,

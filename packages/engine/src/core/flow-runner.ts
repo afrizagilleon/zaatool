@@ -7,6 +7,7 @@ import { JsCodeExecutor } from "../executors/js.executor.js";
 import { PythonCodeExecutor } from "../executors/python.executor.js";
 import { IfExecutor } from "../executors/if.executor.js";
 import { LoopExecutor } from "../executors/loop.executor.js";
+import { PassthroughExecutor } from "../executors/ui.executor.js";
 import { inferSchema } from "../utils/infer-schema.js";
 
 // Register default executors (Open-Closed extension entry)
@@ -22,8 +23,32 @@ if (!defaultExecutorRegistry.has("if")) {
 if (!defaultExecutorRegistry.has("loop")) {
   defaultExecutorRegistry.set("loop", new LoopExecutor());
 }
+if (!defaultExecutorRegistry.has("ui:input")) {
+  const uiExecutor = new PassthroughExecutor();
+  defaultExecutorRegistry.set("ui:input", uiExecutor);
+  defaultExecutorRegistry.set("ui:table", uiExecutor);
+  defaultExecutorRegistry.set("ui:text", uiExecutor);
+  defaultExecutorRegistry.set("ui:image", uiExecutor);
+  defaultExecutorRegistry.set("file", uiExecutor);
+}
 
-export async function runFlow(graph: GraphJson, ee?: EventEmitter) {
+function getReachableNodes(graph: GraphJson, startNodeId: string): Set<string> {
+  const reachable = new Set<string>([startNodeId]);
+  const queue = [startNodeId];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const outgoing = graph.edges.filter((e) => e.source === current);
+    for (const edge of outgoing) {
+      if (!reachable.has(edge.target)) {
+        reachable.add(edge.target);
+        queue.push(edge.target);
+      }
+    }
+  }
+  return reachable;
+}
+
+export async function runFlow(graph: GraphJson, ee?: EventEmitter, startNodeId?: string) {
   const flowStartTime = Date.now();
   const order = GraphAnalyzer.topoSort(graph);
   const nodeMap = new Map(graph.nodes.map((n) => [n.id, n]));
@@ -37,6 +62,9 @@ export async function runFlow(graph: GraphJson, ee?: EventEmitter) {
   // Track active edges
   const activeEdges = new Set<string>();
 
+  // If startNodeId is provided, find reachable nodes downstream
+  const reachableNodes = startNodeId ? getReachableNodes(graph, startNodeId) : null;
+
   /**
    * Sub-flow runner function passed to loop executors.
    * Executes a list of target node IDs inside a specific Scope.
@@ -47,6 +75,11 @@ export async function runFlow(graph: GraphJson, ee?: EventEmitter) {
     const subActiveEdges = new Set<string>();
 
     for (const nodeId of subOrder) {
+      // If we are executing a subset of the graph, check reachability
+      if (reachableNodes && !reachableNodes.has(nodeId)) {
+        continue;
+      }
+
       const node = nodeMap.get(nodeId)!;
       const incomingEdges = graph.edges.filter((e) => e.target === nodeId);
 
@@ -55,6 +88,7 @@ export async function runFlow(graph: GraphJson, ee?: EventEmitter) {
       // 2. Or at least one of its incoming edges from within the sub-flow is active.
       // 3. Or it has incoming edges from outside the sub-flow (which are active by default)
       const isRunnable =
+        nodeId === startNodeId ||
         incomingEdges.length === 0 ||
         incomingEdges.some((e) => {
           const isSourceOutside = !nodeIds.includes(e.source);
@@ -136,13 +170,22 @@ export async function runFlow(graph: GraphJson, ee?: EventEmitter) {
       continue;
     }
 
+    // Filter by reachability if running from a specific node
+    if (reachableNodes && !reachableNodes.has(nodeId)) {
+      continue;
+    }
+
     const node = nodeMap.get(nodeId)!;
     const incomingEdges = graph.edges.filter((e) => e.target === nodeId);
 
     // A node is runnable at the outer level if:
-    // 1. It has no incoming edges.
-    // 2. Or at least one of its incoming edges is active.
-    const isRunnable = incomingEdges.length === 0 || incomingEdges.some((e) => activeEdges.has(e.id));
+    // 1. It is the start node.
+    // 2. Or it has no incoming edges (only when not restricted by startNodeId).
+    // 3. Or at least one of its incoming edges is active.
+    const isRunnable =
+      nodeId === startNodeId ||
+      (!startNodeId && incomingEdges.length === 0) ||
+      incomingEdges.some((e) => activeEdges.has(e.id));
 
     if (!isRunnable) {
       console.log(`\n▶ [${nodeId}] ${node.data.label} (SKIPPED: path not active)`);
@@ -152,7 +195,7 @@ export async function runFlow(graph: GraphJson, ee?: EventEmitter) {
     // Collect inputs
     const inputs: Record<string, unknown> = {};
     for (const edge of incomingEdges) {
-      if (activeEdges.has(edge.id)) {
+      if (!startNodeId || activeEdges.has(edge.id)) {
         const sourceOutput = globalScope.get(edge.source) ?? {};
         inputs[edge.targetHandle] = sourceOutput[edge.sourceHandle];
       }

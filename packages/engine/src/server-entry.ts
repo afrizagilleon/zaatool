@@ -2,6 +2,7 @@ import http from "http";
 import { initDb } from "./db/initializer.js";
 import { createApp } from "./server/app.js";
 import { WebSocketManager } from "./server/websocket-manager.js";
+import { schedulerService } from "./services/scheduler.service.js";
 
 export async function startServer(port = 4000) {
   // Initialize Database
@@ -17,6 +18,9 @@ export async function startServer(port = 4000) {
 
   // Create WebSocket Manager
   const wssManager = new WebSocketManager(server);
+
+  // Start the background cron scheduler
+  schedulerService.start((data) => wssManager.broadcast(data));
 
   // Create Express App, passing WebSocket broadcast callback
   const app = createApp((data) => wssManager.broadcast(data));
