@@ -33,6 +33,7 @@ import { UiTableProperties } from './properties/UiTableProperties';
 import { UiTextProperties } from './properties/UiTextProperties';
 import { UiImageProperties } from './properties/UiImageProperties';
 import { FileProperties } from './properties/FileProperties';
+import { TriggerCronProperties } from './properties/TriggerCronProperties';
 
 function SchemaEditor({
   label,
@@ -199,6 +200,8 @@ export function PropertiesPanel() {
       case 'ui:text': return <UiTextProperties nodeId={activeNode.id} />;
       case 'ui:image': return <UiImageProperties nodeId={activeNode.id} />;
       case 'file': return <FileProperties nodeId={activeNode.id} />;
+      case 'trigger:cron': return <TriggerCronProperties nodeId={activeNode.id} />;
+      case 'trigger:start': return <div className="text-xs text-muted-foreground italic bg-muted/20 p-3 rounded-lg border border-border/60">Manual execution trigger. Click the green "Run Flow" button directly on the canvas node to execute the downstream workflow.</div>;
       default:
         // Default to code/if/loop properties
         return (

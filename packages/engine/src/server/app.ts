@@ -94,17 +94,24 @@ export function createApp(onFlowEvent: (data: Record<string, unknown>) => void) 
         return res.status(400).json({ error: "Invalid graph: missing nodes" });
       }
 
-      // Merge inputs into startNodeId node.data.values if applicable
+      // Merge inputs into startNodeId node.data if applicable
       if (startNodeId) {
         const node = graph.nodes.find((n) => n.id === startNodeId);
-        if (node && node.type === "ui:input") {
-          node.data = {
-            ...node.data,
-            values: {
-              ...(node.data.values || {}),
-              ...(inputs || {}),
-            },
-          };
+        if (node) {
+          if (node.type === "ui:input") {
+            node.data = {
+              ...node.data,
+              values: {
+                ...(node.data.values || {}),
+                ...(inputs || {}),
+              },
+            };
+          } else if (node.type === "ui:table") {
+            node.data = {
+              ...node.data,
+              selectedRow: inputs?.selectedRow !== undefined ? inputs.selectedRow : (node.data.selectedRow || null),
+            };
+          }
         }
       }
 

@@ -78,7 +78,7 @@ export class SchedulerService {
   private async tick() {
     const now = new Date();
     try {
-      // Query all enabled cron triggers
+      // 1. Legacy database triggers check
       const { rows: triggers } = await pool.query(
         "SELECT * FROM triggers WHERE type = 'cron' AND enabled = true"
       );
@@ -96,8 +96,27 @@ export class SchedulerService {
         if (!cronExpr) continue;
 
         if (matchCron(cronExpr, now)) {
-          console.log(`⏰ Triggering flow ${trigger.flow_id} via cron schedule '${cronExpr}'`);
+          console.log(`⏰ Triggering flow ${trigger.flow_id} via legacy cron schedule '${cronExpr}'`);
           this.executeScheduledFlow(trigger.flow_id, config.startNodeId);
+        }
+      }
+
+      // 2. Visual cron nodes check inside all flows
+      const { rows: flows } = await pool.query("SELECT id, name, graph_json FROM flows");
+      for (const flow of flows) {
+        if (!flow.graph_json) continue;
+        let graph: GraphJson = typeof flow.graph_json === "string" ? JSON.parse(flow.graph_json) : flow.graph_json;
+        if (!graph || !graph.nodes) continue;
+
+        const cronNodes = graph.nodes.filter(
+          (n: any) => n.type === "trigger:cron" && n.data?.enabled !== false
+        );
+        for (const node of cronNodes) {
+          const cronExpr = node.data?.cronExpression;
+          if (cronExpr && matchCron(cronExpr, now)) {
+            console.log(`⏰ Triggering flow ${flow.id} via visual cron node ${node.id} ('${cronExpr}')`);
+            this.executeScheduledFlow(flow.id, node.id);
+          }
         }
       }
     } catch (err) {

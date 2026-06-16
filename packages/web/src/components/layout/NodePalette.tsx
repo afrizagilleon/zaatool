@@ -9,7 +9,9 @@ import {
   Table as TableIcon,
   TextAa,
   Image as ImageIcon,
-  File as FileIcon
+  File as FileIcon,
+  Play,
+  Clock
 } from '@phosphor-icons/react';
 import { cn } from '../../lib/utils';
 import { Input } from '../ui/input';
@@ -99,6 +101,22 @@ const paletteItems: PaletteItem[] = [
     accentClass: 'text-orange-500',
     bgClass: 'bg-orange-500/10 group-hover:bg-orange-500/15',
   },
+  {
+    type: 'trigger:start',
+    label: 'Start Trigger',
+    description: 'Manual execution starting point',
+    icon: <Play size={16} weight="bold" />,
+    accentClass: 'text-emerald-500',
+    bgClass: 'bg-emerald-500/10 group-hover:bg-emerald-500/15',
+  },
+  {
+    type: 'trigger:cron',
+    label: 'Cron Trigger',
+    description: 'Scheduled execution schedule',
+    icon: <Clock size={16} weight="duotone" />,
+    accentClass: 'text-amber-500',
+    bgClass: 'bg-amber-500/10 group-hover:bg-amber-500/15',
+  },
 ];
 
 const categories = [
@@ -106,6 +124,7 @@ const categories = [
   { label: 'Control Flow', items: paletteItems.filter((i) => i.type === 'if' || i.type === 'loop') },
   { label: 'UI Components', items: paletteItems.filter((i) => i.type.startsWith('ui:')) },
   { label: 'Data', items: paletteItems.filter((i) => i.type === 'file') },
+  { label: 'Triggers', items: paletteItems.filter((i) => i.type.startsWith('trigger:')) },
 ];
 
 export function NodePalette() {

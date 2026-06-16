@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import ReactGridLayout from 'react-grid-layout';
 const Grid = ReactGridLayout as any;
 import 'react-grid-layout/css/styles.css';
@@ -18,6 +18,22 @@ export function DashboardBuilder() {
   const [layout, setLayout] = useState<any[]>([]);
   const [copied, setCopied] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(1200);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentRect.width) {
+          setWidth(entry.contentRect.width);
+        }
+      }
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   // Filter nodes whenever they change in flowStore
   useEffect(() => {
@@ -49,7 +65,7 @@ export function DashboardBuilder() {
     });
 
     setLayout(newLayout);
-  }, [nodes, dashboardLayout]);
+  }, [flowId, nodes.length]);
 
   const handleLayoutChange = (newLayout: any) => {
     const formatted = newLayout.map((item: any) => ({
@@ -97,22 +113,22 @@ export function DashboardBuilder() {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-zinc-950 overflow-hidden animate-in fade-in">
+    <div className="flex-1 flex flex-col h-full bg-background overflow-hidden animate-in fade-in">
       {/* Top action toolbar */}
-      <div className="h-14 border-b border-zinc-900 px-6 flex items-center justify-between bg-zinc-950/60 backdrop-blur shrink-0">
+      <div className="h-14 border-b border-border px-6 flex items-center justify-between bg-card/60 backdrop-blur shrink-0 text-foreground">
         <div className="flex items-center gap-2">
           <Layout className="w-5 h-5 text-primary" />
-          <h1 className="text-sm font-bold text-white uppercase tracking-wider">Dashboard Grid Builder</h1>
-          <span className="text-[10px] text-zinc-500 font-mono">Arrange and resize widgets</span>
+          <h1 className="text-sm font-bold uppercase tracking-wider">Dashboard Grid Builder</h1>
+          <span className="text-[10px] text-muted-foreground font-mono">Arrange and resize widgets</span>
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="flex items-center bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-1 text-xs">
-            <span className="text-zinc-500 mr-2 font-mono">Public URL:</span>
-            <span className="text-zinc-300 font-mono select-all truncate max-w-[240px]">{shareUrl}</span>
+          <div className="flex items-center bg-muted border border-border rounded-lg px-3 py-1 text-xs">
+            <span className="text-muted-foreground mr-2 font-mono">Public URL:</span>
+            <span className="text-foreground font-mono select-all truncate max-w-[240px]">{shareUrl}</span>
             <button
               onClick={handleCopyUrl}
-              className="ml-3 font-semibold text-white hover:text-primary transition-colors cursor-pointer shrink-0"
+              className="ml-3 font-semibold text-foreground hover:text-primary transition-colors cursor-pointer shrink-0"
             >
               {copied ? 'Copied!' : 'Copy'}
             </button>
@@ -121,7 +137,7 @@ export function DashboardBuilder() {
           <Button
             size="sm"
             variant="outline"
-            className="border-zinc-800 hover:bg-zinc-900 text-xs h-8 flex items-center gap-1.5"
+            className="border-border hover:bg-muted text-xs h-8 flex items-center gap-1.5"
             onClick={() => window.open(shareUrl, '_blank')}
           >
             <ArrowSquareOut className="w-4 h-4" />
@@ -130,7 +146,7 @@ export function DashboardBuilder() {
 
           <Button
             size="sm"
-            className="bg-white hover:bg-zinc-200 text-zinc-950 font-bold text-xs h-8 flex items-center gap-1.5"
+            className="bg-primary hover:bg-primary/90 text-primary-foreground font-bold text-xs h-8 flex items-center gap-1.5"
             disabled={isSaving}
             onClick={handleSaveLayout}
           >
@@ -141,15 +157,15 @@ export function DashboardBuilder() {
       </div>
 
       {/* Grid Canvas */}
-      <div className="flex-1 overflow-y-auto p-8 bg-[radial-gradient(zinc-900_1px,transparent_1px)] [background-size:24px_24px] bg-[zinc-950]">
-        <div className="max-w-7xl mx-auto">
+      <div ref={containerRef} className="flex-1 overflow-y-auto p-8 bg-[radial-gradient(currentColor_1px,transparent_1px)] [background-size:24px_24px] text-border/30 bg-background">
+        <div className="max-w-7xl">
           {uiNodes.length === 0 ? (
-            <div className="py-24 text-center border border-dashed border-zinc-800 rounded-2xl flex flex-col items-center justify-center gap-3">
-              <Layout className="w-10 h-10 text-zinc-600" />
-              <p className="text-zinc-500 text-sm font-medium">
+            <div className="py-24 text-center border border-dashed border-border rounded-2xl flex flex-col items-center justify-center gap-3 bg-card/30">
+              <Layout className="w-10 h-10 text-muted-foreground/60" />
+              <p className="text-muted-foreground text-sm font-medium">
                 No UI nodes found in this workflow graph.
               </p>
-              <p className="text-zinc-600 text-xs max-w-sm">
+              <p className="text-muted-foreground/80 text-xs max-w-sm">
                 Add UI Input, Text Display, UIImage, File, or Data Table nodes in the Workflow editor canvas first.
               </p>
             </div>
@@ -159,85 +175,85 @@ export function DashboardBuilder() {
               layout={layout}
               cols={12}
               rowHeight={80}
-              width={1200}
+              width={width}
               onLayoutChange={handleLayoutChange}
               draggableHandle=".grid-drag-handle"
               isDraggable={true}
               isResizable={true}
             >
-              {uiNodes.map((node) => (
-                <div
-                  key={node.id}
-                  className="bg-zinc-900/60 border border-zinc-800/80 rounded-xl overflow-hidden flex flex-col group select-none shadow-xl hover:border-zinc-700/60 transition-all cursor-default"
-                >
-                  {/* Drag Handle Top Bar */}
-                  <div className="grid-drag-handle h-9 px-3 border-b border-zinc-800/80 bg-zinc-900/80 flex items-center justify-between cursor-move shrink-0">
-                    <div className="flex items-center gap-2">
-                      {node.type === 'ui:input' && <Play className="w-3.5 h-3.5 text-emerald-400" />}
-                      {node.type === 'ui:text' && <FileText className="w-3.5 h-3.5 text-blue-400" />}
-                      {node.type === 'ui:table' && <TableIcon className="w-3.5 h-3.5 text-purple-400" />}
-                      {node.type === 'ui:image' && <ImageIcon className="w-3.5 h-3.5 text-orange-400" />}
-                      {node.type === 'file' && <FileText className="w-3.5 h-3.5 text-yellow-400" />}
-                      <span className="text-xs font-bold text-zinc-300">
-                        {node.data?.label || node.type}
-                      </span>
+              {uiNodes.map((node, idx) => (
+                <div key={node.id || `node-${idx}`}>
+                  {/* Inner Card filling the react-grid-item space */}
+                  <div className="w-full h-full bg-card border border-border rounded-xl overflow-hidden flex flex-col group select-none shadow-md hover:border-muted-foreground/30 transition-all cursor-default relative text-card-foreground">
+                    {/* Drag Handle Top Bar */}
+                    <div className="grid-drag-handle h-9 px-3 border-b border-border bg-muted/60 flex items-center justify-between cursor-move shrink-0">
+                      <div className="flex items-center gap-2">
+                        {node.type === 'ui:input' && <Play className="w-3.5 h-3.5 text-emerald-500" />}
+                        {node.type === 'ui:text' && <FileText className="w-3.5 h-3.5 text-blue-500" />}
+                        {node.type === 'ui:table' && <TableIcon className="w-3.5 h-3.5 text-purple-500" />}
+                        {node.type === 'ui:image' && <ImageIcon className="w-3.5 h-3.5 text-orange-500" />}
+                        {node.type === 'file' && <FileText className="w-3.5 h-3.5 text-yellow-500" />}
+                        <span className="text-xs font-bold text-foreground">
+                          {node.data?.label || node.type}
+                        </span>
+                      </div>
+                      <span className="text-[9px] text-muted-foreground font-mono">DRAG</span>
                     </div>
-                    <span className="text-[9px] text-zinc-500 font-mono">DRAG</span>
-                  </div>
 
-                  {/* Widget Body Preview */}
-                  <div className="flex-1 p-3 flex flex-col justify-between overflow-hidden text-xs text-zinc-500 font-medium bg-zinc-950/20">
-                    {node.type === 'ui:input' && (
-                      <div className="space-y-1.5">
-                        {node.data?.uiSchema?.fields?.slice(0, 3).map((f: any) => (
-                          <div key={f.key} className="flex justify-between items-center text-[10px] border-b border-zinc-900/60 pb-1">
-                            <span className="text-zinc-400 font-semibold">{f.label || f.key}</span>
-                            <span className="text-zinc-600 font-mono italic">[{f.type}]</span>
-                          </div>
-                        )) || <span className="italic">No fields configured</span>}
-                        {node.data?.uiSchema?.fields?.length > 3 && (
-                          <span className="text-[9px] text-zinc-600 font-medium block">
-                            + {node.data.uiSchema.fields.length - 3} more fields
+                    {/* Widget Body Preview */}
+                    <div className="flex-1 p-3 flex flex-col justify-between overflow-hidden text-xs text-muted-foreground font-medium bg-muted/10">
+                      {node.type === 'ui:input' && (
+                        <div className="space-y-1.5">
+                          {node.data?.uiSchema?.fields?.slice(0, 3).map((f: any, idx: number) => (
+                            <div key={f.id || f.key || idx} className="flex justify-between items-center text-[10px] border-b border-border/60 pb-1">
+                              <span className="text-muted-foreground font-semibold">{f.label || f.key || `field-${idx}`}</span>
+                              <span className="text-muted-foreground/50 font-mono italic">[{f.type}]</span>
+                            </div>
+                          )) || <span className="italic">No fields configured</span>}
+                          {node.data?.uiSchema?.fields?.length > 3 && (
+                            <span className="text-[9px] text-muted-foreground/60 font-medium block">
+                              + {node.data.uiSchema.fields.length - 3} more fields
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {node.type === 'ui:text' && (
+                        <div className="h-full flex flex-col justify-center items-center gap-1.5 text-center">
+                          <FileText className="w-6 h-6 text-muted-foreground/40" />
+                          <span className="text-[10px] text-muted-foreground/60 font-mono truncate max-w-full">
+                            Text/Markdown Renderer
                           </span>
-                        )}
-                      </div>
-                    )}
+                        </div>
+                      )}
 
-                    {node.type === 'ui:text' && (
-                      <div className="h-full flex flex-col justify-center items-center gap-1.5 text-center">
-                        <FileText className="w-6 h-6 text-zinc-700" />
-                        <span className="text-[10px] text-zinc-600 font-mono truncate max-w-full">
-                          Text/Markdown Renderer
-                        </span>
-                      </div>
-                    )}
+                      {node.type === 'ui:table' && (
+                        <div className="h-full flex flex-col justify-center items-center gap-1.5 text-center">
+                          <TableIcon className="w-6 h-6 text-muted-foreground/40" />
+                          <span className="text-[10px] text-muted-foreground/60 font-mono truncate max-w-full">
+                            Dynamic Data Table
+                          </span>
+                        </div>
+                      )}
 
-                    {node.type === 'ui:table' && (
-                      <div className="h-full flex flex-col justify-center items-center gap-1.5 text-center">
-                        <TableIcon className="w-6 h-6 text-zinc-700" />
-                        <span className="text-[10px] text-zinc-600 font-mono truncate max-w-full">
-                          Dynamic Data Table
-                        </span>
-                      </div>
-                    )}
+                      {node.type === 'ui:image' && (
+                        <div className="h-full flex flex-col justify-center items-center gap-1.5 text-center">
+                          <ImageIcon className="w-6 h-6 text-muted-foreground/40" />
+                          <span className="text-[10px] text-muted-foreground/60 font-mono truncate max-w-full">
+                            UIImage Container
+                          </span>
+                        </div>
+                      )}
 
-                    {node.type === 'ui:image' && (
-                      <div className="h-full flex flex-col justify-center items-center gap-1.5 text-center">
-                        <ImageIcon className="w-6 h-6 text-zinc-700" />
-                        <span className="text-[10px] text-zinc-600 font-mono truncate max-w-full">
-                          UIImage Container
-                        </span>
-                      </div>
-                    )}
-
-                    {node.type === 'file' && (
-                      <div className="h-full flex flex-col justify-center items-center gap-1.5 text-center">
-                        <FileText className="w-6 h-6 text-zinc-700" />
-                        <span className="text-[10px] text-zinc-600 font-mono truncate max-w-full">
-                          FileInput Handler
-                        </span>
-                      </div>
-                    )}
+                      {node.type === 'file' && (
+                        <div className="h-full flex flex-col justify-center items-center gap-1.5 text-center">
+                          <FileText className="w-6 h-6 text-muted-foreground/40" />
+                          <span className="text-[10px] text-muted-foreground/60 font-mono truncate max-w-full">
+                            FileInput Handler
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}

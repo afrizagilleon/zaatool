@@ -328,3 +328,32 @@
 .status-running-pulse {
     animation: status-pulse 1.5s ease-in-out infinite;
 }
+
+/* React Resizable and Grid Layout Styles */
+.react-resizable {
+  position: relative;
+}
+.react-resizable-handle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  bottom: 4px;
+  right: 4px;
+  cursor: se-resize;
+  z-index: 50;
+  border-bottom: 2px solid hsl(var(--muted-foreground) / 0.35);
+  border-right: 2px solid hsl(var(--muted-foreground) / 0.35);
+  transition: border-color 0.15s ease;
+}
+.react-resizable-handle:hover {
+  border-bottom-color: hsl(var(--primary));
+  border-right-color: hsl(var(--primary));
+}
+.react-grid-item.react-grid-placeholder {
+  background: hsl(var(--primary) / 0.1) !important;
+  border: 2px dashed hsl(var(--primary) / 0.5) !important;
+  border-radius: 0.75rem !important;
+  z-index: 10 !important;
+  user-select: none !important;
+}
+

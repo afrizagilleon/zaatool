@@ -183,6 +183,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
           tableConfig: n.data.tableConfig,
           inputs: n.data.inputs,
           values: n.data.values,
+          selectedRow: n.data.selectedRow,
         },
       })),
       edges: edges.map((e) => ({
@@ -196,12 +197,13 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   },
 
   loadFromJson: (graph: any) => {
+    if (!graph) return;
     set({
       id: graph.id || 'flow-1',
       name: graph.name || 'Untitled Flow',
       viewport: graph.viewport || { x: 0, y: 0, zoom: 1 },
       dashboardLayout: graph.dashboardLayout || { items: [] },
-      nodes: graph.nodes.map((n: any) => ({
+      nodes: (graph.nodes || []).map((n: any) => ({
         id: n.id,
         type: n.type,
         position: n.position,
@@ -210,7 +212,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
           runtime: n.runtime,
         },
       })),
-      edges: graph.edges.map((e: any) => ({
+      edges: (graph.edges || []).map((e: any) => ({
         id: e.id,
         source: e.source,
         sourceHandle: e.sourceHandle,

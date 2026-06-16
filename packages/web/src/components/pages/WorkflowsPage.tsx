@@ -98,6 +98,9 @@ export function WorkflowsPage() {
         if (typeof parsed === 'string') {
           parsed = JSON.parse(parsed);
         }
+        if (!parsed) {
+          parsed = { nodes: [], edges: [] };
+        }
         
         // Ensure ID and Name are overridden from the top-level table if needed
         parsed.id = data.id;

@@ -10,23 +10,25 @@ export interface GraphJson {
 
 export interface NodeDef {
   id: string;
-  type: "code" | "if" | "loop" | "http" | "input" | "output" | "ui:input" | "ui:table" | "ui:text" | "ui:image" | "file";
+  type: "code" | "if" | "loop" | "http" | "input" | "output" | "ui:input" | "ui:table" | "ui:text" | "ui:image" | "file" | "trigger:start" | "trigger:cron";
   runtime?: "node" | "python";
   position: { x: number; y: number };
-  data: {
-    label: string;
-    code?: string;
-    inputsSchema: SchemaField[];
-    outputsSchema: SchemaField[];
-    config?: Record<string, unknown>;
-    uiSchema?: UiInputSchema;
-    tableConfig?: UiTableConfig;
-    inputs?: Record<string, any>;
-    outputs?: Record<string, any>;
-    values?: Record<string, any>;
-    selectedRow?: any;
-    format?: string;
-  };
+    data: {
+      label: string;
+      code?: string;
+      inputsSchema: SchemaField[];
+      outputsSchema: SchemaField[];
+      config?: Record<string, unknown>;
+      uiSchema?: UiInputSchema;
+      tableConfig?: UiTableConfig;
+      inputs?: Record<string, any>;
+      outputs?: Record<string, any>;
+      values?: Record<string, any>;
+      selectedRow?: any;
+      format?: string;
+      cronExpression?: string;
+      enabled?: boolean;
+    };
 }
 
 export interface EdgeDef {

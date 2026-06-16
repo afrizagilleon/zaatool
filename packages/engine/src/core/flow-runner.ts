@@ -30,6 +30,8 @@ if (!defaultExecutorRegistry.has("ui:input")) {
   defaultExecutorRegistry.set("ui:text", uiExecutor);
   defaultExecutorRegistry.set("ui:image", uiExecutor);
   defaultExecutorRegistry.set("file", uiExecutor);
+  defaultExecutorRegistry.set("trigger:start", uiExecutor);
+  defaultExecutorRegistry.set("trigger:cron", uiExecutor);
 }
 
 function getReachableNodes(graph: GraphJson, startNodeId: string): Set<string> {

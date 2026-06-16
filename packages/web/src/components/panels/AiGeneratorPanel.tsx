@@ -175,7 +175,11 @@ export function AiGeneratorPanel({
               {runtime !== 'text' && <span className="text-[9px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5">Diff Ready</span>}
             </div>
 
-            <div className="flex-1 relative overflow-hidden border border-emerald-500/40 shadow-inner bg-background min-h-0">
+            <div 
+              className="flex-1 relative overflow-hidden border border-emerald-500/40 shadow-inner bg-background min-h-0"
+              onKeyDown={(e) => e.stopPropagation()}
+              onKeyUp={(e) => e.stopPropagation()}
+            >
               <Editor
                 height="100%"
                 language={language}

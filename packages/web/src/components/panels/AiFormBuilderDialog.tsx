@@ -12,6 +12,7 @@ import { useAiGeneration } from '../../hooks/useAiGeneration';
 import { AiGeneratorPanel } from './AiGeneratorPanel';
 import type { UiInputSchema } from '@zaa-tool/shared';
 import Editor from '@monaco-editor/react';
+import { useUiStore } from '../../store/uiStore';
 
 interface AiFormBuilderDialogProps {
   open: boolean;
@@ -22,6 +23,9 @@ interface AiFormBuilderDialogProps {
 }
 
 export function AiFormBuilderDialog({ open, onOpenChange, nodeId, onApplySchema, initialSchema }: AiFormBuilderDialogProps) {
+  const isDarkMode = useUiStore((s) => s.isDarkMode);
+  const monacoTheme = isDarkMode ? 'vs-dark' : 'light';
+
   const {
     provider,
     setProvider,
@@ -157,11 +161,15 @@ export function AiFormBuilderDialog({ open, onOpenChange, nodeId, onApplySchema,
               </Button>
             </div>
             
-            <div className="flex-1 relative overflow-hidden bg-background">
+            <div 
+              className="flex-1 relative overflow-hidden bg-background"
+              onKeyDown={(e) => e.stopPropagation()}
+              onKeyUp={(e) => e.stopPropagation()}
+            >
               <Editor
                 height="100%"
                 language="json"
-                theme="vs-dark"
+                theme={monacoTheme}
                 value={editorValue}
                 onChange={(v) => setEditorValue(v || '')}
                 options={{

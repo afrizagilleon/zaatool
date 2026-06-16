@@ -5,8 +5,9 @@ import { useEffect, useState, useMemo } from 'react';
 import { cn } from '../../lib/utils';
 import { useUiStore } from '../../store/uiStore';
 import { useFlowStore } from '../../store/flowStore';
+import { useEngineStore } from '../../store/engineStore';
 import type { FlowNodeData } from '../../store/flowStore';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
+import { DataTable } from '../ui/DataTable';
 
 type UiTableNodeProps = NodeProps<Node<FlowNodeData, 'ui:table'>>;
 
@@ -17,6 +18,8 @@ export function UiTableNode({ id, data, selected }: UiTableNodeProps) {
   const updateNodeInternals = useUpdateNodeInternals();
   const [showPanel, setShowPanel] = useState(true);
 
+  const runFlow = useEngineStore((s) => s.runFlow);
+  const getGraphJson = useFlowStore((s) => s.getGraphJson);
   const updateNodeData = useFlowStore((s) => s.updateNodeData);
   const selectedRow = data.selectedRow;
 
@@ -43,102 +46,43 @@ export function UiTableNode({ id, data, selected }: UiTableNodeProps) {
   const handleRowClick = (row: any) => {
     if (!tableConfig.selectable) return;
     updateNodeData(id, { selectedRow: row });
-  };
-
-  const isRowSelected = (row: any) => {
-    if (!tableConfig.selectable || !selectedRow) return false;
-    return JSON.stringify(row) === JSON.stringify(selectedRow);
+    setTimeout(() => {
+      runFlow(getGraphJson());
+    }, 0);
   };
 
   const renderTablePreview = () => {
     if (!showPanel) return null;
     const rawTableData = Array.isArray(data.inputs?.data) ? data.inputs.data : [];
-    const tableData = tableConfig.pagination
-      ? rawTableData.slice(0, tableConfig.pageSize || 10)
-      : rawTableData;
+    
+    const cols = columnsToRender.map((c: any) => ({
+      key: c.key,
+      header: c.header
+    }));
     
     return (
       <div className={cn(
-        "nodrag nowheel absolute bg-card text-card-foreground shadow-lg border border-border p-4 rounded-md w-[400px] max-h-[300px] overflow-y-auto z-10",
+        "nodrag nowheel absolute bg-card text-card-foreground shadow-lg border border-border p-4 rounded-md w-[460px] h-[340px] z-10 flex flex-col",
         isVertical ? "top-0 left-full ml-4" : "top-full mt-4 left-0"
       )}>
-        <div className="text-xs font-semibold mb-2 pb-2 border-b border-border flex justify-between items-center">
+        <div className="text-xs font-semibold mb-2 pb-2 border-b border-border flex justify-between items-center shrink-0">
           <span>{data.label || 'Data Table Preview'}</span>
           <span className="text-[10px] text-muted-foreground font-normal">
-            {rawTableData.length > 0 ? `${rawTableData.length} rows` : 'No Data'}
-            {tableConfig.pagination && rawTableData.length > (tableConfig.pageSize || 10) && ` (Showing first ${tableConfig.pageSize || 10})`}
+            {rawTableData.length} rows
           </span>
         </div>
 
-        <div className="border rounded-md">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                {columnsToRender.length > 0 ? (
-                  columnsToRender.map((col: any) => (
-                    <TableHead 
-                      key={col.key} 
-                      className={cn(
-                        "text-[10px] font-semibold text-muted-foreground",
-                        tableConfig.compact ? "h-6 px-2 py-1" : "h-8 px-4 py-2"
-                      )}
-                    >
-                      {col.header}
-                    </TableHead>
-                  ))
-                ) : (
-                  <>
-                    <TableHead className={cn("text-[10px]", tableConfig.compact ? "h-6 px-2" : "h-8 px-4")}>ID</TableHead>
-                    <TableHead className={cn("text-[10px]", tableConfig.compact ? "h-6 px-2" : "h-8 px-4")}>Name</TableHead>
-                    <TableHead className={cn("text-[10px]", tableConfig.compact ? "h-6 px-2" : "h-8 px-4")}>Status</TableHead>
-                  </>
-                )}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {/* Render data rows */}
-              {tableData.length > 0 ? (
-                tableData.map((row: any, rowIdx: number) => {
-                  const selected = isRowSelected(row);
-                  return (
-                    <TableRow 
-                      key={rowIdx}
-                      className={cn(
-                        tableConfig.selectable && "cursor-pointer hover:bg-muted/50 transition-colors",
-                        selected && "bg-primary/15 hover:bg-primary/20 font-medium",
-                        tableConfig.striped && !selected && rowIdx % 2 === 1 && "bg-muted/30"
-                      )}
-                      onClick={() => handleRowClick(row)}
-                    >
-                      {columnsToRender.length > 0 ? (
-                        columnsToRender.map((col: any) => (
-                          <TableCell 
-                            key={col.key} 
-                            className={cn(
-                              "text-xs text-foreground truncate max-w-[150px]",
-                              tableConfig.compact ? "px-2 py-1" : "px-4 py-2"
-                            )}
-                          >
-                            {row[col.key] !== undefined ? String(row[col.key]) : ''}
-                          </TableCell>
-                        ))
-                      ) : (
-                        <TableCell colSpan={3} className="py-2 text-xs text-muted-foreground">
-                          Configure columns in properties panel
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  );
-                })
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={columnsToRender.length || 3} className="h-24 text-center text-muted-foreground text-xs">
-                    No data available
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
+        <div className="flex-1 min-h-0">
+          <DataTable
+            data={rawTableData}
+            columns={cols}
+            selectable={!!tableConfig.selectable}
+            striped={!!tableConfig.striped}
+            compact={!!tableConfig.compact}
+            selectedRow={selectedRow}
+            onRowClick={handleRowClick}
+            pageSizeDefault={tableConfig.pageSize || 5}
+          />
         </div>
       </div>
     );

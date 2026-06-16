@@ -48,12 +48,20 @@ export function useNavbarActions() {
       if (!res.ok) throw new Error('Failed to load');
       const flows = await res.json();
       if (flows.length > 0) {
-        const latestFlow = flows[0];
-        const parsedGraph =
-          typeof latestFlow.graph_json === 'string'
-            ? JSON.parse(latestFlow.graph_json)
-            : latestFlow.graph_json;
-        loadFromJson(parsedGraph);
+        const latestFlowSummary = flows[0];
+        const detailRes = await fetch(`${API_BASE_URL}/api/flows/${latestFlowSummary.id}`);
+        if (!detailRes.ok) throw new Error('Failed to load flow details');
+        const latestFlow = await detailRes.json();
+        
+        let parsedGraph = latestFlow.graph_json;
+        if (typeof parsedGraph === 'string') {
+          parsedGraph = JSON.parse(parsedGraph);
+        }
+        if (parsedGraph) {
+          parsedGraph.id = latestFlow.id;
+          parsedGraph.name = latestFlow.name;
+          loadFromJson(parsedGraph);
+        }
       }
     } catch (e) {
       console.error(e);

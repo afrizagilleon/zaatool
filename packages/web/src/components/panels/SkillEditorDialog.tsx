@@ -205,7 +205,11 @@ export function SkillEditorDialog({ open, onOpenChange, skill, onSave }: SkillEd
               </div>
             </div>
 
-            <div className="flex-1 relative overflow-hidden">
+            <div 
+              className="flex-1 relative overflow-hidden"
+              onKeyDown={(e) => e.stopPropagation()}
+              onKeyUp={(e) => e.stopPropagation()}
+            >
               {viewMode === 'edit' ? (
                 <Editor
                   height="100%"

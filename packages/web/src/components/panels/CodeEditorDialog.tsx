@@ -152,7 +152,11 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
 
         <div className="flex flex-1 overflow-hidden min-h-0 bg-background">
           {/* Main Editor */}
-          <div className="flex-1 flex flex-col min-w-0 relative">
+          <div 
+            className="flex-1 flex flex-col min-w-0 relative"
+            onKeyDown={(e) => e.stopPropagation()}
+            onKeyUp={(e) => e.stopPropagation()}
+          >
             <Editor
               height="100%"
               language={language}

@@ -24,6 +24,8 @@ import { UiTableNode } from '../nodes/UiTableNode';
 import { UiTextNode } from '../nodes/UiTextNode';
 import { UiImageNode } from '../nodes/UiImageNode';
 import { FileNode } from '../nodes/FileNode';
+import { TriggerStartNode } from '../nodes/TriggerStartNode';
+import { TriggerCronNode } from '../nodes/TriggerCronNode';
 import type { SchemaField } from '@zaa-tool/shared';
 
 const nodeTypes = {
@@ -35,6 +37,8 @@ const nodeTypes = {
   'ui:text': UiTextNode,
   'ui:image': UiImageNode,
   file: FileNode,
+  'trigger:start': TriggerStartNode,
+  'trigger:cron': TriggerCronNode,
 };
 
 /** Default schemas for each node type when dropped */
@@ -100,6 +104,18 @@ const defaultNodeData: Record<string, () => FlowNodeData> = {
     label: 'File Input',
     inputsSchema: [],
     outputsSchema: [{ name: 'file', type: 'string' }],
+  }),
+  'trigger:start:': () => ({
+    label: 'Start Trigger',
+    inputsSchema: [],
+    outputsSchema: [{ name: 'trigger', type: 'any' }],
+  }),
+  'trigger:cron:': () => ({
+    label: 'Cron Trigger',
+    inputsSchema: [],
+    outputsSchema: [{ name: 'trigger', type: 'any' }],
+    cronExpression: '*/5 * * * *',
+    enabled: true,
   }),
 };
 
