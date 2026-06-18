@@ -18,6 +18,8 @@ export function useNavbarActions() {
     runFlow(graph);
   }, [isRunning, getGraphJson, runFlow]);
 
+  const dashboardPassword = useFlowStore((s) => s.dashboardPassword);
+
   const handleSave = useCallback(async () => {
     setIsSaving(true);
     try {
@@ -30,6 +32,7 @@ export function useNavbarActions() {
           name: graph.name,
           graph_json: graph,
           dashboard_layout: (graph as any).dashboardLayout,
+          dashboard_password: dashboardPassword,
         }),
       });
       if (!res.ok) throw new Error('Failed to save');
@@ -60,6 +63,7 @@ export function useNavbarActions() {
         if (parsedGraph) {
           parsedGraph.id = latestFlow.id;
           parsedGraph.name = latestFlow.name;
+          parsedGraph.dashboardPassword = latestFlow.dashboard_password || '';
           loadFromJson(parsedGraph);
         }
       }

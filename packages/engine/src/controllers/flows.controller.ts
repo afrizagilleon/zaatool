@@ -26,7 +26,13 @@ export class FlowsController {
       if (!flow) {
         return res.status(404).json({ error: "Not found" });
       }
-      res.json(flow);
+      res.json({
+        id: flow.id,
+        name: flow.name,
+        graph_json: typeof flow.graph_json === "string" ? JSON.parse(flow.graph_json) : flow.graph_json,
+        dashboard_layout: flow.dashboard_layout ? (typeof flow.dashboard_layout === "string" ? JSON.parse(flow.dashboard_layout) : flow.dashboard_layout) : { items: [] },
+        dashboard_password: flow.dashboard_password_hash ? "[UNCHANGED]" : "",
+      });
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
@@ -34,8 +40,8 @@ export class FlowsController {
 
   async save(req: Request, res: Response) {
     try {
-      const { id, name, graph_json, dashboard_layout } = req.body;
-      const result = await flowsService.save(id, name, graph_json, dashboard_layout);
+      const { id, name, graph_json, dashboard_layout, dashboard_password } = req.body;
+      const result = await flowsService.save(id, name, graph_json, dashboard_layout, dashboard_password);
       res.json(result);
     } catch (e: any) {
       res.status(500).json({ error: e.message });

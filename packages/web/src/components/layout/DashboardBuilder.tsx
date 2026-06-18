@@ -13,6 +13,8 @@ export function DashboardBuilder() {
   const nodes = useFlowStore((s) => s.nodes);
   const dashboardLayout = useFlowStore((s) => s.dashboardLayout);
   const setDashboardLayout = useFlowStore((s) => s.setDashboardLayout);
+  const dashboardPassword = useFlowStore((s) => s.dashboardPassword);
+  const setDashboardPassword = useFlowStore((s) => s.setDashboardPassword);
 
   const [uiNodes, setUiNodes] = useState<any[]>([]);
   const [layout, setLayout] = useState<any[]>([]);
@@ -86,6 +88,7 @@ export function DashboardBuilder() {
     try {
       const flowStore = useFlowStore.getState();
       const graph = flowStore.getGraphJson();
+      const dashboardPassword = flowStore.dashboardPassword;
       const res = await fetch(`${API_BASE_URL}/api/flows`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -94,6 +97,7 @@ export function DashboardBuilder() {
           name: flowName,
           graph_json: graph,
           dashboard_layout: { items: layout },
+          dashboard_password: dashboardPassword,
         }),
       });
 
@@ -125,6 +129,25 @@ export function DashboardBuilder() {
         </div>
 
         <div className="flex items-center gap-3">
+          <div className="flex items-center bg-muted border border-border rounded-lg px-3 py-1 text-xs gap-2">
+            <span className="text-muted-foreground font-mono">Password:</span>
+            <input
+              type="password"
+              placeholder="Set password (optional)"
+              value={dashboardPassword}
+              onChange={(e) => setDashboardPassword(e.target.value)}
+              className="bg-background border border-border rounded px-2 py-0.5 text-xs w-36 outline-none focus:border-primary text-foreground font-mono"
+            />
+            {dashboardPassword && (
+              <button
+                onClick={() => setDashboardPassword('')}
+                className="text-[10px] text-red-500 font-bold hover:underline shrink-0"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
           <div className="flex items-center bg-muted border border-border rounded-lg px-3 py-1 text-xs">
             <span className="text-muted-foreground mr-2 font-mono">Public URL:</span>
             <span className="text-foreground font-mono select-all truncate max-w-[240px]">{shareUrl}</span>
@@ -159,8 +182,8 @@ export function DashboardBuilder() {
       </div>
 
       {/* Grid Canvas */}
-      <div ref={containerRef} className="flex-1 overflow-y-auto p-8 bg-[radial-gradient(currentColor_1px,transparent_1px)] [background-size:24px_24px] text-border/30 bg-background">
-        <div className="max-w-7xl">
+      <div className="flex-1 overflow-y-auto p-8 bg-[radial-gradient(currentColor_1px,transparent_1px)] [background-size:24px_24px] text-border/30 bg-background">
+        <div ref={containerRef} className="max-w-7xl mx-auto w-full">
           {uiNodes.length === 0 ? (
             <div className="py-24 text-center border border-dashed border-border rounded-2xl flex flex-col items-center justify-center gap-3 bg-card/30">
               <Layout className="w-10 h-10 text-muted-foreground/60" />

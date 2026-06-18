@@ -75,6 +75,15 @@ export function AiFormBuilderDialog({ open, onOpenChange, nodeId, onApplySchema,
     }
   }, [generatedContent]);
 
+  const normalizeFieldType = (type: string): 'text' | 'textarea' | 'number' | 'select' | 'radio' => {
+    const t = String(type || '').toLowerCase();
+    if (['select', 'dropdown', 'combobox', 'option', 'selection'].includes(t)) return 'select';
+    if (['textarea', 'longtext', 'text-area', 'text_area'].includes(t)) return 'textarea';
+    if (['number', 'integer', 'float', 'int'].includes(t)) return 'number';
+    if (['radio', 'radiogroup', 'radio-group'].includes(t)) return 'radio';
+    return 'text';
+  };
+
   const handleApply = () => {
     if (!editorValue) return;
     try {
@@ -82,7 +91,14 @@ export function AiFormBuilderDialog({ open, onOpenChange, nodeId, onApplySchema,
       
       // Basic validation
       if (parsed.fields && Array.isArray(parsed.fields)) {
-        onApplySchema(parsed);
+        const normalizedFields = parsed.fields.map((f: any) => ({
+          ...f,
+          type: normalizeFieldType(f.type)
+        }));
+        onApplySchema({
+          ...parsed,
+          fields: normalizedFields
+        });
         onOpenChange(false);
       } else {
         alert("JSON does not contain a valid 'fields' array.");

@@ -8,9 +8,9 @@ import { PythonCodeExecutor } from "../executors/python.executor.js";
 import { IfExecutor } from "../executors/if.executor.js";
 import { LoopExecutor } from "../executors/loop.executor.js";
 import { PassthroughExecutor } from "../executors/ui.executor.js";
-import { inferSchema } from "../utils/infer-schema.js";
 import { storageService } from "../services/storage.service.js";
-import { truncateLog } from "./utils.js";
+import { getReachableNodes } from "./graph-traversal.js";
+import { executeNode } from "./node-executor.js";
 
 // Register default executors (Open-Closed extension entry)
 if (!defaultExecutorRegistry.has("code:node")) {
@@ -35,22 +35,6 @@ if (!defaultExecutorRegistry.has("ui:input")) {
   defaultExecutorRegistry.set("file", uiExecutor);
   defaultExecutorRegistry.set("trigger:start", uiExecutor);
   defaultExecutorRegistry.set("trigger:cron", uiExecutor);
-}
-
-function getReachableNodes(graph: GraphJson, startNodeId: string): Set<string> {
-  const reachable = new Set<string>([startNodeId]);
-  const queue = [startNodeId];
-  while (queue.length > 0) {
-    const current = queue.shift()!;
-    const outgoing = graph.edges.filter((e) => e.source === current);
-    for (const edge of outgoing) {
-      if (!reachable.has(edge.target)) {
-        reachable.add(edge.target);
-        queue.push(edge.target);
-      }
-    }
-  }
-  return reachable;
 }
 
 export async function runFlow(graph: GraphJson, ee?: EventEmitter, startNodeId?: string) {
@@ -106,7 +90,6 @@ export async function runFlow(graph: GraphJson, ee?: EventEmitter, startNodeId?:
     const subActiveEdges = new Set<string>();
 
     for (const nodeId of subOrder) {
-      // If we are executing a subset of the graph, check reachability
       if (reachableNodes && !reachableNodes.has(nodeId)) {
         continue;
       }
@@ -131,70 +114,19 @@ export async function runFlow(graph: GraphJson, ee?: EventEmitter, startNodeId?:
         continue;
       }
 
-      // Collect inputs from the scope chain
-      const inputs: Record<string, unknown> = {};
-      for (const edge of incomingEdges) {
-        const sourceNode = nodeMap.get(edge.source);
-        const isStaticNode = sourceNode && ["ui:input", "file", "ui:table"].includes(sourceNode.type);
-        const sourceOutput = scope.get(edge.source);
-        if (!startNodeId || subActiveEdges.has(edge.id) || isStaticNode || edge.target === startNodeId || sourceOutput !== undefined) {
-          const output = sourceOutput ?? {};
-          inputs[edge.targetHandle] = output[edge.sourceHandle];
-        }
-      }
-
-      console.log(`\n▶ [${nodeId}] ${node.data.label} (Sub-Flow)`);
-      console.log(`  inputs:`, truncateLog(inputs));
-
-      const key = node.type === "code" && node.runtime ? `${node.type}:${node.runtime}` : node.type;
-      const executor = defaultExecutorRegistry.get(key);
-      if (!executor) {
-        throw new Error(`Executor not found for ${key}`);
-      }
-
-      const startTime = Date.now();
-      ee?.emit("node:start", { type: "node:start", nodeId });
-
-      const result = await executor.execute({
-        node,
-        inputs,
+      const result = await executeNode({
+        nodeId,
+        nodeMap,
         graph,
         scope,
+        activeEdges: subActiveEdges,
+        startNodeId,
         runSubFlow,
         ee,
       });
 
-      if (result.error) {
-        ee?.emit("node:error", { type: "node:error", nodeId, error: result.error, stack: "" });
+      if (!result.success) {
         throw new Error(`Error executing node ${nodeId}: ${result.error}`);
-      }
-
-      const inferredOutputs = Object.entries(result.output ?? ({} as Record<string, unknown>)).map(
-        ([key, val]) => inferSchema(val, key)
-      );
-
-      ee?.emit("node:done", {
-        type: "node:done",
-        nodeId,
-        output: result.output ?? {},
-        ms: Date.now() - startTime,
-        activeHandle: result.activeHandle,
-        activeHandles: result.activeHandles,
-        inferredOutputsSchema: inferredOutputs,
-      });
-
-      scope.set(nodeId, result.output ?? {});
-
-      // Propagate active status to outgoing edges
-      for (const edge of graph.edges.filter((e) => e.source === nodeId)) {
-        const isActive =
-          (!result.activeHandle && !result.activeHandles) ||
-          (result.activeHandle && edge.sourceHandle === result.activeHandle) ||
-          (result.activeHandles && result.activeHandles.includes(edge.sourceHandle));
-
-        if (isActive) {
-          subActiveEdges.add(edge.id);
-        }
       }
     }
   }
@@ -228,70 +160,20 @@ export async function runFlow(graph: GraphJson, ee?: EventEmitter, startNodeId?:
       continue;
     }
 
-    // Collect inputs
-    const inputs: Record<string, unknown> = {};
-    for (const edge of incomingEdges) {
-      const sourceNode = nodeMap.get(edge.source);
-      const isStaticNode = sourceNode && ["ui:input", "file", "ui:table"].includes(sourceNode.type);
-      const sourceOutput = globalScope.get(edge.source);
-      if (!startNodeId || activeEdges.has(edge.id) || isStaticNode || edge.target === startNodeId || sourceOutput !== undefined) {
-        const output = sourceOutput ?? {};
-        inputs[edge.targetHandle] = output[edge.sourceHandle];
-      }
-    }
-
-    console.log(`\n▶ [${nodeId}] ${node.data.label}`);
-    console.log(`  inputs:`, truncateLog(inputs));
-
-    const key = node.type === "code" && node.runtime ? `${node.type}:${node.runtime}` : node.type;
-    const executor = defaultExecutorRegistry.get(key);
-    if (!executor) {
-      throw new Error(`Executor not found for ${key}`);
-    }
-
-    const startTime = Date.now();
-    ee?.emit("node:start", { type: "node:start", nodeId });
-
-    const result = await executor.execute({
-      node,
-      inputs,
+    const result = await executeNode({
+      nodeId,
+      nodeMap,
       graph,
       scope: globalScope,
+      activeEdges,
+      startNodeId,
       runSubFlow,
       ee,
     });
 
-    if (result.error) {
-      ee?.emit("node:error", { type: "node:error", nodeId, error: result.error, stack: "" });
+    if (!result.success) {
       console.error(`  ❌ ERROR: ${result.error}`);
       break;
-    }
-
-    const inferredOutputs = Object.entries(result.output ?? ({} as Record<string, unknown>)).map(
-      ([key, val]) => inferSchema(val, key)
-    );
-    ee?.emit("node:done", {
-      type: "node:done",
-      nodeId,
-      output: result.output ?? {},
-      ms: Date.now() - startTime,
-      activeHandle: result.activeHandle,
-      activeHandles: result.activeHandles,
-      inferredOutputsSchema: inferredOutputs,
-    });
-
-    globalScope.set(nodeId, result.output ?? {});
-
-    // Propagate active status to outgoing edges
-    for (const edge of graph.edges.filter((e) => e.source === nodeId)) {
-      const isActive =
-        (!result.activeHandle && !result.activeHandles) ||
-        (result.activeHandle && edge.sourceHandle === result.activeHandle) ||
-        (result.activeHandles && result.activeHandles.includes(edge.sourceHandle));
-
-      if (isActive) {
-        activeEdges.add(edge.id);
-      }
     }
   }
 

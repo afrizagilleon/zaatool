@@ -6,6 +6,7 @@ import {
   FloppyDisk,
   RocketLaunch,
   SignOut,
+  User as UserIcon,
 } from '@phosphor-icons/react';
 import { useUiStore } from '../../store/uiStore.js';
 import { useFlowStore } from '../../store/flowStore.js';
@@ -15,6 +16,7 @@ import { Button } from '../ui/button.js';
 import { useEffect, useState } from 'react';
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs.js';
 import { useNavbarActions } from '../../hooks/useNavbarActions.js';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog.js';
 
 const navTabs = [
   { id: 'workflows' as const, label: 'Workflows', disabled: false },
@@ -36,6 +38,7 @@ export function Navbar() {
 
   const [isEditingName, setIsEditingName] = useState(false);
   const [tempName, setTempName] = useState('');
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
 
   const handleRenameSubmit = () => {
     if (tempName.trim()) {
@@ -189,9 +192,13 @@ export function Navbar() {
         <>
           <div className="h-4 w-px bg-border mx-1" />
           <div className="flex items-center gap-2 pl-1">
-            <span className="text-[11px] font-semibold text-zinc-300 max-w-[80px] truncate" title={user.username}>
+            <button
+              onClick={() => setIsProfileOpen(true)}
+              className="text-[11px] font-semibold text-zinc-300 max-w-[80px] truncate hover:text-primary hover:underline transition-all outline-none bg-transparent border-none p-0 cursor-pointer"
+              title="View User Profile"
+            >
               {user.username}
-            </span>
+            </button>
             <Button
               onClick={logout}
               variant="ghost"
@@ -202,6 +209,44 @@ export function Navbar() {
               <SignOut size={14} weight="bold" />
             </Button>
           </div>
+
+          {/* User Profile Dialog */}
+          <Dialog open={isProfileOpen} onOpenChange={setIsProfileOpen}>
+            <DialogContent className="max-w-md bg-card border border-border text-card-foreground p-6 rounded-xl shadow-2xl">
+              <DialogHeader className="pb-4 border-b border-border/50">
+                <DialogTitle className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-foreground">
+                  <UserIcon size={16} className="text-primary" weight="duotone" />
+                  User Profile
+                </DialogTitle>
+                <DialogDescription className="text-xs text-muted-foreground mt-1">
+                  Your account details and system privileges.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="py-4 space-y-4 text-xs">
+                <div className="flex justify-between items-center py-2 border-b border-border/20">
+                  <span className="text-muted-foreground font-medium">Username</span>
+                  <span className="font-bold text-foreground">{user.username}</span>
+                </div>
+                <div className="flex justify-between items-center py-2 border-b border-border/20">
+                  <span className="text-muted-foreground font-medium">Email Address</span>
+                  <span className="font-semibold text-foreground">{user.email || "N/A"}</span>
+                </div>
+                <div className="flex justify-between items-center py-2 border-b border-border/20">
+                  <span className="text-muted-foreground font-medium">System Role</span>
+                  <span className="font-bold px-2 py-0.5 rounded bg-primary/10 text-primary uppercase text-[10px]">
+                    {user.role || "viewer"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="pt-2 flex justify-end">
+                <Button size="sm" onClick={() => setIsProfileOpen(false)} className="h-8 text-xs">
+                  Close
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         </>
       )}
     </header>

@@ -91,6 +91,35 @@ export async function initDb() {
       END $$;
     `);
 
+    // Add dashboard_password columns to flows table
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE flows ADD COLUMN dashboard_password_hash TEXT;
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
+
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE flows ADD COLUMN dashboard_password_lock_until TIMESTAMP;
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
+
+    // Add role column to users table
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE users ADD COLUMN role VARCHAR(50) DEFAULT 'viewer';
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
+
     await client.query("COMMIT");
     console.log("✅ Database initialized successfully.");
   } catch (err) {

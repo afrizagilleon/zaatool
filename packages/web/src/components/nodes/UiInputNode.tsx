@@ -179,10 +179,10 @@ export function UiInputNode({ id, data, selected }: UiInputNodeProps) {
                   ) : field.type === 'select' ? (
                     <Select 
                       value={formValues[field.id] || ''} 
-                      onValueChange={(val) => handleFieldChange(field.id, val, true)}
+                      onValueChange={(val) => handleFieldChange(field.id, val, uiSchema.layout?.triggerOn === 'change')}
                       disabled={isDisabled}
                     >
-                      <SelectTrigger className="h-8 text-xs">
+                      <SelectTrigger className="h-8 text-xs" type="button">
                         <SelectValue placeholder={isBound ? 'Dynamic Value' : (field.placeholder || 'Select...')} />
                       </SelectTrigger>
                       <SelectContent>
@@ -195,13 +195,13 @@ export function UiInputNode({ id, data, selected }: UiInputNodeProps) {
                   ) : field.type === 'radio' ? (
                     <RadioGroup 
                       value={formValues[field.id] || ''} 
-                      onValueChange={(val) => handleFieldChange(field.id, val, true)}
+                      onValueChange={(val) => handleFieldChange(field.id, val, uiSchema.layout?.triggerOn === 'change')}
                       className="flex flex-col space-y-1 mt-1"
                       disabled={isDisabled}
                     >
                       {options.map((opt: any) => (
                         <div key={opt.value} className="flex items-center space-x-2">
-                          <RadioGroupItem value={opt.value} id={`${field.id}-${opt.value}`} disabled={isDisabled} />
+                          <RadioGroupItem value={opt.value} id={`${field.id}-${opt.value}`} disabled={isDisabled} type="button" />
                           <Label htmlFor={`${field.id}-${opt.value}`} className="text-xs font-normal">{opt.label}</Label>
                         </div>
                       ))}

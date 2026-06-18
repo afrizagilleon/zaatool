@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { API_BASE_URL } from '../lib/api.js';
+import { safeJsonStringify } from '../lib/utils.js';
 
 export interface Skill {
   id: string;
@@ -44,10 +45,12 @@ export function useAiGeneration({ runtime, inputsSchema, outputsSchema, upstream
       });
   }, []);
 
-  const generate = async (existingCode?: string) => {
+  const generate = async (existingCode?: string | any) => {
     if (!prompt) return;
     setIsGenerating(true);
     setGeneratedContent('');
+
+    const actualExistingCode = typeof existingCode === 'string' ? existingCode : undefined;
 
     try {
       let finalPrompt = prompt;
@@ -64,13 +67,15 @@ export function useAiGeneration({ runtime, inputsSchema, outputsSchema, upstream
         ? "Write a detailed prompt or skill for an AI agent. " + finalPrompt
         : finalPrompt;
 
+
+
       const res = await fetch(`${API_BASE_URL}/api/ai/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: safeJsonStringify({
           instruction: instructionPayload,
           runtime,
-          existingCode,
+          existingCode: actualExistingCode,
           thisNode: {
             inputsSchema: inputsSchema || [],
             outputsSchema: outputsSchema || []

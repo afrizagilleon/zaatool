@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { authService } from "../services/auth.service.js";
+import { pool } from "../db/connection.js";
 
 export class AuthController {
   async register(req: Request, res: Response) {
@@ -34,7 +35,18 @@ export class AuthController {
     if (!user) {
       return res.status(401).json({ error: "Unauthorized" });
     }
-    res.json({ success: true, user });
+    try {
+      const { rows } = await pool.query(
+        "SELECT id, username, email, role FROM users WHERE id = $1",
+        [user.id]
+      );
+      if (rows.length === 0) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      res.json({ success: true, user: rows[0] });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   }
 }
 

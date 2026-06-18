@@ -151,7 +151,7 @@ export function AiGeneratorPanel({
             />
             <Button
               className="w-full h-9 text-xs font-bold shadow-md hover:shadow-lg transition-all relative overflow-hidden group"
-              onClick={onGenerate}
+              onClick={() => onGenerate()}
               disabled={isGenerating || !prompt}
             >
               <div className="absolute inset-0 bg-gradient-to-r from-primary/0 via-primary-foreground/10 to-primary/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000 ease-in-out" />

@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFileSync, readdirSync } from "node:fs";
 import { EventEmitter } from "node:events";
+import bcrypt from "bcrypt";
 
 import { skillsRouter } from "../routes/skills.route.js";
 import { secretsRouter } from "../routes/secrets.route.js";
@@ -20,6 +21,7 @@ import { runFlow } from "../core/flow-runner.js";
 import type { GraphJson } from "@zaa-tool/shared";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const failedAttempts = new Map<string, { count: number; lockUntil: number }>();
 
 export function createApp(onFlowEvent: (data: Record<string, unknown>) => void) {
   const app = express();
@@ -68,9 +70,84 @@ export function createApp(onFlowEvent: (data: Record<string, unknown>) => void) 
       if (!flow) {
         return res.status(404).json({ error: "Flow not found" });
       }
+
+      if (flow.dashboard_password_hash) {
+        const password = req.headers["x-dashboard-password"] || req.query.password;
+        if (!password) {
+          return res.json({
+            id: flow.id,
+            name: flow.name,
+            isPasswordProtected: true
+          });
+        }
+
+        const lockInfo = failedAttempts.get(flow.id);
+        if (lockInfo && lockInfo.lockUntil > Date.now()) {
+          return res.status(429).json({ error: "Too many failed attempts. Locked for 5 minutes." });
+        }
+
+        const isMatch = await bcrypt.compare(String(password), flow.dashboard_password_hash);
+        if (!isMatch) {
+          const currentCount = (lockInfo?.count || 0) + 1;
+          if (currentCount >= 5) {
+            failedAttempts.set(flow.id, { count: 0, lockUntil: Date.now() + 5 * 60 * 1000 });
+            return res.status(429).json({ error: "Too many failed attempts. Locked for 5 minutes." });
+          } else {
+            failedAttempts.set(flow.id, { count: currentCount, lockUntil: 0 });
+            return res.status(401).json({ error: "Incorrect password" });
+          }
+        }
+        failedAttempts.delete(flow.id);
+      }
+
       res.json({
         id: flow.id,
         name: flow.name,
+        graph_json: typeof flow.graph_json === "string" ? JSON.parse(flow.graph_json) : flow.graph_json,
+        dashboard_layout: flow.dashboard_layout ? (typeof flow.dashboard_layout === "string" ? JSON.parse(flow.dashboard_layout) : flow.dashboard_layout) : { items: [] }
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Verify dashboard password and return full details
+  app.post("/api/flows/:id/verify-password", async (req, res) => {
+    try {
+      const { password } = req.body;
+      const flow = await flowsService.getById(req.params.id);
+      if (!flow) {
+        return res.status(404).json({ error: "Flow not found" });
+      }
+
+      if (!flow.dashboard_password_hash) {
+        return res.json({
+          success: true,
+          graph_json: typeof flow.graph_json === "string" ? JSON.parse(flow.graph_json) : flow.graph_json,
+          dashboard_layout: flow.dashboard_layout ? (typeof flow.dashboard_layout === "string" ? JSON.parse(flow.dashboard_layout) : flow.dashboard_layout) : { items: [] }
+        });
+      }
+
+      const lockInfo = failedAttempts.get(flow.id);
+      if (lockInfo && lockInfo.lockUntil > Date.now()) {
+        return res.status(429).json({ error: "Too many failed attempts. Locked for 5 minutes." });
+      }
+
+      const isMatch = await bcrypt.compare(String(password || ""), flow.dashboard_password_hash);
+      if (!isMatch) {
+        const currentCount = (lockInfo?.count || 0) + 1;
+        if (currentCount >= 5) {
+          failedAttempts.set(flow.id, { count: 0, lockUntil: Date.now() + 5 * 60 * 1000 });
+          return res.status(429).json({ error: "Too many failed attempts. Locked for 5 minutes." });
+        } else {
+          failedAttempts.set(flow.id, { count: currentCount, lockUntil: 0 });
+          return res.status(401).json({ error: "Incorrect password" });
+        }
+      }
+
+      failedAttempts.delete(flow.id);
+      res.json({
+        success: true,
         graph_json: typeof flow.graph_json === "string" ? JSON.parse(flow.graph_json) : flow.graph_json,
         dashboard_layout: flow.dashboard_layout ? (typeof flow.dashboard_layout === "string" ? JSON.parse(flow.dashboard_layout) : flow.dashboard_layout) : { items: [] }
       });
@@ -86,6 +163,14 @@ export function createApp(onFlowEvent: (data: Record<string, unknown>) => void) 
       const flow = await flowsService.getById(req.params.id);
       if (!flow) {
         return res.status(404).json({ error: "Flow not found" });
+      }
+
+      if (flow.dashboard_password_hash) {
+        const password = req.headers["x-dashboard-password"];
+        const isMatch = await bcrypt.compare(String(password || ""), flow.dashboard_password_hash);
+        if (!isMatch) {
+          return res.status(401).json({ error: "Unauthorized: Invalid dashboard password" });
+        }
       }
 
       const graph: GraphJson = typeof flow.graph_json === "string" ? JSON.parse(flow.graph_json) : flow.graph_json;

@@ -1,60 +1,12 @@
 import { create } from 'zustand';
-import {
-  applyNodeChanges,
-  applyEdgeChanges,
-  addEdge,
-} from '@xyflow/react';
+import { applyNodeChanges, applyEdgeChanges, addEdge } from '@xyflow/react';
 import { useUiStore } from './uiStore';
-import type {
-  Connection,
-  Edge,
-  Node,
-  OnNodesChange,
-  OnEdgesChange,
-  OnConnect,
-} from '@xyflow/react';
-import type { GraphJson, NodeDef, SchemaField } from '@zaa-tool/shared';
+import type { Connection } from '@xyflow/react';
+import type { NodeDef } from '@zaa-tool/shared';
+import type { FlowState, FlowNode } from './flowTypes';
 
-export type FlowNodeData = NodeDef['data'] & {
-  runtime?: 'node' | 'python';
-  inferredOutputsSchema?: SchemaField[];
-  inputs?: Record<string, any>;
-};
-
-export type FlowNode = Node<FlowNodeData, string>;
-
-export interface FlowState {
-  id: string;
-  name: string;
-  nodes: FlowNode[];
-  edges: Edge[];
-  activeNodeId: string | null;
-  viewport: { x: number; y: number; zoom: number };
-  dashboardLayout: any;
-
-  setViewport: (viewport: { x: number; y: number; zoom: number }) => void;
-  setDashboardLayout: (layout: any) => void;
-  setFlowName: (name: string) => void;
-
-  onNodesChange: OnNodesChange<FlowNode>;
-  onEdgesChange: OnEdgesChange;
-  onConnect: OnConnect;
-  setActiveNodeId: (id: string | null) => void;
-  updateNodeData: (id: string, data: Partial<FlowNodeData>) => void;
-  updateSchemaField: (
-    nodeId: string,
-    schemaType: 'inputsSchema' | 'outputsSchema',
-    index: number,
-    patch: Partial<SchemaField>
-  ) => void;
-  addNode: (node: FlowNode) => void;
-  removeNode: (id: string) => void;
-  getGraphJson: () => GraphJson;
-  loadFromJson: (graph: GraphJson) => void;
-}
-
-let nodeIdCounter = 0;
-export const generateNodeId = () => `node_${Date.now()}_${nodeIdCounter++}`;
+export type { FlowNodeData, FlowNode, FlowState } from './flowTypes';
+export { generateNodeId } from './flowTypes';
 
 export const useFlowStore = create<FlowState>((set, get) => ({
   id: 'flow-1',
@@ -64,21 +16,19 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   activeNodeId: null,
   viewport: { x: 0, y: 0, zoom: 1 },
   dashboardLayout: { items: [] },
+  dashboardPassword: '',
+
   setDashboardLayout: (layout) => set({ dashboardLayout: layout }),
   setFlowName: (name) => set({ name }),
-
+  setDashboardPassword: (password) => set({ dashboardPassword: password }),
   setViewport: (viewport) => set({ viewport }),
 
   onNodesChange: (changes) => {
-    set({
-      nodes: applyNodeChanges(changes, get().nodes),
-    });
+    set({ nodes: applyNodeChanges(changes, get().nodes) });
   },
 
   onEdgesChange: (changes) => {
-    set({
-      edges: applyEdgeChanges(changes, get().edges),
-    });
+    set({ edges: applyEdgeChanges(changes, get().edges) });
   },
 
   onConnect: (connection: Connection) => {
@@ -93,18 +43,13 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     });
   },
 
-  setActiveNodeId: (id) => {
-    set({ activeNodeId: id });
-  },
+  setActiveNodeId: (id) => set({ activeNodeId: id }),
 
   updateNodeData: (id, data) => {
     set({
-      nodes: get().nodes.map((node) => {
-        if (node.id === id) {
-          return { ...node, data: { ...node.data, ...data } };
-        }
-        return node;
-      }),
+      nodes: get().nodes.map((node) =>
+        node.id === id ? { ...node, data: { ...node.data, ...data } } : node,
+      ),
     });
   },
 
@@ -120,7 +65,6 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     const newField = { ...oldField, ...patch };
     const newSchema = schema.map((f, i) => (i === index ? newField : f));
 
-    // Update edges if name changed
     let newEdges = state.edges;
     if (patch.name && patch.name !== oldField.name) {
       newEdges = state.edges.map((e) => {
@@ -135,19 +79,14 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     }
 
     set({
-      nodes: state.nodes.map((n) => {
-        if (n.id === nodeId) {
-          return { ...n, data: { ...n.data, [schemaType]: newSchema } };
-        }
-        return n;
-      }),
+      nodes: state.nodes.map((n) =>
+        n.id === nodeId ? { ...n, data: { ...n.data, [schemaType]: newSchema } } : n,
+      ),
       edges: newEdges,
     });
   },
 
-  addNode: (node) => {
-    set({ nodes: [...get().nodes, node] });
-  },
+  addNode: (node) => set({ nodes: [...get().nodes, node] }),
 
   removeNode: (id) => {
     const state = get();
@@ -160,7 +99,6 @@ export const useFlowStore = create<FlowState>((set, get) => ({
 
   getGraphJson: () => {
     const { id, name, nodes, edges, viewport, dashboardLayout } = get();
-    // Retrieve layoutDirection from uiStore (safe to read synchronously)
     const layoutDirection = useUiStore.getState().layoutDirection;
 
     return {
@@ -212,6 +150,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       name: graph.name || 'Untitled Flow',
       viewport: graph.viewport || { x: 0, y: 0, zoom: 1 },
       dashboardLayout: graph.dashboardLayout || { items: [] },
+      dashboardPassword: graph.dashboardPassword || '',
       nodes: (graph.nodes || []).map((n: any) => {
         let inputsSchema = n.data?.inputsSchema || [];
         if (n.type === 'ui:input' && n.data?.uiSchema?.fields) {
@@ -225,11 +164,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
               });
             }
             if (['select', 'multi-select', 'radio'].includes(f.type)) {
-              inputsList.push({
-                name: `options_${f.id}`,
-                type: 'array',
-                required: false,
-              });
+              inputsList.push({ name: `options_${f.id}`, type: 'array', required: false });
             }
             return inputsList;
           });
@@ -238,11 +173,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
           id: n.id,
           type: n.type,
           position: n.position,
-          data: {
-            ...n.data,
-            inputsSchema,
-            runtime: n.runtime,
-          },
+          data: { ...n.data, inputsSchema, runtime: n.runtime },
         };
       }),
       edges: (graph.edges || []).map((e: any) => ({
@@ -254,7 +185,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       })),
       activeNodeId: null,
     });
-    
+
     if (graph.layoutDirection) {
       useUiStore.getState().setLayoutDirection(graph.layoutDirection);
     }
