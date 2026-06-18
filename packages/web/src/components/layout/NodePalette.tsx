@@ -2,8 +2,6 @@ import { useState, type DragEvent } from 'react';
 import {
   Code,
   BracketsCurly,
-  GitBranch,
-  ArrowsClockwise,
   MagnifyingGlass,
   AppWindow,
   Table as TableIcon,
@@ -48,22 +46,6 @@ const paletteItems: PaletteItem[] = [
     icon: <BracketsCurly size={16} weight="duotone" />,
     accentClass: 'text-node-code-py',
     bgClass: 'bg-node-code-py/10 group-hover:bg-node-code-py/15',
-  },
-  {
-    type: 'if',
-    label: 'If / Branch',
-    description: 'Conditional routing',
-    icon: <GitBranch size={16} weight="duotone" />,
-    accentClass: 'text-node-if',
-    bgClass: 'bg-node-if/10 group-hover:bg-node-if/15',
-  },
-  {
-    type: 'loop',
-    label: 'Loop',
-    description: 'Iterate over array',
-    icon: <ArrowsClockwise size={16} weight="duotone" />,
-    accentClass: 'text-node-loop',
-    bgClass: 'bg-node-loop/10 group-hover:bg-node-loop/15',
   },
   {
     type: 'ui:input',
@@ -133,7 +115,6 @@ const paletteItems: PaletteItem[] = [
 
 const categories = [
   { label: 'Code', items: paletteItems.filter((i) => i.type === 'code') },
-  { label: 'Control Flow', items: paletteItems.filter((i) => i.type === 'if' || i.type === 'loop') },
   { label: 'UI Components', items: paletteItems.filter((i) => i.type.startsWith('ui:')) },
   { label: 'Data', items: paletteItems.filter((i) => i.type === 'file') },
   { label: 'Triggers', items: paletteItems.filter((i) => i.type.startsWith('trigger:')) },
