@@ -34,6 +34,7 @@ export interface FlowState {
 
   setViewport: (viewport: { x: number; y: number; zoom: number }) => void;
   setDashboardLayout: (layout: any) => void;
+  setFlowName: (name: string) => void;
 
   onNodesChange: OnNodesChange<FlowNode>;
   onEdgesChange: OnEdgesChange;
@@ -64,6 +65,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   viewport: { x: 0, y: 0, zoom: 1 },
   dashboardLayout: { items: [] },
   setDashboardLayout: (layout) => set({ dashboardLayout: layout }),
+  setFlowName: (name) => set({ name }),
 
   setViewport: (viewport) => set({ viewport }),
 
@@ -181,9 +183,16 @@ export const useFlowStore = create<FlowState>((set, get) => ({
           config: n.data.config,
           uiSchema: n.data.uiSchema,
           tableConfig: n.data.tableConfig,
+          chartConfig: n.data.chartConfig,
           inputs: n.data.inputs,
+          outputs: n.data.outputs,
           values: n.data.values,
           selectedRow: n.data.selectedRow,
+          format: n.data.format,
+          cronExpression: n.data.cronExpression,
+          enabled: n.data.enabled,
+          showInDashboard: n.data.showInDashboard,
+          showPanel: n.data.showPanel,
         },
       })),
       edges: edges.map((e) => ({
@@ -203,15 +212,39 @@ export const useFlowStore = create<FlowState>((set, get) => ({
       name: graph.name || 'Untitled Flow',
       viewport: graph.viewport || { x: 0, y: 0, zoom: 1 },
       dashboardLayout: graph.dashboardLayout || { items: [] },
-      nodes: (graph.nodes || []).map((n: any) => ({
-        id: n.id,
-        type: n.type,
-        position: n.position,
-        data: {
-          ...n.data,
-          runtime: n.runtime,
-        },
-      })),
+      nodes: (graph.nodes || []).map((n: any) => {
+        let inputsSchema = n.data?.inputsSchema || [];
+        if (n.type === 'ui:input' && n.data?.uiSchema?.fields) {
+          inputsSchema = n.data.uiSchema.fields.flatMap((f: any) => {
+            const inputsList = [];
+            if (f.replaceable) {
+              inputsList.push({
+                name: `value_${f.id}`,
+                type: f.type === 'number' ? 'number' : f.type === 'boolean' ? 'boolean' : 'string',
+                required: false,
+              });
+            }
+            if (['select', 'multi-select', 'radio'].includes(f.type)) {
+              inputsList.push({
+                name: `options_${f.id}`,
+                type: 'array',
+                required: false,
+              });
+            }
+            return inputsList;
+          });
+        }
+        return {
+          id: n.id,
+          type: n.type,
+          position: n.position,
+          data: {
+            ...n.data,
+            inputsSchema,
+            runtime: n.runtime,
+          },
+        };
+      }),
       edges: (graph.edges || []).map((e: any) => ({
         id: e.id,
         source: e.source,

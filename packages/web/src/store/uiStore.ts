@@ -11,6 +11,9 @@ interface UiState {
 
   layoutDirection: 'LR' | 'TB';
 
+  isCodeEditorOpen: boolean;
+  codeEditorNodeId: string | null;
+
   setActiveTab: (tab: UiState['activeTab']) => void;
   toggleDarkMode: () => void;
   toggleNodePalette: () => void;
@@ -19,6 +22,8 @@ interface UiState {
   toggleAiPanel: () => void;
   setCodePanelOpen: (open: boolean) => void;
   setLayoutDirection: (dir: 'LR' | 'TB') => void;
+  openCodeEditor: (nodeId: string) => void;
+  closeCodeEditor: () => void;
 }
 
 export const useUiStore = create<UiState>()(
@@ -31,6 +36,8 @@ export const useUiStore = create<UiState>()(
       isConsolePanelOpen: true,
       isAiPanelOpen: false,
       layoutDirection: 'LR',
+      isCodeEditorOpen: false,
+      codeEditorNodeId: null,
 
       setActiveTab: (tab) => set({ activeTab: tab }),
 
@@ -60,6 +67,15 @@ export const useUiStore = create<UiState>()(
       setCodePanelOpen: (open) => set({ isCodePanelOpen: open }),
 
       setLayoutDirection: (dir) => set({ layoutDirection: dir }),
+
+      openCodeEditor: (nodeId) => {
+        console.log("[uiStore] openCodeEditor called with nodeId:", nodeId);
+        set({ isCodeEditorOpen: true, codeEditorNodeId: nodeId });
+      },
+      closeCodeEditor: () => {
+        console.log("[uiStore] closeCodeEditor called");
+        set({ isCodeEditorOpen: false, codeEditorNodeId: null });
+      },
     }),
     {
       name: 'zaa-ui-storage',

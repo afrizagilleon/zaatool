@@ -15,6 +15,7 @@ export interface GenerateOptions {
   model: string;
   systemPrompt?: string;
   skills?: string[];
+  existingCode?: string;
 }
 
 export class AiService {
@@ -43,6 +44,11 @@ export class AiService {
 
     if (options.skills && options.skills.length > 0) {
       prompt += `\nRelevant Skills/Context:\n${options.skills.join("\n\n")}\n`;
+    }
+
+    if (options.existingCode && options.existingCode.trim()) {
+      prompt += `\nExisting Code:\n\`\`\`${options.runtime === "python" ? "python" : "javascript"}\n${options.existingCode}\n\`\`\`\n`;
+      prompt += `Please base your code on the existing code above, fixing errors, enhancing it, or refactoring it as requested in the instruction.\n`;
     }
 
     prompt += `\nTask: ${options.instruction}\n`;
@@ -78,10 +84,22 @@ export class AiService {
       prompt += `Important: The JSON must represent the schema for the form. It must have a 'fields' array, where each field has: 'id', 'type' (text, textarea, number, select, radio), 'label', and optional 'required' (boolean), 'placeholder', 'options' (array of {label, value} objects for select/radio).\n`;
       prompt += `Example output form schema:\n`;
       prompt += `\`\`\`json\n{\n  "fields": [\n    {"id": "name", "type": "text", "label": "Full Name", "required": true},\n    {"id": "gender", "type": "select", "label": "Gender", "options": [{"label": "Male", "value": "male"}, {"label": "Female", "value": "female"}]}\n  ],\n  "layout": {"columns": 1, "triggerOn": "submit"}\n}\n\`\`\``;
+    } else if (options.runtime === "python") {
+      prompt += `\nWrite ONLY the raw Python code inside a markdown code block (\`\`\`python ... \`\`\`). Do not explain.\n`;
+      prompt += `Provide a function \`def main(inputs):\` that returns a dictionary matching the output schema format (e.g. \`return { "output_name": value }\`).\n`;
+      prompt += `Access inputs using the 'inputs' dictionary parameter (e.g., \`inputs['input_name']\`).\n`;
+      prompt += `Note that certain inputs may be wrapped in helper classes:\n`;
+      prompt += `- Table inputs: Use methods like \`.get_rows()\`, \`.get_column("col")\`, \`.get_row(0)\`, \`.get_headers()\`, \`.get_cell(0, "col")\`, \`.count()\`, \`.filter(fn)\`.\n`;
+      prompt += `- File inputs: Use methods like \`.read_as_text()\`, \`.read_as_base64()\`, \`.exists()\`.\n`;
+      prompt += `- Image inputs: Use methods like \`.to_data_uri(mime_type)\`, \`.read_as_base64()\`, \`.exists()\`.\n`;
     } else {
-      prompt += `\nWrite ONLY the raw code inside a markdown code block (e.g. \`\`\`javascript ... \`\`\`). Do not explain.\n`;
-      prompt += `Return the outputs as a JavaScript object (e.g., \`return { outputHandleName: value };\`).\n`;
-      prompt += `The input variables are properties of the 'inputs' parameter (e.g., \`inputs.inputHandleName\`).`;
+      prompt += `\nWrite ONLY the raw JavaScript code inside a markdown code block (\`\`\`javascript ... \`\`\`). Do not explain.\n`;
+      prompt += `The code is wrapped inside an async function. Return the outputs as a JavaScript object (e.g., \`return { output_name: value };\`).\n`;
+      prompt += `Access inputs using the 'inputs' parameter (e.g., \`inputs.input_name\`).\n`;
+      prompt += `Note that certain inputs may be wrapped in helper classes:\n`;
+      prompt += `- Table inputs: Use methods like \`.getRows()\`, \`.getColumn("col")\`, \`.getRow(0)\`, \`.getHeaders()\`, \`.getCell(0, "col")\`, \`.count()\`, \`.filter(fn)\`.\n`;
+      prompt += `- File inputs: Use methods like \`.readAsText()\`, \`.readAsBase64()\`, \`.readAsBuffer()\`, \`.exists()\`.\n`;
+      prompt += `- Image inputs: Use methods like \`.toDataUri(mimeType)\`, \`.readAsBase64()\`, \`.exists()\`.\n`;
     }
     return prompt;
   }

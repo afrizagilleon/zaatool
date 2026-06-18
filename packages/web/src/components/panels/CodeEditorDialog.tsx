@@ -27,8 +27,11 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
   const isDarkMode = useUiStore((s) => s.isDarkMode);
   const node = nodes.find((n) => n.id === nodeId);
 
+  console.log("[CodeEditorDialog] Render, open:", open, "nodeId:", nodeId, "foundNode:", !!node);
+
   const [code, setCode] = useState(node?.data.code || '');
   const [isAiPanelOpen, setIsAiPanelOpen] = useState(true);
+  const [isReferenceOpen, setIsReferenceOpen] = useState(false);
   const editorRef = useRef<any>(null);
 
   // Compute upstream nodes
@@ -134,6 +137,19 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
             <Button
               variant="outline"
               size="sm"
+              onClick={() => setIsReferenceOpen(!isReferenceOpen)}
+              className={
+                isReferenceOpen
+                  ? 'bg-primary/10 text-primary border-primary/30 hover:bg-primary/20 shadow-inner'
+                  : 'hover:bg-accent/50'
+              }
+            >
+              <TerminalWindow size={14} className="mr-1.5" weight="fill" />
+              API Guide
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => setIsAiPanelOpen(!isAiPanelOpen)}
               className={
                 isAiPanelOpen
@@ -151,6 +167,116 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
         </DialogHeader>
 
         <div className="flex flex-1 overflow-hidden min-h-0 bg-background">
+          {/* Reference Sidebar */}
+          {isReferenceOpen && (
+            <div className="w-[320px] border-r border-border bg-muted/10 flex flex-col overflow-y-auto shrink-0 select-none">
+              <div className="p-4 border-b border-border bg-muted/20">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-foreground">API Reference</h3>
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Access inputs, credentials, and shape outputs using helper classes.
+                </p>
+              </div>
+              
+              <div className="p-4 space-y-5">
+                {/* Inputs Section */}
+                <div className="space-y-2">
+                  <h4 className="text-[11px] font-bold text-foreground/80 uppercase tracking-widest">Inputs</h4>
+                  {inputsSchema.length === 0 ? (
+                    <div className="text-[10px] text-muted-foreground/60 italic">No inputs defined.</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {inputsSchema.map((field: any, idx: number) => {
+                        const isTable = field.type === 'table';
+                        const isFile = field.type === 'file';
+                        const isImage = field.type === 'image';
+                        return (
+                          <div key={idx} className="p-2 bg-muted/40 border border-border/60 rounded">
+                            <div className="flex items-center justify-between">
+                              <span className="font-mono text-[11px] font-bold text-primary">{field.name}</span>
+                              <span className="text-[9px] uppercase font-semibold text-muted-foreground/80 bg-muted px-1.5 py-0.5 rounded">{field.type}</span>
+                            </div>
+                            
+                            {/* Access Example code */}
+                            <div className="mt-1.5 font-mono text-[10px] text-muted-foreground/90 space-y-1">
+                              {language === 'javascript' ? (
+                                <>
+                                  <div className="text-foreground/70">const val = inputs.{field.name};</div>
+                                  {isTable && <div className="text-primary/70 font-semibold">{"// Methods: .getRows(), .getColumn(\"col\"), .getRow(0), .getHeaders(), .getCell(0, \"col\"), .count(), .filter(row => row.age > 20)"}</div>}
+                                  {isFile && <div className="text-primary/70 font-semibold">// Methods: .readAsText(), .readAsBase64(), .readAsBuffer(), .exists()</div>}
+                                  {isImage && <div className="text-primary/70 font-semibold">// Methods: .toDataUri(mimeType), .readAsBase64(), .exists()</div>}
+                                </>
+                              ) : (
+                                <>
+                                  <div className="text-foreground/70">val = inputs['{field.name}']</div>
+                                  {isTable && <div className="text-primary/70 font-semibold">{"# Methods: .get_rows(), .get_column(\"col\"), .get_row(0), .get_headers(), .get_cell(0, \"col\"), .count(), .filter(lambda row: row['age'] > 20)"}</div>}
+                                  {isFile && <div className="text-primary/70 font-semibold"># Methods: .read_as_text(), .read_as_base64(), .exists()</div>}
+                                  {isImage && <div className="text-primary/70 font-semibold"># Methods: .to_data_uri(mime_type), .read_as_base64(), .exists()</div>}
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Secrets Section */}
+                <div className="space-y-2">
+                  <h4 className="text-[11px] font-bold text-foreground/80 uppercase tracking-widest">Secrets & Credentials</h4>
+                  <div className="p-2 bg-muted/40 border border-border/60 rounded text-[10px] space-y-1.5">
+                    <p className="text-muted-foreground/80">Secrets are automatically injected into the process environment.</p>
+                    <div className="font-mono text-foreground/70">
+                      {language === 'javascript' ? (
+                        <div>const key = process.env.MY_SECRET_KEY;</div>
+                      ) : (
+                        <>
+                          <div>import os</div>
+                          <div>key = os.environ.get("MY_SECRET_KEY")</div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Outputs Section */}
+                <div className="space-y-2">
+                  <h4 className="text-[11px] font-bold text-foreground/80 uppercase tracking-widest">Outputs</h4>
+                  {outputsSchema.length === 0 ? (
+                    <div className="text-[10px] text-muted-foreground/60 italic">No outputs schema defined.</div>
+                  ) : (
+                    <div className="p-2 bg-muted/40 border border-border/60 rounded text-[10px] space-y-2">
+                      <p className="text-muted-foreground/80">Return a value/object matching the schema format:</p>
+                      <div className="font-mono text-foreground/70 space-y-1">
+                        {language === 'javascript' ? (
+                          <>
+                            <div>return &#123;</div>
+                            {outputsSchema.map((field: any, idx: number) => (
+                              <div key={idx} className="pl-3">
+                                {field.name}: {field.type === 'string' ? '"value"' : field.type === 'number' ? '42' : field.type === 'boolean' ? 'true' : '[]'},
+                              </div>
+                            ))}
+                            <div>&#125;;</div>
+                          </>
+                        ) : (
+                          <>
+                            <div>return &#123;</div>
+                            {outputsSchema.map((field: any, idx: number) => (
+                              <div key={idx} className="pl-3">
+                                "{field.name}": {field.type === 'string' ? '"value"' : field.type === 'number' ? '42' : field.type === 'boolean' ? 'True' : '[]'},
+                              </div>
+                            ))}
+                            <div>&#125;</div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Main Editor */}
           <div 
             className="flex-1 flex flex-col min-w-0 relative"
@@ -195,7 +321,7 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
               skills={skills}
               isGenerating={isGenerating}
               generatedContent={generatedContent}
-              onGenerate={generate}
+              onGenerate={() => generate(code)}
               onAccept={acceptGeneratedCode}
               onReject={rejectGeneratedCode}
               isDarkMode={isDarkMode}

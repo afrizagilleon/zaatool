@@ -226,7 +226,7 @@ export function DataTable({
                             compact ? "px-2.5 py-1.5" : "px-4 py-2"
                           )}
                         >
-                          {typeof val === 'object' && val !== null ? JSON.stringify(val) : String(val ?? '')}
+                          {typeof val === 'number' ? new Intl.NumberFormat().format(val) : typeof val === 'object' && val !== null ? JSON.stringify(val) : String(val ?? '')}
                         </TableCell>
                       );
                     })}

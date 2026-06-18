@@ -15,7 +15,9 @@ export function runJsNode(
   code: string,
   inputs: Record<string, unknown>,
   timeoutMs = 5000,
-  onLog?: (level: string, msg: string) => void
+  onLog?: (level: string, msg: string) => void,
+  secrets: Record<string, string> = {},
+  inputsSchema: any[] = []
 ): Promise<RunResult> {
   return new Promise((resolve) => {
     const startTime = Date.now();
@@ -27,7 +29,10 @@ export function runJsNode(
 
     const worker = new Worker(
       workerPath,
-      { workerData: { code, inputs } }
+      {
+        workerData: { code, inputs, secrets, inputsSchema },
+        execArgv: process.execArgv,
+      }
     );
 
     // timeout, force kill

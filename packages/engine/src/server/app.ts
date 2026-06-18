@@ -111,6 +111,14 @@ export function createApp(onFlowEvent: (data: Record<string, unknown>) => void) 
               ...node.data,
               selectedRow: inputs?.selectedRow !== undefined ? inputs.selectedRow : (node.data.selectedRow || null),
             };
+          } else if (node.type === "file") {
+            node.data = {
+              ...node.data,
+              inputs: {
+                ...(node.data.inputs || {}),
+                file: inputs?.file !== undefined ? inputs.file : (node.data.inputs?.file || null),
+              },
+            };
           }
         }
       }

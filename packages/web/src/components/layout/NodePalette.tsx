@@ -11,10 +11,14 @@ import {
   Image as ImageIcon,
   File as FileIcon,
   Play,
-  Clock
+  Clock,
+  Sidebar,
+  ChartBar
 } from '@phosphor-icons/react';
 import { cn } from '../../lib/utils';
 import { Input } from '../ui/input';
+import { Button } from '../ui/button';
+import { useUiStore } from '../../store/uiStore';
 
 interface PaletteItem {
   type: string;
@@ -78,6 +82,14 @@ const paletteItems: PaletteItem[] = [
     bgClass: 'bg-blue-500/10 group-hover:bg-blue-500/15',
   },
   {
+    type: 'ui:chart',
+    label: 'Chart Display',
+    description: 'Render bar/line/pie charts',
+    icon: <ChartBar size={16} weight="duotone" />,
+    accentClass: 'text-purple-500',
+    bgClass: 'bg-purple-500/10 group-hover:bg-purple-500/15',
+  },
+  {
     type: 'ui:text',
     label: 'Text Display',
     description: 'Render text/markdown',
@@ -129,6 +141,7 @@ const categories = [
 
 export function NodePalette() {
   const [search, setSearch] = useState('');
+  const toggleNodePalette = useUiStore((s) => s.toggleNodePalette);
 
   const filteredCategories = categories
     .map((cat) => ({
@@ -158,9 +171,20 @@ export function NodePalette() {
     >
       {/* Header */}
       <div className="px-3 pt-3 pb-2">
-        <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2">
-          Nodes
-        </h2>
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+            Nodes
+          </h2>
+          <Button
+            onClick={toggleNodePalette}
+            variant="ghost"
+            size="icon"
+            className="w-5 h-5 text-muted-foreground hover:text-foreground"
+            title="Close Node Palette"
+          >
+            <Sidebar size={12} />
+          </Button>
+        </div>
         <div className="relative">
           <MagnifyingGlass
             size={13}

@@ -32,10 +32,31 @@ export function UiInputProperties({ nodeId }: { nodeId: string }) {
         type: (f.type === 'number' ? 'number' : (f.type as string) === 'switch' || (f.type as string) === 'checkbox' ? 'boolean' : 'string') as any
       })) || []
     }];
+
+    // Sync to inputsSchema so FlowCanvas validation logic recognizes the dynamic input handles
+    const newInputsSchema = nextSchema.fields?.flatMap(f => {
+      const inputsList = [];
+      if (f.replaceable) {
+        inputsList.push({
+          name: `value_${f.id}`,
+          type: (f.type === 'number' ? 'number' : (f.type as string) === 'boolean' ? 'boolean' : 'string') as any,
+          required: false,
+        });
+      }
+      if (['select', 'multi-select', 'radio'].includes(f.type)) {
+        inputsList.push({
+          name: `options_${f.id}`,
+          type: 'array' as const,
+          required: false,
+        });
+      }
+      return inputsList;
+    }) || [];
     
     updateNodeData(nodeId, { 
       uiSchema: nextSchema,
-      outputsSchema: newOutputsSchema
+      outputsSchema: newOutputsSchema,
+      inputsSchema: newInputsSchema
     });
   };
 
@@ -120,13 +141,23 @@ export function UiInputProperties({ nodeId }: { nodeId: string }) {
               <Input value={field.label} onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateField(idx, { label: e.target.value })} className="h-7 text-xs" />
             </div>
             
-            <div className="flex items-center gap-2 pt-1">
-              <Switch 
-                id={`req-${idx}`} 
-                checked={!!field.required} 
-                onCheckedChange={(v: boolean) => updateField(idx, { required: v })} 
-              />
-              <Label htmlFor={`req-${idx}`} className="text-[10px]">Required</Label>
+            <div className="flex items-center justify-between pt-1">
+              <div className="flex items-center gap-2">
+                <Switch 
+                  id={`req-${idx}`} 
+                  checked={!!field.required} 
+                  onCheckedChange={(v: boolean) => updateField(idx, { required: v })} 
+                />
+                <Label htmlFor={`req-${idx}`} className="text-[10px]">Required</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch 
+                  id={`rep-${idx}`} 
+                  checked={!!field.replaceable} 
+                  onCheckedChange={(v: boolean) => updateField(idx, { replaceable: v })} 
+                />
+                <Label htmlFor={`rep-${idx}`} className="text-[10px]">Replaceable (Dynamic)</Label>
+              </div>
             </div>
           </div>
         ))}
@@ -163,6 +194,16 @@ export function UiInputProperties({ nodeId }: { nodeId: string }) {
               </SelectContent>
             </Select>
           </div>
+        </div>
+
+        <div className="space-y-1">
+          <Label className="text-[10px]">Submit Button Label</Label>
+          <Input 
+            value={uiSchema.layout?.submitLabel || 'Submit'} 
+            onChange={(e) => updateSchema({ layout: { ...uiSchema.layout, submitLabel: e.target.value } })} 
+            className="h-7 text-xs" 
+            placeholder="Submit"
+          />
         </div>
       </div>
     </div>

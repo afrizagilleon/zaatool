@@ -9,6 +9,8 @@ import { IfExecutor } from "../executors/if.executor.js";
 import { LoopExecutor } from "../executors/loop.executor.js";
 import { PassthroughExecutor } from "../executors/ui.executor.js";
 import { inferSchema } from "../utils/infer-schema.js";
+import { storageService } from "../services/storage.service.js";
+import { truncateLog } from "./utils.js";
 
 // Register default executors (Open-Closed extension entry)
 if (!defaultExecutorRegistry.has("code:node")) {
@@ -27,6 +29,7 @@ if (!defaultExecutorRegistry.has("ui:input")) {
   const uiExecutor = new PassthroughExecutor();
   defaultExecutorRegistry.set("ui:input", uiExecutor);
   defaultExecutorRegistry.set("ui:table", uiExecutor);
+  defaultExecutorRegistry.set("ui:chart", uiExecutor);
   defaultExecutorRegistry.set("ui:text", uiExecutor);
   defaultExecutorRegistry.set("ui:image", uiExecutor);
   defaultExecutorRegistry.set("file", uiExecutor);
@@ -60,6 +63,32 @@ export async function runFlow(graph: GraphJson, ee?: EventEmitter, startNodeId?:
 
   // Root output scope
   const globalScope = new Scope();
+
+  // Pre-populate scope with cached outputs (caching/checkpoints)
+  for (const node of graph.nodes) {
+    if (node.data.outputs) {
+      globalScope.set(node.id, node.data.outputs);
+    }
+  }
+
+  // Pre-populate scope with static UI/data nodes' output values
+  for (const node of graph.nodes) {
+    if (node.type === "ui:input") {
+      globalScope.set(node.id, { values: node.data.values || {} });
+    } else if (node.type === "file") {
+      const filePath = node.data.inputs?.file;
+      globalScope.set(node.id, {
+        file: filePath ? {
+          name: filePath.split("/").pop() || filePath,
+          path: filePath,
+          url: filePath,
+          absolute_path: storageService.resolvePath("", filePath),
+        } : null
+      });
+    } else if (node.type === "ui:table") {
+      globalScope.set(node.id, { selectedRow: node.data.selectedRow || null });
+    }
+  }
 
   // Track active edges
   const activeEdges = new Set<string>();
@@ -105,12 +134,17 @@ export async function runFlow(graph: GraphJson, ee?: EventEmitter, startNodeId?:
       // Collect inputs from the scope chain
       const inputs: Record<string, unknown> = {};
       for (const edge of incomingEdges) {
-        const sourceOutput = scope.get(edge.source) ?? {};
-        inputs[edge.targetHandle] = sourceOutput[edge.sourceHandle];
+        const sourceNode = nodeMap.get(edge.source);
+        const isStaticNode = sourceNode && ["ui:input", "file", "ui:table"].includes(sourceNode.type);
+        const sourceOutput = scope.get(edge.source);
+        if (!startNodeId || subActiveEdges.has(edge.id) || isStaticNode || edge.target === startNodeId || sourceOutput !== undefined) {
+          const output = sourceOutput ?? {};
+          inputs[edge.targetHandle] = output[edge.sourceHandle];
+        }
       }
 
       console.log(`\n▶ [${nodeId}] ${node.data.label} (Sub-Flow)`);
-      console.log(`  inputs:`, inputs);
+      console.log(`  inputs:`, truncateLog(inputs));
 
       const key = node.type === "code" && node.runtime ? `${node.type}:${node.runtime}` : node.type;
       const executor = defaultExecutorRegistry.get(key);
@@ -197,14 +231,17 @@ export async function runFlow(graph: GraphJson, ee?: EventEmitter, startNodeId?:
     // Collect inputs
     const inputs: Record<string, unknown> = {};
     for (const edge of incomingEdges) {
-      if (!startNodeId || activeEdges.has(edge.id)) {
-        const sourceOutput = globalScope.get(edge.source) ?? {};
-        inputs[edge.targetHandle] = sourceOutput[edge.sourceHandle];
+      const sourceNode = nodeMap.get(edge.source);
+      const isStaticNode = sourceNode && ["ui:input", "file", "ui:table"].includes(sourceNode.type);
+      const sourceOutput = globalScope.get(edge.source);
+      if (!startNodeId || activeEdges.has(edge.id) || isStaticNode || edge.target === startNodeId || sourceOutput !== undefined) {
+        const output = sourceOutput ?? {};
+        inputs[edge.targetHandle] = output[edge.sourceHandle];
       }
     }
 
     console.log(`\n▶ [${nodeId}] ${node.data.label}`);
-    console.log(`  inputs:`, inputs);
+    console.log(`  inputs:`, truncateLog(inputs));
 
     const key = node.type === "code" && node.runtime ? `${node.type}:${node.runtime}` : node.type;
     const executor = defaultExecutorRegistry.get(key);

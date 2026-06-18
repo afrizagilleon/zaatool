@@ -10,7 +10,7 @@ export interface GraphJson {
 
 export interface NodeDef {
   id: string;
-  type: "code" | "if" | "loop" | "http" | "input" | "output" | "ui:input" | "ui:table" | "ui:text" | "ui:image" | "file" | "trigger:start" | "trigger:cron";
+  type: "code" | "if" | "loop" | "http" | "input" | "output" | "ui:input" | "ui:table" | "ui:text" | "ui:image" | "ui:chart" | "file" | "trigger:start" | "trigger:cron";
   runtime?: "node" | "python";
   position: { x: number; y: number };
     data: {
@@ -21,6 +21,7 @@ export interface NodeDef {
       config?: Record<string, unknown>;
       uiSchema?: UiInputSchema;
       tableConfig?: UiTableConfig;
+      chartConfig?: UiChartConfig;
       inputs?: Record<string, any>;
       outputs?: Record<string, any>;
       values?: Record<string, any>;
@@ -28,7 +29,17 @@ export interface NodeDef {
       format?: string;
       cronExpression?: string;
       enabled?: boolean;
+      showInDashboard?: boolean;
+      showPanel?: boolean;
     };
+}
+
+export interface UiChartConfig {
+  type: 'bar' | 'line' | 'area' | 'pie';
+  xAxisKey?: string;
+  yAxisKeys?: string[];
+  colors?: string[];
+  jsonConfig?: string;
 }
 
 export interface EdgeDef {
@@ -58,6 +69,7 @@ export interface UiInputField {
   label: string;
   placeholder?: string;
   required?: boolean;
+  replaceable?: boolean;
   defaultValue?: unknown;
   options?: { value: string; label: string }[];
   props?: {

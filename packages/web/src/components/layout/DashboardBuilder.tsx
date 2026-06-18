@@ -4,7 +4,7 @@ const Grid = ReactGridLayout as any;
 import 'react-grid-layout/css/styles.css';
 import { useFlowStore } from '../../store/flowStore.js';
 import { Button } from '../ui/button.js';
-import { Layout, FloppyDisk, ArrowSquareOut, Play, FileText, Image as ImageIcon, Table as TableIcon } from '@phosphor-icons/react';
+import { Layout, FloppyDisk, ArrowSquareOut, Play, FileText, Image as ImageIcon, Table as TableIcon, ChartBar } from '@phosphor-icons/react';
 import { API_BASE_URL } from '../../lib/api.js';
 
 export function DashboardBuilder() {
@@ -38,7 +38,8 @@ export function DashboardBuilder() {
   // Filter nodes whenever they change in flowStore
   useEffect(() => {
     const filtered = nodes.filter((n) =>
-      ['ui:input', 'ui:text', 'ui:table', 'ui:image', 'file'].includes(n.type || '')
+      ['ui:input', 'ui:text', 'ui:table', 'ui:chart', 'ui:image', 'file'].includes(n.type || '') &&
+      n.data?.showInDashboard !== false
     );
     setUiNodes(filtered);
 
@@ -53,6 +54,7 @@ export function DashboardBuilder() {
       if (node.type === 'ui:input') { w = 4; h = 5; }
       else if (node.type === 'ui:text') { w = 6; h = 4; }
       else if (node.type === 'ui:table') { w = 8; h = 6; }
+      else if (node.type === 'ui:chart') { w = 6; h = 5; }
       else if (node.type === 'ui:image') { w = 4; h = 4; }
 
       return {
@@ -65,7 +67,7 @@ export function DashboardBuilder() {
     });
 
     setLayout(newLayout);
-  }, [flowId, nodes.length]);
+  }, [flowId, nodes]);
 
   const handleLayoutChange = (newLayout: any) => {
     const formatted = newLayout.map((item: any) => ({
@@ -191,6 +193,7 @@ export function DashboardBuilder() {
                         {node.type === 'ui:input' && <Play className="w-3.5 h-3.5 text-emerald-500" />}
                         {node.type === 'ui:text' && <FileText className="w-3.5 h-3.5 text-blue-500" />}
                         {node.type === 'ui:table' && <TableIcon className="w-3.5 h-3.5 text-purple-500" />}
+                        {node.type === 'ui:chart' && <ChartBar className="w-3.5 h-3.5 text-pink-500" />}
                         {node.type === 'ui:image' && <ImageIcon className="w-3.5 h-3.5 text-orange-500" />}
                         {node.type === 'file' && <FileText className="w-3.5 h-3.5 text-yellow-500" />}
                         <span className="text-xs font-bold text-foreground">
@@ -232,6 +235,15 @@ export function DashboardBuilder() {
                           <TableIcon className="w-6 h-6 text-muted-foreground/40" />
                           <span className="text-[10px] text-muted-foreground/60 font-mono truncate max-w-full">
                             Dynamic Data Table
+                          </span>
+                        </div>
+                      )}
+
+                      {node.type === 'ui:chart' && (
+                        <div className="h-full flex flex-col justify-center items-center gap-1.5 text-center">
+                          <ChartBar className="w-6 h-6 text-muted-foreground/40" />
+                          <span className="text-[10px] text-muted-foreground/60 font-mono truncate max-w-full">
+                            Chart Display Panel
                           </span>
                         </div>
                       )}

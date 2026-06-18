@@ -1,5 +1,6 @@
 import { NodeExecutor, NodeExecutorContext, NodeExecutorResult, Scope } from "../core/types.js";
 import { GraphAnalyzer } from "../core/graph-analyzer.js";
+import { truncateLog } from "../core/utils.js";
 
 export class LoopExecutor implements NodeExecutor {
   async execute(context: NodeExecutorContext): Promise<NodeExecutorResult> {
@@ -20,7 +21,7 @@ export class LoopExecutor implements NodeExecutor {
       }
     }
 
-    console.log(`  Loop array to process:`, arrayToLoop);
+    console.log(`  Loop array to process:`, truncateLog(arrayToLoop));
 
     // 2. Identify the loop body nodes using GraphAnalyzer
     const loopBodyNodeIds = GraphAnalyzer.getLoopBodyNodes(graph, node.id);
@@ -30,7 +31,7 @@ export class LoopExecutor implements NodeExecutor {
     // 3. Execute the body for each item
     for (let i = 0; i < arrayToLoop.length; i++) {
       const currentItem = arrayToLoop[i];
-      console.log(`\n--- Loop Iteration ${i + 1}/${arrayToLoop.length} (item: ${JSON.stringify(currentItem)}) ---`);
+      console.log(`\n--- Loop Iteration ${i + 1}/${arrayToLoop.length} (item: ${truncateLog(currentItem, 150)}) ---`);
 
       // Create a local scope for this iteration
       const childScope = new Scope(scope);

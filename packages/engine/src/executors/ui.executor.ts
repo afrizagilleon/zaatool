@@ -1,4 +1,5 @@
 import type { NodeExecutorContext, NodeExecutor, NodeExecutorResult } from "../core/types.js";
+import { storageService } from "../services/storage.service.js";
 
 /**
  * A generic executor for UI nodes that just passes through its inputs to outputs.
@@ -8,9 +9,18 @@ import type { NodeExecutorContext, NodeExecutor, NodeExecutorResult } from "../c
 export class PassthroughExecutor implements NodeExecutor {
   async execute({ node, inputs }: NodeExecutorContext): Promise<NodeExecutorResult> {
     if (node.type === "ui:input") {
+      const mergedValues = { ...(node.data.values || {}) };
+      if (inputs) {
+        for (const [key, val] of Object.entries(inputs)) {
+          if (key.startsWith("value_")) {
+            const fieldId = key.replace("value_", "");
+            mergedValues[fieldId] = val;
+          }
+        }
+      }
       return {
         output: {
-          values: node.data.values || {},
+          values: mergedValues,
         },
       };
     }
@@ -23,6 +33,7 @@ export class PassthroughExecutor implements NodeExecutor {
             name: filePath.split("/").pop() || filePath,
             path: filePath,
             url: filePath,
+            absolute_path: storageService.resolvePath("", filePath),
           } : null,
         },
       };

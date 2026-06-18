@@ -1,9 +1,10 @@
 import { Handle, Position, useUpdateNodeInternals } from '@xyflow/react';
 import type { NodeProps, Node } from '@xyflow/react';
 import { TextAa, Eye, EyeSlash } from '@phosphor-icons/react';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { cn } from '../../lib/utils';
 import { useUiStore } from '../../store/uiStore';
+import { useFlowStore } from '../../store/flowStore';
 import type { FlowNodeData } from '../../store/flowStore';
 import ReactMarkdown from 'react-markdown';
 
@@ -13,7 +14,12 @@ export function UiTextNode({ id, data, selected }: UiTextNodeProps) {
   const layoutDirection = useUiStore((s) => s.layoutDirection);
   const isVertical = layoutDirection === 'TB';
   const updateNodeInternals = useUpdateNodeInternals();
-  const [showPanel, setShowPanel] = useState(true);
+  const updateNodeData = useFlowStore((s) => s.updateNodeData);
+
+  const showPanel = data.showPanel !== false;
+  const setShowPanel = (show: boolean) => {
+    updateNodeData(id, { showPanel: show });
+  };
 
   useEffect(() => {
     updateNodeInternals(id);
@@ -35,7 +41,7 @@ export function UiTextNode({ id, data, selected }: UiTextNodeProps) {
         );
       }
 
-      const textStr = typeof rawVal === 'object' ? JSON.stringify(rawVal, null, 2) : String(rawVal);
+      const textStr = typeof rawVal === 'object' ? JSON.stringify(rawVal, null, 2) : String(rawVal).replace(/\\n/g, '\n');
 
       // Determine target format
       let activeFormat = format;
@@ -59,7 +65,7 @@ export function UiTextNode({ id, data, selected }: UiTextNodeProps) {
           if (typeof rawVal !== 'object') {
             prettyJson = JSON.stringify(JSON.parse(textStr), null, 2);
           }
-        } catch {}
+        } catch { }
         return (
           <pre className="text-[11px] font-mono bg-muted/50 p-2 rounded border border-border overflow-x-auto whitespace-pre leading-relaxed max-w-full text-foreground">
             {prettyJson}
@@ -85,7 +91,7 @@ export function UiTextNode({ id, data, selected }: UiTextNodeProps) {
 
     return (
       <div className={cn(
-        "absolute bg-card text-card-foreground shadow-lg border border-border p-4 rounded-md w-80 min-h-[100px] max-h-[350px] overflow-y-auto z-10",
+        "nodrag nowheel nopan absolute bg-card text-card-foreground shadow-lg border border-border p-4 rounded-md w-80 min-h-[100px] max-h-[350px] overflow-y-auto z-10",
         isVertical ? "top-0 left-full ml-4" : "top-full mt-4 left-0"
       )}>
         <div className="text-xs font-semibold mb-2 pb-2 border-b border-border flex justify-between items-center">

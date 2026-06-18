@@ -44,7 +44,7 @@ export function useAiGeneration({ runtime, inputsSchema, outputsSchema, upstream
       });
   }, []);
 
-  const generate = async () => {
+  const generate = async (existingCode?: string) => {
     if (!prompt) return;
     setIsGenerating(true);
     setGeneratedContent('');
@@ -70,6 +70,7 @@ export function useAiGeneration({ runtime, inputsSchema, outputsSchema, upstream
         body: JSON.stringify({
           instruction: instructionPayload,
           runtime,
+          existingCode,
           thisNode: {
             inputsSchema: inputsSchema || [],
             outputsSchema: outputsSchema || []

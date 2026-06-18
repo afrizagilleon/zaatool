@@ -1,25 +1,20 @@
 import {
   Sun,
   Moon,
-  Play,
   Spinner,
-  Sidebar,
-  Terminal,
   Sparkle,
   FloppyDisk,
   RocketLaunch,
   SignOut,
 } from '@phosphor-icons/react';
 import { useUiStore } from '../../store/uiStore.js';
-import { useEngineStore } from '../../store/engineStore.js';
 import { useFlowStore } from '../../store/flowStore.js';
 import { useAuthStore } from '../../store/authStore.js';
-import { useAutoLayout } from '../../hooks/useAutoLayout.js';
-import { useNavbarActions } from '../../hooks/useNavbarActions.js';
 import { cn } from '../../lib/utils.js';
 import { Button } from '../ui/button.js';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs.js';
+import { useNavbarActions } from '../../hooks/useNavbarActions.js';
 
 const navTabs = [
   { id: 'workflows' as const, label: 'Workflows', disabled: false },
@@ -33,20 +28,23 @@ export function Navbar() {
   const toggleDarkMode = useUiStore((s) => s.toggleDarkMode);
   const activeTab = useUiStore((s) => s.activeTab);
   const setActiveTab = useUiStore((s) => s.setActiveTab);
-  const isNodePaletteOpen = useUiStore((s) => s.isNodePaletteOpen);
-  const toggleNodePalette = useUiStore((s) => s.toggleNodePalette);
-  const isConsolePanelOpen = useUiStore((s) => s.isConsolePanelOpen);
-  const toggleConsolePanel = useUiStore((s) => s.toggleConsolePanel);
   const isAiPanelOpen = useUiStore((s) => s.isAiPanelOpen);
   const toggleAiPanel = useUiStore((s) => s.toggleAiPanel);
 
-  const isRunning = useEngineStore((s) => s.isRunning);
-  const wsConnected = useEngineStore((s) => s.wsConnected);
-  const autoLayout = useAutoLayout();
-  const layoutDirection = useUiStore((s) => s.layoutDirection);
-  const setLayoutDirection = useUiStore((s) => s.setLayoutDirection);
+  const flowName = useFlowStore((s) => s.name);
+  const setFlowName = useFlowStore((s) => s.setFlowName);
 
-  const { isSaving, run, save, load } = useNavbarActions();
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [tempName, setTempName] = useState('');
+
+  const handleRenameSubmit = () => {
+    if (tempName.trim()) {
+      setFlowName(tempName.trim());
+    }
+    setIsEditingName(false);
+  };
+
+  const { isSaving, save, load } = useNavbarActions();
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
 
@@ -76,13 +74,35 @@ export function Navbar() {
       <div className="w-px h-5 bg-border mr-1" />
 
       {/* Current Workflow Label */}
-      <div className="flex flex-col justify-center px-2 mr-2 max-w-[150px]">
-        <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground leading-none mb-0.5">
+      <div className="flex flex-col justify-center px-2 mr-2 max-w-[180px]">
+        <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground leading-none mb-0.5 select-none">
           Workflow
         </span>
-        <span className="text-xs font-semibold text-foreground truncate leading-none">
-          {useFlowStore(s => s.name) || 'Untitled Flow'}
-        </span>
+        {isEditingName ? (
+          <input
+            type="text"
+            value={tempName}
+            onChange={(e) => setTempName(e.target.value)}
+            onBlur={handleRenameSubmit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleRenameSubmit();
+              if (e.key === 'Escape') setIsEditingName(false);
+            }}
+            className="text-xs font-semibold text-foreground bg-muted border border-border px-1 py-0.5 rounded outline-none w-full max-w-[140px] h-5"
+            autoFocus
+          />
+        ) : (
+          <span 
+            onClick={() => {
+              setTempName(flowName || 'Untitled Flow');
+              setIsEditingName(true);
+            }}
+            className="text-xs font-semibold text-foreground truncate leading-none cursor-pointer hover:underline"
+            title="Click to rename workflow"
+          >
+            {flowName || 'Untitled Flow'}
+          </span>
+        )}
       </div>
 
       {/* Center: Tabs */}
@@ -99,21 +119,6 @@ export function Navbar() {
           ))}
         </TabsList>
       </Tabs>
-
-      {/* Palette toggle */}
-      <Button
-        id="navbar-toggle-palette"
-        onClick={toggleNodePalette}
-        variant="ghost"
-        size="icon"
-        className={cn(
-          'w-7 h-7 ml-1',
-          isNodePaletteOpen ? 'bg-accent text-foreground' : 'text-muted-foreground'
-        )}
-        title="Toggle node palette"
-      >
-        <Sidebar size={15} weight="duotone" />
-      </Button>
 
       {/* Spacer */}
       <div className="flex-1" />
@@ -152,55 +157,6 @@ export function Navbar() {
         <div className="h-4 w-px bg-border mx-1" />
       </div>
 
-      {/* Auto Layout buttons */}
-      <div className="flex items-center bg-muted/30 p-0.5 mr-1">
-        <Button
-          id="navbar-layout-tb"
-          onClick={() => {
-            setLayoutDirection('TB');
-            autoLayout('TB');
-          }}
-          variant="ghost"
-          className={cn(
-            'h-6 px-2 text-[11px] font-semibold',
-            layoutDirection === 'TB' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:bg-muted/50'
-          )}
-          title="Auto layout (Vertical)"
-        >
-          V
-        </Button>
-        <Button
-          id="navbar-layout-lr"
-          onClick={() => {
-            setLayoutDirection('LR');
-            autoLayout('LR');
-          }}
-          variant="ghost"
-          className={cn(
-            'h-6 px-2 text-[11px] font-semibold',
-            layoutDirection === 'LR' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:bg-muted/50'
-          )}
-          title="Auto layout (Horizontal)"
-        >
-          H
-        </Button>
-      </div>
-
-      {/* Console toggle */}
-      <Button
-        id="navbar-toggle-console"
-        onClick={toggleConsolePanel}
-        variant="ghost"
-        size="icon"
-        className={cn(
-          'w-7 h-7 mr-1',
-          isConsolePanelOpen ? 'bg-accent text-foreground' : 'text-muted-foreground'
-        )}
-        title="Toggle console"
-      >
-        <Terminal size={15} weight="duotone" />
-      </Button>
-
       {/* AI Assistant toggle */}
       <Button
         id="navbar-toggle-ai"
@@ -215,21 +171,6 @@ export function Navbar() {
       >
         <Sparkle size={15} weight="duotone" />
       </Button>
-
-      {/* Connection indicator */}
-      <div
-        id="navbar-ws-status"
-        className="flex items-center gap-1.5 text-[10px] text-muted-foreground mr-2"
-        title={wsConnected ? 'Engine connected' : 'Engine disconnected'}
-      >
-        <div
-          className={cn(
-            'w-1.5 h-1.5 transition-colors',
-            wsConnected ? 'bg-status-done' : 'bg-status-idle'
-          )}
-        />
-        <span className="hidden sm:inline">{wsConnected ? 'Connected' : 'Offline'}</span>
-      </div>
 
       {/* Dark mode toggle */}
       <Button
@@ -263,32 +204,6 @@ export function Navbar() {
           </div>
         </>
       )}
-
-      {/* Run button */}
-      <Button
-        id="navbar-run-button"
-        onClick={run}
-        disabled={isRunning}
-        variant="default"
-        className={cn(
-          'h-7 px-3 text-xs font-semibold ml-1',
-          isRunning
-            ? 'bg-emerald-500/15 text-emerald-400 opacity-100 cursor-wait'
-            : 'bg-emerald-500/15 text-emerald-500 hover:bg-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-400 dark:hover:bg-emerald-500/20'
-        )}
-      >
-        {isRunning ? (
-          <>
-            <Spinner size={13} className="animate-spin mr-1.5" />
-            Running
-          </>
-        ) : (
-          <>
-            <Play size={13} weight="fill" className="mr-1.5" />
-            Run
-          </>
-        )}
-      </Button>
     </header>
   );
 }

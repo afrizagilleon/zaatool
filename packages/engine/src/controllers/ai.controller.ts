@@ -3,7 +3,7 @@ import { aiService } from "../services/ai.service.js";
 
 export class AiController {
   async generate(req: Request, res: Response) {
-    const { instruction, runtime, thisNode, upstreamNodes, model, provider, systemPrompt, skills } = req.body;
+    const { instruction, runtime, thisNode, upstreamNodes, model, provider, systemPrompt, skills, existingCode } = req.body;
 
     try {
       // 1. Fetch API key
@@ -25,6 +25,7 @@ export class AiController {
           model,
           systemPrompt,
           skills,
+          existingCode,
         },
         apiKey
       );

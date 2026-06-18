@@ -11,6 +11,7 @@ import { WorkflowsPage } from './components/pages/WorkflowsPage.js';
 import { Login } from './components/pages/Login.js';
 import { PublishedDashboard } from './components/pages/PublishedDashboard.js';
 import { DashboardBuilder } from './components/layout/DashboardBuilder.js';
+import { CodeEditorDialog } from './components/panels/CodeEditorDialog.js';
 import { useUiStore } from './store/uiStore.js';
 import { useAuthStore } from './store/authStore.js';
 
@@ -20,6 +21,12 @@ function App() {
   const isConsolePanelOpen = useUiStore((s) => s.isConsolePanelOpen);
   const isAiPanelOpen = useUiStore((s) => s.isAiPanelOpen);
   const activeTab = useUiStore((s) => s.activeTab);
+
+  const isCodeEditorOpen = useUiStore((s) => s.isCodeEditorOpen);
+  const codeEditorNodeId = useUiStore((s) => s.codeEditorNodeId);
+  const closeCodeEditor = useUiStore((s) => s.closeCodeEditor);
+
+  console.log("[App] Render, isCodeEditorOpen:", isCodeEditorOpen, "codeEditorNodeId:", codeEditorNodeId);
 
   const token = useAuthStore((s) => s.token);
   const checkAuth = useAuthStore((s) => s.checkAuth);
@@ -61,6 +68,13 @@ function App() {
               {isConsolePanelOpen && <RunConsole />}
             </div>
             {isCodePanelOpen && <PropertiesPanel />}
+            {isCodeEditorOpen && codeEditorNodeId && (
+              <CodeEditorDialog
+                open={isCodeEditorOpen}
+                onOpenChange={(open) => !open && closeCodeEditor()}
+                nodeId={codeEditorNodeId}
+              />
+            )}
           </ReactFlowProvider>
         )}
 

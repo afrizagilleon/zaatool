@@ -130,7 +130,11 @@ export function WorkflowsPage() {
   const filtered = workflows.filter((w) => w.name.toLowerCase().includes(search.toLowerCase()));
 
   const parseUtcDate = (dateStr: string) => {
-    return dateStr.endsWith('Z') ? new Date(dateStr) : new Date(dateStr + 'Z');
+    if (!dateStr) return new Date();
+    if (dateStr.includes('Z') || dateStr.includes('+') || /-\d{2}:\d{2}$/.test(dateStr)) {
+      return new Date(dateStr);
+    }
+    return new Date(dateStr.replace(' ', 'T') + 'Z');
   };
 
   return (

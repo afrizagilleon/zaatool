@@ -1,10 +1,11 @@
 import { Handle, Position, useUpdateNodeInternals } from '@xyflow/react';
 import type { NodeProps, Node } from '@xyflow/react';
-import { Code, BracketsCurly } from '@phosphor-icons/react';
+import { Code, BracketsCurly, Play } from '@phosphor-icons/react';
 import { useEffect } from 'react';
 import { cn } from '../../lib/utils';
 import { useEngineStore } from '../../store/engineStore';
 import { useUiStore } from '../../store/uiStore';
+import { useFlowStore } from '../../store/flowStore';
 import type { FlowNodeData } from '../../store/flowStore';
 
 type CodeNodeProps = NodeProps<Node<FlowNodeData, 'code'>>;
@@ -34,6 +35,9 @@ export function CodeNode({ id, data, selected }: CodeNodeProps) {
 
   const layoutDirection = useUiStore((s) => s.layoutDirection);
   const isVertical = layoutDirection === 'TB';
+  const openCodeEditor = useUiStore((s) => s.openCodeEditor);
+  const runFlow = useEngineStore((s) => s.runFlow);
+  const getGraphJson = useFlowStore((s) => s.getGraphJson);
 
   const updateNodeInternals = useUpdateNodeInternals();
   const inputsStr = JSON.stringify(inputs.map((i) => i.name));
@@ -47,8 +51,12 @@ export function CodeNode({ id, data, selected }: CodeNodeProps) {
     return (
       <div
         id={`node-${id}`}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          openCodeEditor(id);
+        }}
         className={cn(
-          'min-w-48 border bg-node-bg shadow-sm transition-all',
+          'min-w-48 border bg-node-bg shadow-sm transition-all cursor-pointer',
           selected
             ? 'border-primary ring-2 ring-primary/20 shadow-md'
             : 'border-node-border hover:shadow-md hover:border-border',
@@ -107,6 +115,16 @@ export function CodeNode({ id, data, selected }: CodeNodeProps) {
           <span className="text-[11px] font-semibold text-foreground truncate flex-1">
             {data.label || 'Code'}
           </span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              runFlow(getGraphJson(), id);
+            }}
+            className="flex items-center justify-center w-4 h-4 rounded hover:bg-black/10 dark:hover:bg-white/10 text-emerald-500 hover:text-emerald-600 transition-colors mr-1 shrink-0"
+            title="Execute downstream from here"
+          >
+            <Play size={10} weight="fill" />
+          </button>
           <span
             className={cn(
               'text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5',
@@ -154,8 +172,12 @@ export function CodeNode({ id, data, selected }: CodeNodeProps) {
   return (
     <div
       id={`node-${id}`}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        openCodeEditor(id);
+      }}
       className={cn(
-        'w-60 border bg-node-bg shadow-sm transition-all',
+        'w-60 border bg-node-bg shadow-sm transition-all cursor-pointer',
         selected
           ? 'border-primary ring-2 ring-primary/20 shadow-md'
           : 'border-node-border hover:shadow-md hover:border-border',
@@ -187,6 +209,16 @@ export function CodeNode({ id, data, selected }: CodeNodeProps) {
         <span className="text-[11px] font-semibold text-foreground truncate flex-1">
           {data.label || 'Code'}
         </span>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            runFlow(getGraphJson(), id);
+          }}
+          className="flex items-center justify-center w-4 h-4 rounded hover:bg-black/10 dark:hover:bg-white/10 text-emerald-500 hover:text-emerald-600 transition-colors mr-1 shrink-0"
+          title="Execute downstream from here"
+        >
+          <Play size={10} weight="fill" />
+        </button>
         <span
           className={cn(
             'text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 ',

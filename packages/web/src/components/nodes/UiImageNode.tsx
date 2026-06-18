@@ -1,10 +1,11 @@
 import { Handle, Position, useUpdateNodeInternals } from '@xyflow/react';
 import type { NodeProps, Node } from '@xyflow/react';
 import { Image as ImageIcon, Eye, EyeSlash } from '@phosphor-icons/react';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { cn } from '../../lib/utils';
 import { API_BASE_URL } from '../../lib/api';
 import { useUiStore } from '../../store/uiStore';
+import { useFlowStore } from '../../store/flowStore';
 import type { FlowNodeData } from '../../store/flowStore';
 
 type UiImageNodeProps = NodeProps<Node<FlowNodeData, 'ui:image'>>;
@@ -13,7 +14,12 @@ export function UiImageNode({ id, data, selected }: UiImageNodeProps) {
   const layoutDirection = useUiStore((s) => s.layoutDirection);
   const isVertical = layoutDirection === 'TB';
   const updateNodeInternals = useUpdateNodeInternals();
-  const [showPanel, setShowPanel] = useState(true);
+  const updateNodeData = useFlowStore((s) => s.updateNodeData);
+
+  const showPanel = data.showPanel !== false;
+  const setShowPanel = (show: boolean) => {
+    updateNodeData(id, { showPanel: show });
+  };
 
   useEffect(() => {
     updateNodeInternals(id);

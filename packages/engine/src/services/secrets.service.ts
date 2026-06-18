@@ -9,6 +9,15 @@ export class SecretsService {
     return rows;
   }
 
+  async getRawSecrets(): Promise<Record<string, string>> {
+    const { rows } = await pool.query("SELECT key, value FROM secrets");
+    const result: Record<string, string> = {};
+    for (const row of rows) {
+      result[row.key] = row.value;
+    }
+    return result;
+  }
+
   async getValueByKey(key: string) {
     const { rows } = await pool.query("SELECT value FROM secrets WHERE key = $1", [key]);
     if (rows.length === 0) return null;

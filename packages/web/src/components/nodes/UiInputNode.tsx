@@ -21,20 +21,38 @@ export function UiInputNode({ id, data, selected }: UiInputNodeProps) {
   const layoutDirection = useUiStore((s) => s.layoutDirection);
   const isVertical = layoutDirection === 'TB';
   const updateNodeInternals = useUpdateNodeInternals();
-  const [showPanel, setShowPanel] = useState(true);
+  const updateNodeData = useFlowStore((s) => s.updateNodeData);
+
+  const showPanel = data.showPanel !== false;
+  const setShowPanel = (show: boolean) => {
+    updateNodeData(id, { showPanel: show });
+  };
 
   const runFlow = useEngineStore((s) => s.runFlow);
   const getGraphJson = useFlowStore((s) => s.getGraphJson);
-  const updateNodeData = useFlowStore((s) => s.updateNodeData);
 
   const [formValues, setFormValues] = useState<Record<string, any>>({});
 
-  // Initialize formValues from data.values
-  useEffect(() => {
-    if (data.values) {
-      setFormValues(data.values);
+  const dynamicValues = useMemo(() => {
+    const vals: Record<string, any> = {};
+    if (data.inputs) {
+      for (const [key, val] of Object.entries(data.inputs)) {
+        if (key.startsWith('value_')) {
+          const fieldId = key.replace('value_', '');
+          vals[fieldId] = val;
+        }
+      }
     }
-  }, [data.values]);
+    return vals;
+  }, [data.inputs]);
+
+  // Initialize formValues from data.values and dynamicValues
+  useEffect(() => {
+    setFormValues({
+      ...(data.values || {}),
+      ...dynamicValues,
+    });
+  }, [data.values, dynamicValues]);
 
   const handleFieldChange = (fieldId: string, value: any, triggerImmediately = false) => {
     const nextValues = { ...formValues, [fieldId]: value };
@@ -89,11 +107,27 @@ export function UiInputNode({ id, data, selected }: UiInputNodeProps) {
     updateNodeInternals(id);
   }, [id, fieldsStr, isVertical, updateNodeInternals]);
 
-  // Extract select/radio fields that might need dynamic options
-  const fieldsWithDynamicOptions = useMemo(() => {
-    return (uiSchema.fields || []).filter(
-      f => f.type === 'select' || f.type === 'multi-select' || f.type === 'radio'
-    );
+  // Extract all target handles (value_ and options_)
+  const targetHandles = useMemo(() => {
+    const handles: { id: string; label: string; type: string }[] = [];
+    const fields = uiSchema.fields || [];
+    for (const field of fields) {
+      if (field.replaceable) {
+        handles.push({
+          id: `value_${field.id}`,
+          label: `value_${field.id}`,
+          type: field.type === 'number' ? 'number' : (field.type as string) === 'boolean' ? 'boolean' : 'string',
+        });
+      }
+      if (['select', 'multi-select', 'radio'].includes(field.type)) {
+        handles.push({
+          id: `options_${field.id}`,
+          label: `options_${field.id}`,
+          type: 'array',
+        });
+      }
+    }
+    return handles;
   }, [uiSchema.fields]);
 
   // Handle styles
@@ -122,26 +156,34 @@ export function UiInputNode({ id, data, selected }: UiInputNodeProps) {
           ) : (
             uiSchema.fields.map((field) => {
               const options = getFieldOptions(field);
+              const isBound = dynamicValues[field.id] !== undefined;
+              const isDisabled = isBound || (field.props?.disabled as boolean);
               return (
                 <div key={field.id} className="space-y-1.5 flex flex-col">
-                  <Label className="text-[10px]">{field.label}{field.required && ' *'}</Label>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-[10px]">{field.label}{field.required && ' *'}</Label>
+                    {isBound && (
+                      <span className="text-[7px] font-bold text-primary bg-primary/10 px-1 py-0.5 rounded uppercase">Dynamic</span>
+                    )}
+                  </div>
 
                   {field.type === 'textarea' ? (
                     <Textarea 
                       value={formValues[field.id] || ''} 
                       onChange={(e) => handleFieldChange(field.id, e.target.value)}
                       onBlur={() => handleBlur(field.id)}
-                      placeholder={field.placeholder} 
+                      placeholder={isBound ? "Bound to dynamic input" : field.placeholder} 
                       className="text-xs min-h-[60px]" 
-                      disabled={field.props?.disabled as boolean} 
+                      disabled={isDisabled} 
                     />
                   ) : field.type === 'select' ? (
                     <Select 
                       value={formValues[field.id] || ''} 
                       onValueChange={(val) => handleFieldChange(field.id, val, true)}
+                      disabled={isDisabled}
                     >
                       <SelectTrigger className="h-8 text-xs">
-                        <SelectValue placeholder={field.placeholder || 'Select...'} />
+                        <SelectValue placeholder={isBound ? 'Dynamic Value' : (field.placeholder || 'Select...')} />
                       </SelectTrigger>
                       <SelectContent>
                         {options.map((opt: any) => (
@@ -155,10 +197,11 @@ export function UiInputNode({ id, data, selected }: UiInputNodeProps) {
                       value={formValues[field.id] || ''} 
                       onValueChange={(val) => handleFieldChange(field.id, val, true)}
                       className="flex flex-col space-y-1 mt-1"
+                      disabled={isDisabled}
                     >
                       {options.map((opt: any) => (
                         <div key={opt.value} className="flex items-center space-x-2">
-                          <RadioGroupItem value={opt.value} id={`${field.id}-${opt.value}`} />
+                          <RadioGroupItem value={opt.value} id={`${field.id}-${opt.value}`} disabled={isDisabled} />
                           <Label htmlFor={`${field.id}-${opt.value}`} className="text-xs font-normal">{opt.label}</Label>
                         </div>
                       ))}
@@ -170,9 +213,9 @@ export function UiInputNode({ id, data, selected }: UiInputNodeProps) {
                       value={formValues[field.id] || ''}
                       onChange={(e) => handleFieldChange(field.id, field.type === 'number' ? Number(e.target.value) : e.target.value)}
                       onBlur={() => handleBlur(field.id)}
-                      placeholder={field.placeholder}
+                      placeholder={isBound ? "Bound to dynamic input" : field.placeholder}
                       className="h-8 text-xs"
-                      disabled={field.props?.disabled as boolean}
+                      disabled={isDisabled}
                     />
                   )}
                 </div>
@@ -199,24 +242,24 @@ export function UiInputNode({ id, data, selected }: UiInputNodeProps) {
           selected ? 'border-primary ring-2 ring-primary/20 shadow-md' : 'border-node-border hover:shadow-md hover:border-border'
         )}
       >
-        {/* Top: Dynamic Options Inputs */}
-        {fieldsWithDynamicOptions.map((field, idx) => (
+        {/* Top: Dynamic Inputs */}
+        {targetHandles.map((handle, idx) => (
           <Handle
-            key={`handle-in-options_${field.id}`}
+            key={`handle-in-${handle.id}`}
             type="target"
             position={Position.Top}
-            id={`options_${field.id}`}
-            style={{ left: `${((idx + 1) / (fieldsWithDynamicOptions.length + 1)) * 100}%` }}
+            id={handle.id}
+            style={{ left: `${((idx + 1) / (targetHandles.length + 1)) * 100}%` }}
             className={handleClass}
           />
         ))}
 
-        {fieldsWithDynamicOptions.length > 0 && (
+        {targetHandles.length > 0 && (
           <div className="flex justify-center gap-4 px-3 pt-3 pb-1">
-            {fieldsWithDynamicOptions.map((field) => (
-              <div key={`in-options_${field.id}`} className="flex flex-col items-center gap-0.5">
-                <span className="text-[9px] text-muted-foreground">options_{field.id}</span>
-                <span className="text-[7px] font-medium text-muted-foreground/50 uppercase">ARRAY</span>
+            {targetHandles.map((handle) => (
+              <div key={`in-lbl-${handle.id}`} className="flex flex-col items-center gap-0.5">
+                <span className="text-[9px] text-muted-foreground">{handle.label}</span>
+                <span className="text-[7px] font-medium text-muted-foreground/50 uppercase">{handle.type}</span>
               </div>
             ))}
           </div>
@@ -306,16 +349,16 @@ export function UiInputNode({ id, data, selected }: UiInputNodeProps) {
       <div className="px-3 py-2">
         <div className="flex justify-between gap-4">
           <div className="flex flex-col gap-1.5 min-w-0">
-            {fieldsWithDynamicOptions.map((field) => (
-              <div key={`in-options_${field.id}`} className="relative flex items-center gap-1.5 h-4">
+            {targetHandles.map((handle) => (
+              <div key={`in-port-${handle.id}`} className="relative flex items-center gap-1.5 h-4">
                 <Handle
                   type="target"
                   position={Position.Left}
-                  id={`options_${field.id}`}
+                  id={handle.id}
                   className={cn(handleClass, "!left-[-12px]")}
                   style={{ left: -15 }}
                 />
-                <span className="text-[10px] text-muted-foreground">options_{field.id}</span>
+                <span className="text-[10px] text-muted-foreground">{handle.label}</span>
               </div>
             ))}
           </div>

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import {
   X,
   Code,
@@ -27,9 +27,10 @@ import {
   SelectValue,
 } from '../ui/select';
 import { Textarea } from '../ui/textarea';
-import { CodeEditorDialog } from './CodeEditorDialog';
+
 import { UiInputProperties } from './properties/UiInputProperties';
 import { UiTableProperties } from './properties/UiTableProperties';
+import { UiChartProperties } from './properties/UiChartProperties';
 import { UiTextProperties } from './properties/UiTextProperties';
 import { UiImageProperties } from './properties/UiImageProperties';
 import { FileProperties } from './properties/FileProperties';
@@ -133,10 +134,15 @@ export function PropertiesPanel() {
   const updateSchemaField = useFlowStore((s) => s.updateSchemaField);
   const removeNode = useFlowStore((s) => s.removeNode);
   const setCodePanelOpen = useUiStore((s) => s.setCodePanelOpen);
-
-  const [editorOpen, setEditorOpen] = useState(false);
+  const openCodeEditor = useUiStore((s) => s.openCodeEditor);
 
   const activeNode = nodes.find((n) => n.id === activeNodeId);
+
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
+
+  useEffect(() => {
+    setIsAdvancedOpen(false);
+  }, [activeNodeId]);
 
   const handleClose = useCallback(() => {
     setCodePanelOpen(false);
@@ -197,6 +203,7 @@ export function PropertiesPanel() {
     switch (nodeType) {
       case 'ui:input': return <UiInputProperties nodeId={activeNode.id} />;
       case 'ui:table': return <UiTableProperties nodeId={activeNode.id} />;
+      case 'ui:chart': return <UiChartProperties nodeId={activeNode.id} />;
       case 'ui:text': return <UiTextProperties nodeId={activeNode.id} />;
       case 'ui:image': return <UiImageProperties nodeId={activeNode.id} />;
       case 'file': return <FileProperties nodeId={activeNode.id} />;
@@ -233,6 +240,32 @@ export function PropertiesPanel() {
               </div>
             )}
 
+            {isCodeNode && runtime === 'python' && (
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="node-requirements-input"
+                  className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground"
+                >
+                  Python Packages (pip)
+                </label>
+                <Input
+                  id="node-requirements-input"
+                  value={activeNode.data.config?.requirements as string || ''}
+                  onChange={(e) => {
+                    const currentConfig = activeNode.data.config || {};
+                    updateNodeData(activeNode.id, {
+                      config: {
+                        ...currentConfig,
+                        requirements: e.target.value,
+                      }
+                    });
+                  }}
+                  placeholder="e.g. requests, beautifulsoup4"
+                  className="h-8 text-xs font-mono"
+                />
+              </div>
+            )}
+
             {(isCodeNode || nodeType === 'if') && (
               <div className="space-y-1.5 flex flex-col h-[200px]">
                 <div className="flex items-center justify-between">
@@ -246,7 +279,7 @@ export function PropertiesPanel() {
                     variant="ghost"
                     size="sm"
                     className="h-5 px-1.5 text-[10px] text-primary hover:text-primary hover:bg-primary/10"
-                    onClick={() => setEditorOpen(true)}
+                    onClick={() => openCodeEditor(activeNode.id)}
                   >
                     <ArrowsOutSimple size={12} className="mr-1" />
                     Focus Editor
@@ -282,6 +315,51 @@ export function PropertiesPanel() {
               onChange={(fields) => updateNodeData(activeNode.id, { outputsSchema: fields })}
               onUpdateField={(index, patch) => updateSchemaField(activeNode.id, 'outputsSchema', index, patch)}
             />
+
+            {/* Advanced Settings */}
+            <div className="border-t border-border pt-4 mt-4">
+              <button
+                type="button"
+                onClick={() => setIsAdvancedOpen(!isAdvancedOpen)}
+                className="flex items-center justify-between w-full text-[10px] font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors outline-none"
+              >
+                <span>Advanced Settings</span>
+                <span className="text-xs">{isAdvancedOpen ? '−' : '+'}</span>
+              </button>
+
+              {isAdvancedOpen && (
+                <div className="mt-3 space-y-3 animate-in fade-in slide-in-from-top-1 duration-200">
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor="node-timeout-input"
+                      className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground"
+                    >
+                      Execution Timeout (ms)
+                    </label>
+                    <Input
+                      id="node-timeout-input"
+                      type="number"
+                      value={activeNode.data.config?.timeout !== undefined ? String(activeNode.data.config.timeout) : '5000'}
+                      onChange={(e) => {
+                        const currentConfig = activeNode.data.config || {};
+                        const val = e.target.value === '' ? undefined : Number(e.target.value);
+                        updateNodeData(activeNode.id, {
+                          config: {
+                            ...currentConfig,
+                            timeout: val,
+                          }
+                        });
+                      }}
+                      placeholder="e.g. 5000"
+                      className="h-8 text-xs font-mono"
+                    />
+                    <p className="text-[9px] text-muted-foreground leading-normal">
+                      Timeout limit in milliseconds. Default is 5000ms (5 seconds).
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
           </>
         );
     }
@@ -338,15 +416,23 @@ export function PropertiesPanel() {
           />
         </div>
 
+        {['ui:input', 'ui:text', 'ui:table', 'ui:image', 'file'].includes(nodeType) && (
+          <div className="flex items-center justify-between p-2.5 bg-muted/30 border border-border/60 rounded-lg">
+            <span className="text-xs font-semibold text-foreground/80">Show in Dashboard</span>
+            <input
+              type="checkbox"
+              id="node-show-in-dashboard"
+              checked={activeNode.data.showInDashboard !== false}
+              onChange={(e) => updateNodeData(activeNode.id, { showInDashboard: e.target.checked })}
+              className="w-4 h-4 rounded border-border text-primary focus:ring-primary/30 cursor-pointer"
+            />
+          </div>
+        )}
+
         {/* Dynamic Properties based on Node Type */}
         {renderSpecificProperties()}
       </div>
 
-      <CodeEditorDialog
-        open={editorOpen}
-        onOpenChange={setEditorOpen}
-        nodeId={activeNode.id}
-      />
     </aside>
   );
 }

@@ -1,7 +1,7 @@
 import { Handle, Position, useUpdateNodeInternals } from '@xyflow/react';
 import type { NodeProps, Node } from '@xyflow/react';
 import { Table as TableIcon, Eye, EyeSlash } from '@phosphor-icons/react';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { cn } from '../../lib/utils';
 import { useUiStore } from '../../store/uiStore';
 import { useFlowStore } from '../../store/flowStore';
@@ -16,11 +16,15 @@ export function UiTableNode({ id, data, selected }: UiTableNodeProps) {
   const layoutDirection = useUiStore((s) => s.layoutDirection);
   const isVertical = layoutDirection === 'TB';
   const updateNodeInternals = useUpdateNodeInternals();
-  const [showPanel, setShowPanel] = useState(true);
+
+  const updateNodeData = useFlowStore((s) => s.updateNodeData);
+  const showPanel = data.showPanel !== false;
+  const setShowPanel = (show: boolean) => {
+    updateNodeData(id, { showPanel: show });
+  };
 
   const runFlow = useEngineStore((s) => s.runFlow);
   const getGraphJson = useFlowStore((s) => s.getGraphJson);
-  const updateNodeData = useFlowStore((s) => s.updateNodeData);
   const selectedRow = data.selectedRow;
 
   useEffect(() => {
