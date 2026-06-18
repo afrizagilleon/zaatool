@@ -1,0 +1,71 @@
+import type { GenerateOptions } from "./ai.service.js";
+
+export class AiPromptService {
+  build(options: GenerateOptions): string {
+    let prompt = `You are an expert AI coding assistant for a visual node-based engine.\n`;
+    if (options.systemPrompt) prompt += `System Prompt: ${options.systemPrompt}\n`;
+
+    if (options.skills && options.skills.length > 0) {
+      prompt += `\nRelevant Skills/Context:\n${options.skills.join("\n\n")}\n`;
+    }
+
+    if (options.existingCode && options.existingCode.trim()) {
+      prompt += `\nExisting Code:\n\`\`\`${options.runtime === "python" ? "python" : "javascript"}\n${options.existingCode}\n\`\`\`\n`;
+      prompt += `Please base your code on the existing code above, fixing errors, enhancing it, or refactoring it as requested in the instruction.\n`;
+    }
+
+    prompt += `\nTask: ${options.instruction}\n`;
+    prompt += `Runtime: ${options.runtime} (${options.runtime === "python" ? "Python 3" : options.runtime === "json" ? "JSON Schema" : "Node.js JS/TS"})\n`;
+
+    if (options.upstreamNodes && options.upstreamNodes.length > 0) {
+      prompt += `\nUpstream Node Schemas & Connections (Data is available in the 'inputs' object):\n`;
+      options.upstreamNodes.forEach((n: Record<string, unknown>) => {
+        if (n.targetHandle && n.sourceHandle) {
+          prompt += `- Input handle '${n.targetHandle}' is connected to Node '${n.label}' output '${n.sourceHandle}'.\n`;
+          const outputsSchema = Array.isArray(n.outputsSchema) ? n.outputsSchema : [];
+          const specificOutput = outputsSchema.find((o: Record<string, unknown>) => o.name === n.sourceHandle);
+          prompt += `  Schema for '${n.targetHandle}': ${JSON.stringify(specificOutput || outputsSchema)}\n`;
+        } else {
+          prompt += `- Upstream Node '${n.label}': ${JSON.stringify(n.outputsSchema)}\n`;
+        }
+      });
+    }
+
+    prompt += `\nThis Node Schema:\n`;
+    prompt += `- Inputs: ${JSON.stringify(options.thisNode.inputsSchema)}\n`;
+    prompt += `- Outputs: ${JSON.stringify(options.thisNode.outputsSchema)}\n`;
+
+    prompt += `\nData Type Guidelines:\n`;
+    prompt += `- 'table': Tabular data. Must be returned as a flat array of objects (e.g. [{"id": 1, "name": "John"}, {"id": 2, "name": "Jane"}]). Do not return a stringified JSON array, return a real array of objects.\n`;
+    prompt += `- 'image': A string representing an image URL or local storage path (e.g. 'uploads/image.png').\n`;
+    prompt += `- 'file': An object containing file metadata, e.g. { name: string, path: string, url: string }.\n`;
+    prompt += `- 'object': A dictionary/object with keys and values. For Form Inputs (ui:input), fields are grouped inside this object.\n`;
+
+    if (options.runtime === "json") {
+      prompt += `\nWrite ONLY raw, valid JSON inside a markdown code block (\`\`\`json ... \`\`\`). Do not explain. Do not wrap with extra text.\n`;
+      prompt += `Important: The JSON must represent the schema for the form. It must have a 'fields' array, where each field has: 'id', 'type' (text, textarea, number, select, radio), 'label', and optional 'required' (boolean), 'placeholder', 'options' (array of {label, value} objects for select/radio).\n`;
+      prompt += `Example output form schema:\n`;
+      prompt += `\`\`\`json\n{\n  "fields": [\n    {"id": "name", "type": "text", "label": "Full Name", "required": true},\n    {"id": "gender", "type": "select", "label": "Gender", "options": [{"label": "Male", "value": "male"}, {"label": "Female", "value": "female"}]}\n  ],\n  "layout": {"columns": 1, "triggerOn": "submit"}\n}\n\`\`\``;
+    } else if (options.runtime === "python") {
+      prompt += `\nWrite ONLY the raw Python code inside a markdown code block (\`\`\`python ... \`\`\`). Do not explain.\n`;
+      prompt += `Provide a function \`def main(inputs):\` that returns a dictionary matching the output schema format (e.g. \`return { "output_name": value }\`).\n`;
+      prompt += `Access inputs using the 'inputs' dictionary parameter (e.g., \`inputs['input_name']\`).\n`;
+      prompt += `Note that certain inputs may be wrapped in helper classes:\n`;
+      prompt += `- Table inputs: Use methods like \`.get_rows()\`, \`.get_column("col")\`, \`.get_row(0)\`, \`.get_headers()\`, \`.get_cell(0, "col")\`, \`.count()\`, \`.filter(fn)\`.\n`;
+      prompt += `- File inputs: Use methods like \`.read_as_text()\`, \`.read_as_base64()\`, \`.exists()\`.\n`;
+      prompt += `- Image inputs: Use methods like \`.to_data_uri(mime_type)\`, \`.read_as_base64()\`, \`.exists()\`.\n`;
+    } else {
+      prompt += `\nWrite ONLY the raw JavaScript code inside a markdown code block (\`\`\`javascript ... \`\`\`). Do not explain.\n`;
+      prompt += `The code is wrapped inside an async function. Return the outputs as a JavaScript object (e.g., \`return { output_name: value };\`).\n`;
+      prompt += `Access inputs using the 'inputs' parameter (e.g., \`inputs.input_name\`).\n`;
+      prompt += `Note that certain inputs may be wrapped in helper classes:\n`;
+      prompt += `- Table inputs: Use methods like \`.getRows()\`, \`.getColumn("col")\`, \`.getRow(0)\`, \`.getHeaders()\`, \`.getCell(0, "col")\`, \`.count()\`, \`.filter(fn)\`.\n`;
+      prompt += `- File inputs: Use methods like \`.readAsText()\`, \`.readAsBase64()\`, \`.readAsBuffer()\`, \`.exists()\`.\n`;
+      prompt += `- Image inputs: Use methods like \`.toDataUri(mimeType)\`, \`.readAsBase64()\`, \`.exists()\`.\n`;
+    }
+
+    return prompt;
+  }
+}
+
+export const aiPromptService = new AiPromptService();

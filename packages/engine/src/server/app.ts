@@ -4,7 +4,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFileSync, readdirSync } from "node:fs";
 import { EventEmitter } from "node:events";
-import bcrypt from "bcrypt";
 
 import { skillsRouter } from "../routes/skills.route.js";
 import { secretsRouter } from "../routes/secrets.route.js";
@@ -16,6 +15,7 @@ import { authRouter } from "../routes/auth.route.js";
 import { triggersRouter } from "../routes/triggers.route.js";
 import { flowsController } from "../controllers/flows.controller.js";
 import { flowsService } from "../services/flows.service.js";
+import { dashboardPasswordService } from "../services/dashboard-password.service.js";
 import { authMiddleware } from "../middleware/auth.middleware.js";
 import { runFlow } from "../core/flow-runner.js";
 import type { GraphJson } from "@zaa-tool/shared";
@@ -23,32 +23,45 @@ import type { GraphJson } from "@zaa-tool/shared";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const failedAttempts = new Map<string, { count: number; lockUntil: number }>();
 
+function checkRateLimit(flowId: string): { locked: boolean } {
+  const info = failedAttempts.get(flowId);
+  if (info && info.lockUntil > Date.now()) return { locked: true };
+  return { locked: false };
+}
+
+function recordFailedAttempt(flowId: string): boolean {
+  const info = failedAttempts.get(flowId);
+  const count = (info?.count || 0) + 1;
+  if (count >= 5) {
+    failedAttempts.set(flowId, { count: 0, lockUntil: Date.now() + 5 * 60 * 1000 });
+    return true; // now locked
+  }
+  failedAttempts.set(flowId, { count, lockUntil: 0 });
+  return false;
+}
+
 export function createApp(onFlowEvent: (data: Record<string, unknown>) => void) {
   const app = express();
   app.use(cors());
   app.use(express.json());
 
-  // Apply Auth Middleware to protect API routes (except public/health/auth routes)
   app.use("/api", authMiddleware);
 
-  // Mounting sub-routers
   app.use("/api/auth", authRouter);
   app.use("/api/resources/skills", skillsRouter);
   app.use("/api/resources/secrets", secretsRouter);
-  app.use("/api/resources", storageRouter); // Handles /files, /folders
+  app.use("/api/resources", storageRouter);
   app.use("/storage", express.static(STORAGE_DIR));
-  app.use("/api/resources/flows", flowsController.getSummary); // Summary route
-  
-  app.use("/api/flows", flowsRouter); // Detailed flows routes
+  app.use("/api/resources/flows", flowsController.getSummary);
+
+  app.use("/api/flows", flowsRouter);
   app.use("/api/triggers", triggersRouter);
   app.use("/api/ai", aiRouter);
 
-  // Health check
   app.get("/api/health", (_req, res) => {
     res.status(200).json({ status: "ok" });
   });
 
-  // List fixture graphs
   app.get("/api/graphs", (_req, res) => {
     try {
       const fixturesDir = path.resolve(__dirname, "../fixtures");
@@ -58,150 +71,120 @@ export function createApp(onFlowEvent: (data: Record<string, unknown>) => void) 
         return { filename: f, name: content.name ?? f, nodeCount: content.nodes?.length ?? 0 };
       });
       res.json(graphs);
-    } catch (err: any) {
-      res.status(500).json({ error: "Failed to read fixtures", detail: err.message });
+    } catch (err: unknown) {
+      res.status(500).json({ error: "Failed to read fixtures", detail: (err as Error).message });
     }
   });
 
-  // Public flow fetch (bypassed in authMiddleware)
+  // Public flow fetch (bypasses authMiddleware)
   app.get("/api/flows/:id/public", async (req, res) => {
     try {
       const flow = await flowsService.getById(req.params.id);
-      if (!flow) {
-        return res.status(404).json({ error: "Flow not found" });
-      }
+      if (!flow) return res.status(404).json({ error: "Flow not found" });
 
       if (flow.dashboard_password_hash) {
         const password = req.headers["x-dashboard-password"] || req.query.password;
         if (!password) {
-          return res.json({
-            id: flow.id,
-            name: flow.name,
-            isPasswordProtected: true
-          });
+          return res.json({ id: flow.id, name: flow.name, isPasswordProtected: true });
         }
 
-        const lockInfo = failedAttempts.get(flow.id);
-        if (lockInfo && lockInfo.lockUntil > Date.now()) {
+        if (checkRateLimit(flow.id).locked) {
           return res.status(429).json({ error: "Too many failed attempts. Locked for 5 minutes." });
         }
 
-        const isMatch = await bcrypt.compare(String(password), flow.dashboard_password_hash);
+        const isMatch = await dashboardPasswordService.verifyPassword(
+          String(password),
+          flow.dashboard_password_hash
+        );
         if (!isMatch) {
-          const currentCount = (lockInfo?.count || 0) + 1;
-          if (currentCount >= 5) {
-            failedAttempts.set(flow.id, { count: 0, lockUntil: Date.now() + 5 * 60 * 1000 });
-            return res.status(429).json({ error: "Too many failed attempts. Locked for 5 minutes." });
-          } else {
-            failedAttempts.set(flow.id, { count: currentCount, lockUntil: 0 });
-            return res.status(401).json({ error: "Incorrect password" });
-          }
+          const nowLocked = recordFailedAttempt(flow.id);
+          return nowLocked
+            ? res.status(429).json({ error: "Too many failed attempts. Locked for 5 minutes." })
+            : res.status(401).json({ error: "Incorrect password" });
         }
         failedAttempts.delete(flow.id);
       }
 
-      res.json({
-        id: flow.id,
-        name: flow.name,
-        graph_json: typeof flow.graph_json === "string" ? JSON.parse(flow.graph_json) : flow.graph_json,
-        dashboard_layout: flow.dashboard_layout ? (typeof flow.dashboard_layout === "string" ? JSON.parse(flow.dashboard_layout) : flow.dashboard_layout) : { items: [] }
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      const { graph_json, dashboard_layout } = flowsService.parseFlow(flow);
+      res.json({ id: flow.id, name: flow.name, graph_json, dashboard_layout });
+    } catch (err: unknown) {
+      res.status(500).json({ error: (err as Error).message });
     }
   });
 
-  // Verify dashboard password and return full details
+  // Verify dashboard password
   app.post("/api/flows/:id/verify-password", async (req, res) => {
     try {
       const { password } = req.body;
       const flow = await flowsService.getById(req.params.id);
-      if (!flow) {
-        return res.status(404).json({ error: "Flow not found" });
-      }
+      if (!flow) return res.status(404).json({ error: "Flow not found" });
+
+      const { graph_json, dashboard_layout } = flowsService.parseFlow(flow);
 
       if (!flow.dashboard_password_hash) {
-        return res.json({
-          success: true,
-          graph_json: typeof flow.graph_json === "string" ? JSON.parse(flow.graph_json) : flow.graph_json,
-          dashboard_layout: flow.dashboard_layout ? (typeof flow.dashboard_layout === "string" ? JSON.parse(flow.dashboard_layout) : flow.dashboard_layout) : { items: [] }
-        });
+        return res.json({ success: true, graph_json, dashboard_layout });
       }
 
-      const lockInfo = failedAttempts.get(flow.id);
-      if (lockInfo && lockInfo.lockUntil > Date.now()) {
+      if (checkRateLimit(flow.id).locked) {
         return res.status(429).json({ error: "Too many failed attempts. Locked for 5 minutes." });
       }
 
-      const isMatch = await bcrypt.compare(String(password || ""), flow.dashboard_password_hash);
+      const isMatch = await dashboardPasswordService.verifyPassword(
+        String(password || ""),
+        flow.dashboard_password_hash
+      );
       if (!isMatch) {
-        const currentCount = (lockInfo?.count || 0) + 1;
-        if (currentCount >= 5) {
-          failedAttempts.set(flow.id, { count: 0, lockUntil: Date.now() + 5 * 60 * 1000 });
-          return res.status(429).json({ error: "Too many failed attempts. Locked for 5 minutes." });
-        } else {
-          failedAttempts.set(flow.id, { count: currentCount, lockUntil: 0 });
-          return res.status(401).json({ error: "Incorrect password" });
-        }
+        const nowLocked = recordFailedAttempt(flow.id);
+        return nowLocked
+          ? res.status(429).json({ error: "Too many failed attempts. Locked for 5 minutes." })
+          : res.status(401).json({ error: "Incorrect password" });
       }
 
       failedAttempts.delete(flow.id);
-      res.json({
-        success: true,
-        graph_json: typeof flow.graph_json === "string" ? JSON.parse(flow.graph_json) : flow.graph_json,
-        dashboard_layout: flow.dashboard_layout ? (typeof flow.dashboard_layout === "string" ? JSON.parse(flow.dashboard_layout) : flow.dashboard_layout) : { items: [] }
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.json({ success: true, graph_json, dashboard_layout });
+    } catch (err: unknown) {
+      res.status(500).json({ error: (err as Error).message });
     }
   });
 
-  // Public flow trigger execution (bypassed in authMiddleware)
+  // Public flow trigger execution (bypasses authMiddleware)
   app.post("/api/flows/:id/trigger", async (req, res) => {
     try {
       const { startNodeId, inputs } = req.body;
       const flow = await flowsService.getById(req.params.id);
-      if (!flow) {
-        return res.status(404).json({ error: "Flow not found" });
-      }
+      if (!flow) return res.status(404).json({ error: "Flow not found" });
 
       if (flow.dashboard_password_hash) {
         const password = req.headers["x-dashboard-password"];
-        const isMatch = await bcrypt.compare(String(password || ""), flow.dashboard_password_hash);
-        if (!isMatch) {
-          return res.status(401).json({ error: "Unauthorized: Invalid dashboard password" });
-        }
+        const isMatch = await dashboardPasswordService.verifyPassword(
+          String(password || ""),
+          flow.dashboard_password_hash
+        );
+        if (!isMatch) return res.status(401).json({ error: "Unauthorized: Invalid dashboard password" });
       }
 
-      const graph: GraphJson = typeof flow.graph_json === "string" ? JSON.parse(flow.graph_json) : flow.graph_json;
+      const { graph_json: graph } = flowsService.parseFlow(flow);
 
       if (!graph || !graph.nodes) {
         return res.status(400).json({ error: "Invalid graph: missing nodes" });
       }
 
-      // Merge inputs into startNodeId node.data if applicable
       if (startNodeId) {
         const node = graph.nodes.find((n) => n.id === startNodeId);
         if (node) {
           if (node.type === "ui:input") {
-            node.data = {
-              ...node.data,
-              values: {
-                ...(node.data.values || {}),
-                ...(inputs || {}),
-              },
-            };
+            node.data = { ...node.data, values: { ...(node.data.values || {}), ...(inputs || {}) } };
           } else if (node.type === "ui:table") {
             node.data = {
               ...node.data,
-              selectedRow: inputs?.selectedRow !== undefined ? inputs.selectedRow : (node.data.selectedRow || null),
+              selectedRow: inputs?.selectedRow !== undefined ? inputs.selectedRow : (node.data.selectedRow ?? null),
             };
           } else if (node.type === "file") {
             node.data = {
               ...node.data,
               inputs: {
                 ...(node.data.inputs || {}),
-                file: inputs?.file !== undefined ? inputs.file : (node.data.inputs?.file || null),
+                file: inputs?.file !== undefined ? inputs.file : (node.data.inputs?.file ?? null),
               },
             };
           }
@@ -214,19 +197,17 @@ export function createApp(onFlowEvent: (data: Record<string, unknown>) => void) 
         ee.on(event, (data: Record<string, unknown>) => onFlowEvent(data));
       }
 
-      // Start async flow execution
-      runFlow(graph, ee, startNodeId).catch((err) => {
-        console.error("Flow execution error from trigger:", err);
-        onFlowEvent({ type: "flow:error", error: err.message });
+      runFlow(graph, ee, startNodeId).catch((err: unknown) => {
+        onFlowEvent({ type: "flow:error", error: (err as Error).message });
       });
 
       res.status(200).json({ status: "started" });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err: unknown) {
+      res.status(500).json({ error: (err as Error).message });
     }
   });
 
-  // Flow execution (admin only, protected by authMiddleware)
+  // Admin flow execution (protected by authMiddleware)
   app.post("/api/run", (req, res) => {
     let graph: GraphJson;
     let startNodeId: string | undefined;
@@ -243,17 +224,14 @@ export function createApp(onFlowEvent: (data: Record<string, unknown>) => void) 
     }
 
     const ee = new EventEmitter();
-
-    // Forward flow-runner events to the websocket broadcaster callback
     const events = ["node:start", "node:log", "node:done", "node:error", "flow:done"] as const;
     for (const event of events) {
       ee.on(event, (data: Record<string, unknown>) => onFlowEvent(data));
     }
 
-    // Start async flow execution
-    runFlow(graph, ee, startNodeId).catch((err) => {
+    runFlow(graph, ee, startNodeId).catch((err: unknown) => {
       console.error("Flow execution error:", err);
-      onFlowEvent({ type: "flow:error", error: err.message });
+      onFlowEvent({ type: "flow:error", error: (err as Error).message });
     });
 
     res.status(200).json({ status: "started" });

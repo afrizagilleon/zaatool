@@ -3,10 +3,10 @@ import { aiService } from "../services/ai.service.js";
 
 export class AiController {
   async generate(req: Request, res: Response) {
-    const { instruction, runtime, thisNode, upstreamNodes, model, provider, systemPrompt, skills, existingCode } = req.body;
+    const { instruction, runtime, thisNode, upstreamNodes, model, provider, systemPrompt, skills, existingCode } =
+      req.body;
 
     try {
-      // 1. Fetch API key
       const apiKey = await aiService.getApiKeyForProvider(provider);
       if (!apiKey) {
         return res.status(400).json({
@@ -14,19 +14,8 @@ export class AiController {
         });
       }
 
-      // 2. Call AI stream generator
-      const aiResponse = await aiService.generateCodeStream(
-        {
-          instruction,
-          runtime,
-          thisNode,
-          upstreamNodes,
-          provider,
-          model,
-          systemPrompt,
-          skills,
-          existingCode,
-        },
+      const aiResponse = await aiService.generate(
+        { instruction, runtime, thisNode, upstreamNodes, provider, model, systemPrompt, skills, existingCode },
         apiKey
       );
 
@@ -35,7 +24,6 @@ export class AiController {
         return res.status(aiResponse.status).json({ error: `AI Provider error: ${errText}` });
       }
 
-      // 3. Set SSE Headers
       res.setHeader("Content-Type", "text/event-stream");
       res.setHeader("Cache-Control", "no-cache");
       res.setHeader("Connection", "keep-alive");
@@ -49,7 +37,6 @@ export class AiController {
           if (done) break;
           const chunk = decoder.decode(value, { stream: true });
 
-          // Forward SSE chunks: parse data: ... lines
           const lines = chunk.split("\n").filter((line) => line.trim() !== "");
           for (const line of lines) {
             if (line === "data: [DONE]") {
@@ -61,19 +48,18 @@ export class AiController {
                 if (text) {
                   res.write(`data: ${JSON.stringify({ text })}\n\n`);
                 }
-              } catch (e) {
-                // Ignore parsing errors for partial chunks
+              } catch {
+                // ignore partial chunks
               }
             }
           }
         }
       }
       res.end();
-    } catch (err: any) {
-      console.error("AI Generation error:", err);
-      if (err.cause) console.error("Cause:", err.cause);
+    } catch (err: unknown) {
+      const error = err as Error;
       if (!res.headersSent) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: error.message });
       } else {
         res.end();
       }

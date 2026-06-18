@@ -1,23 +1,24 @@
-import type { GraphJson } from "@zaa-tool/shared";
+import type { GraphJson, NodeDef } from "@zaa-tool/shared";
 import { EventEmitter } from "node:events";
 import { Scope } from "./scope.js";
-import { defaultExecutorRegistry } from "./registry.js";
 import { inferSchema } from "../utils/infer-schema.js";
 import { truncateLog } from "./utils.js";
+import type { ExecutorRegistry } from "./types.js";
 
 export interface ExecuteNodeParams {
   nodeId: string;
-  nodeMap: Map<string, any>;
+  nodeMap: Map<string, NodeDef>;
   graph: GraphJson;
   scope: Scope;
   activeEdges: Set<string>;
   startNodeId: string | undefined;
   runSubFlow: (nodeIds: string[], scope: Scope) => Promise<void>;
   ee?: EventEmitter;
+  registry: ExecutorRegistry;
 }
 
 export async function executeNode(params: ExecuteNodeParams): Promise<{ success: boolean; error?: string }> {
-  const { nodeId, nodeMap, graph, scope, activeEdges, startNodeId, runSubFlow, ee } = params;
+  const { nodeId, nodeMap, graph, scope, activeEdges, startNodeId, runSubFlow, ee, registry } = params;
 
   const node = nodeMap.get(nodeId)!;
   const incomingEdges = graph.edges.filter((e) => e.target === nodeId);
@@ -27,32 +28,32 @@ export async function executeNode(params: ExecuteNodeParams): Promise<{ success:
     const sourceNode = nodeMap.get(edge.source);
     const isStaticNode = sourceNode && ["ui:input", "file", "ui:table"].includes(sourceNode.type);
     const sourceOutput = scope.get(edge.source);
-    if (!startNodeId || activeEdges.has(edge.id) || isStaticNode || edge.target === startNodeId || sourceOutput !== undefined) {
+    if (
+      !startNodeId ||
+      activeEdges.has(edge.id) ||
+      isStaticNode ||
+      edge.target === startNodeId ||
+      sourceOutput !== undefined
+    ) {
       const output = sourceOutput ?? {};
-      inputs[edge.targetHandle] = output[edge.sourceHandle];
+      inputs[edge.targetHandle] = (output as Record<string, unknown>)[edge.sourceHandle];
     }
   }
 
   console.log(`\n▶ [${nodeId}] ${node.data.label}`);
   console.log(`  inputs:`, truncateLog(inputs));
 
-  const key = node.type === "code" && node.runtime ? `${node.type}:${node.runtime}` : node.type;
-  const executor = defaultExecutorRegistry.get(key);
+  const key =
+    node.type === "code" && node.runtime ? `${node.type}:${node.runtime}` : node.type;
+  const executor = registry.get(key);
   if (!executor) {
-    throw new Error(`Executor not found for ${key}`);
+    throw new Error(`Executor not found for node type: ${key}`);
   }
 
   const startTime = Date.now();
   ee?.emit("node:start", { type: "node:start", nodeId });
 
-  const result = await executor.execute({
-    node,
-    inputs,
-    graph,
-    scope,
-    runSubFlow,
-    ee,
-  });
+  const result = await executor.execute({ node, inputs, graph, scope, runSubFlow, ee });
 
   if (result.error) {
     ee?.emit("node:error", { type: "node:error", nodeId, error: result.error, stack: "" });
@@ -81,9 +82,7 @@ export async function executeNode(params: ExecuteNodeParams): Promise<{ success:
       (result.activeHandle && edge.sourceHandle === result.activeHandle) ||
       (result.activeHandles && result.activeHandles.includes(edge.sourceHandle));
 
-    if (isActive) {
-      activeEdges.add(edge.id);
-    }
+    if (isActive) activeEdges.add(edge.id);
   }
 
   return { success: true };

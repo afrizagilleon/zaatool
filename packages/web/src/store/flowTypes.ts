@@ -1,10 +1,10 @@
 import type { Edge, Node, OnNodesChange, OnEdgesChange, OnConnect } from '@xyflow/react';
-import type { GraphJson, NodeDef, SchemaField } from '@zaa-tool/shared';
+import type { GraphJson, NodeDef, SchemaField, DashboardLayout } from '@zaa-tool/shared';
 
 export type FlowNodeData = NodeDef['data'] & {
   runtime?: 'node' | 'python';
   inferredOutputsSchema?: SchemaField[];
-  inputs?: Record<string, any>;
+  inputs?: Record<string, unknown>;
 };
 
 export type FlowNode = Node<FlowNodeData, string>;
@@ -16,11 +16,11 @@ export interface FlowState {
   edges: Edge[];
   activeNodeId: string | null;
   viewport: { x: number; y: number; zoom: number };
-  dashboardLayout: any;
+  dashboardLayout: DashboardLayout;
   dashboardPassword: string;
 
   setViewport: (viewport: { x: number; y: number; zoom: number }) => void;
-  setDashboardLayout: (layout: any) => void;
+  setDashboardLayout: (layout: DashboardLayout) => void;
   setFlowName: (name: string) => void;
   setDashboardPassword: (password: string) => void;
 

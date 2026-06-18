@@ -6,8 +6,8 @@ export class FlowsController {
     try {
       const flows = await flowsService.getAll();
       res.json(flows);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error).message });
     }
   }
 
@@ -15,8 +15,8 @@ export class FlowsController {
     try {
       const summary = await flowsService.getSummary();
       res.json(summary);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error).message });
     }
   }
 
@@ -26,15 +26,16 @@ export class FlowsController {
       if (!flow) {
         return res.status(404).json({ error: "Not found" });
       }
+      const { graph_json, dashboard_layout } = flowsService.parseFlow(flow);
       res.json({
         id: flow.id,
         name: flow.name,
-        graph_json: typeof flow.graph_json === "string" ? JSON.parse(flow.graph_json) : flow.graph_json,
-        dashboard_layout: flow.dashboard_layout ? (typeof flow.dashboard_layout === "string" ? JSON.parse(flow.dashboard_layout) : flow.dashboard_layout) : { items: [] },
+        graph_json,
+        dashboard_layout,
         dashboard_password: flow.dashboard_password_hash ? "[UNCHANGED]" : "",
       });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error).message });
     }
   }
 
@@ -43,8 +44,8 @@ export class FlowsController {
       const { id, name, graph_json, dashboard_layout, dashboard_password } = req.body;
       const result = await flowsService.save(id, name, graph_json, dashboard_layout, dashboard_password);
       res.json(result);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error).message });
     }
   }
 
@@ -52,8 +53,8 @@ export class FlowsController {
     try {
       const result = await flowsService.delete(String(req.params.id));
       res.json(result);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (e: unknown) {
+      res.status(500).json({ error: (e as Error).message });
     }
   }
 }

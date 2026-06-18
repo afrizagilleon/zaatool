@@ -1,8 +1,9 @@
 import { create } from 'zustand';
 import { applyNodeChanges, applyEdgeChanges, addEdge } from '@xyflow/react';
 import { useUiStore } from './uiStore';
+import { serializeFlow, deserializeFlow } from '../lib/flow-serializer';
 import type { Connection } from '@xyflow/react';
-import type { NodeDef } from '@zaa-tool/shared';
+import type { GraphJson, DashboardLayout } from '@zaa-tool/shared';
 import type { FlowState, FlowNode } from './flowTypes';
 
 export type { FlowNodeData, FlowNode, FlowState } from './flowTypes';
@@ -18,7 +19,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   dashboardLayout: { items: [] },
   dashboardPassword: '',
 
-  setDashboardLayout: (layout) => set({ dashboardLayout: layout }),
+  setDashboardLayout: (layout: DashboardLayout) => set({ dashboardLayout: layout }),
   setFlowName: (name) => set({ name }),
   setDashboardPassword: (password) => set({ dashboardPassword: password }),
   setViewport: (viewport) => set({ viewport }),
@@ -86,7 +87,7 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     });
   },
 
-  addNode: (node) => set({ nodes: [...get().nodes, node] }),
+  addNode: (node: FlowNode) => set({ nodes: [...get().nodes, node] }),
 
   removeNode: (id) => {
     const state = get();
@@ -98,96 +99,20 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   },
 
   getGraphJson: () => {
-    const { id, name, nodes, edges, viewport, dashboardLayout } = get();
+    const state = get();
     const layoutDirection = useUiStore.getState().layoutDirection;
-
-    return {
-      version: '2.0',
-      id,
-      name,
-      viewport,
-      layoutDirection,
-      dashboardLayout,
-      nodes: nodes.map((n) => ({
-        id: n.id,
-        type: n.type as NodeDef['type'],
-        runtime: (n.data.runtime as 'node' | 'python') || undefined,
-        position: n.position,
-        data: {
-          label: n.data.label,
-          code: n.data.code,
-          inputsSchema: n.data.inputsSchema,
-          outputsSchema: n.data.outputsSchema,
-          config: n.data.config,
-          uiSchema: n.data.uiSchema,
-          tableConfig: n.data.tableConfig,
-          chartConfig: n.data.chartConfig,
-          inputs: n.data.inputs,
-          outputs: n.data.outputs,
-          values: n.data.values,
-          selectedRow: n.data.selectedRow,
-          format: n.data.format,
-          cronExpression: n.data.cronExpression,
-          enabled: n.data.enabled,
-          showInDashboard: n.data.showInDashboard,
-          showPanel: n.data.showPanel,
-        },
-      })),
-      edges: edges.map((e) => ({
-        id: e.id,
-        source: e.source,
-        sourceHandle: e.sourceHandle || '',
-        target: e.target,
-        targetHandle: e.targetHandle || '',
-      })),
-    } as any;
+    return serializeFlow(state, layoutDirection);
   },
 
-  loadFromJson: (graph: any) => {
+  loadFromJson: (graph: GraphJson) => {
     if (!graph) return;
-    set({
-      id: graph.id || 'flow-1',
-      name: graph.name || 'Untitled Flow',
-      viewport: graph.viewport || { x: 0, y: 0, zoom: 1 },
-      dashboardLayout: graph.dashboardLayout || { items: [] },
-      dashboardPassword: graph.dashboardPassword || '',
-      nodes: (graph.nodes || []).map((n: any) => {
-        let inputsSchema = n.data?.inputsSchema || [];
-        if (n.type === 'ui:input' && n.data?.uiSchema?.fields) {
-          inputsSchema = n.data.uiSchema.fields.flatMap((f: any) => {
-            const inputsList = [];
-            if (f.replaceable) {
-              inputsList.push({
-                name: `value_${f.id}`,
-                type: f.type === 'number' ? 'number' : f.type === 'boolean' ? 'boolean' : 'string',
-                required: false,
-              });
-            }
-            if (['select', 'multi-select', 'radio'].includes(f.type)) {
-              inputsList.push({ name: `options_${f.id}`, type: 'array', required: false });
-            }
-            return inputsList;
-          });
-        }
-        return {
-          id: n.id,
-          type: n.type,
-          position: n.position,
-          data: { ...n.data, inputsSchema, runtime: n.runtime },
-        };
-      }),
-      edges: (graph.edges || []).map((e: any) => ({
-        id: e.id,
-        source: e.source,
-        sourceHandle: e.sourceHandle,
-        target: e.target,
-        targetHandle: e.targetHandle,
-      })),
-      activeNodeId: null,
-    });
+    const deserialized = deserializeFlow(graph as GraphJson & { dashboardPassword?: string });
+    set(deserialized);
 
-    if (graph.layoutDirection) {
-      useUiStore.getState().setLayoutDirection(graph.layoutDirection);
+    if ((graph as GraphJson & { layoutDirection?: string }).layoutDirection) {
+      useUiStore.getState().setLayoutDirection(
+        (graph as GraphJson & { layoutDirection: 'LR' | 'TB' }).layoutDirection
+      );
     }
   },
 }));

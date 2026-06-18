@@ -1,3 +1,15 @@
+export interface DashboardLayoutItem {
+  i: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface DashboardLayout {
+  items: DashboardLayoutItem[];
+}
+
 export interface GraphJson {
   version: string;
   id: string;
@@ -6,6 +18,7 @@ export interface GraphJson {
   edges: EdgeDef[];
   viewport?: { x: number; y: number; zoom: number };
   layoutDirection?: 'LR' | 'TB';
+  dashboardLayout?: DashboardLayout;
 }
 
 export interface NodeDef {

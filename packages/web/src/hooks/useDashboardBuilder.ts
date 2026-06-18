@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { useFlowStore } from '../store/flowStore.js';
-import { API_BASE_URL } from '../lib/api.js';
+import { flowsApi } from '../lib/flows-api.js';
+import type { DashboardLayout, DashboardLayoutItem } from '@zaa-tool/shared';
 
 export interface DashboardBuilderState {
-  uiNodes: any[];
-  layout: any[];
+  uiNodes: ReturnType<typeof useFlowStore.getState>['nodes'];
+  layout: DashboardLayoutItem[];
   copied: boolean;
   isSaving: boolean;
   containerRef: React.RefObject<HTMLDivElement>;
@@ -12,10 +13,20 @@ export interface DashboardBuilderState {
   dashboardPassword: string;
   setDashboardPassword: (value: string) => void;
   shareUrl: string;
-  handleLayoutChange: (newLayout: any) => void;
+  handleLayoutChange: (newLayout: DashboardLayoutItem[]) => void;
   handleSaveLayout: () => Promise<void>;
   handleCopyUrl: () => void;
 }
+
+const NODE_DEFAULT_SIZES: Record<string, { w: number; h: number }> = {
+  'ui:input': { w: 4, h: 5 },
+  'ui:text':  { w: 6, h: 4 },
+  'ui:table': { w: 8, h: 6 },
+  'ui:chart': { w: 6, h: 5 },
+  'ui:image': { w: 4, h: 4 },
+};
+
+const UI_NODE_TYPES = ['ui:input', 'ui:text', 'ui:table', 'ui:chart', 'ui:image', 'file'];
 
 export function useDashboardBuilder(): DashboardBuilderState {
   const flowId = useFlowStore((s) => s.id);
@@ -26,8 +37,7 @@ export function useDashboardBuilder(): DashboardBuilderState {
   const dashboardPassword = useFlowStore((s) => s.dashboardPassword);
   const setDashboardPassword = useFlowStore((s) => s.setDashboardPassword);
 
-  const [uiNodes, setUiNodes] = useState<any[]>([]);
-  const [layout, setLayout] = useState<any[]>([]);
+  const [layout, setLayout] = useState<DashboardLayoutItem[]>([]);
   const [copied, setCopied] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -38,54 +48,37 @@ export function useDashboardBuilder(): DashboardBuilderState {
     if (!containerRef.current) return;
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        if (entry.contentRect.width) {
-          setWidth(entry.contentRect.width);
-        }
+        if (entry.contentRect.width) setWidth(entry.contentRect.width);
       }
     });
     observer.observe(containerRef.current);
     return () => observer.disconnect();
   }, []);
 
-  useEffect(() => {
-    const filtered = nodes.filter((n) =>
-      ['ui:input', 'ui:text', 'ui:table', 'ui:chart', 'ui:image', 'file'].includes(n.type || '') &&
-      n.data?.showInDashboard !== false
-    );
-    setUiNodes(filtered);
+  const uiNodes = nodes.filter(
+    (n) => UI_NODE_TYPES.includes(n.type || '') && n.data?.showInDashboard !== false
+  );
 
+  useEffect(() => {
     const savedItems = dashboardLayout?.items || [];
-    const newLayout = filtered.map((node) => {
-      const existing = savedItems.find((item: any) => item.i === node.id);
+    const newLayout: DashboardLayoutItem[] = uiNodes.map((node, idx) => {
+      const existing = savedItems.find((item) => item.i === node.id);
       if (existing) return existing;
 
-      let w = 6, h = 4;
-      if (node.type === 'ui:input') { w = 4; h = 5; }
-      else if (node.type === 'ui:text') { w = 6; h = 4; }
-      else if (node.type === 'ui:table') { w = 8; h = 6; }
-      else if (node.type === 'ui:chart') { w = 6; h = 5; }
-      else if (node.type === 'ui:image') { w = 4; h = 4; }
-
+      const { w, h } = NODE_DEFAULT_SIZES[node.type || ''] ?? { w: 6, h: 4 };
       return {
         i: node.id,
-        x: (filtered.indexOf(node) * 4) % 12,
-        y: Math.floor(filtered.indexOf(node) / 3) * 5,
+        x: (idx * 4) % 12,
+        y: Math.floor(idx / 3) * 5,
         w,
         h,
       };
     });
-
     setLayout(newLayout);
   }, [flowId, nodes]);
 
-  const handleLayoutChange = (newLayout: any) => {
-    const formatted = newLayout.map((item: any) => ({
-      i: item.i,
-      x: item.x,
-      y: item.y,
-      w: item.w,
-      h: item.h,
-    }));
+  const handleLayoutChange = (newLayout: DashboardLayoutItem[]) => {
+    const formatted = newLayout.map(({ i, x, y, w, h }) => ({ i, x, y, w, h }));
     setLayout(formatted);
     setDashboardLayout({ items: formatted });
   };
@@ -93,22 +86,14 @@ export function useDashboardBuilder(): DashboardBuilderState {
   const handleSaveLayout = async () => {
     setIsSaving(true);
     try {
-      const flowStore = useFlowStore.getState();
-      const graph = flowStore.getGraphJson();
-      const dashboardPassword = flowStore.dashboardPassword;
-      const res = await fetch(`${API_BASE_URL}/api/flows`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: flowId,
-          name: flowName,
-          graph_json: graph,
-          dashboard_layout: { items: layout },
-          dashboard_password: dashboardPassword,
-        }),
+      const { getGraphJson, dashboardPassword: pwd } = useFlowStore.getState();
+      await flowsApi.save({
+        id: flowId,
+        name: flowName,
+        graph_json: getGraphJson(),
+        dashboard_layout: { items: layout },
+        dashboard_password: pwd,
       });
-
-      if (!res.ok) throw new Error('Failed to save layout');
     } catch (e) {
       console.error(e);
       alert('Failed to save layout to engine.');

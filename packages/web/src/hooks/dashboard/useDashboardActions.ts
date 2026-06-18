@@ -1,22 +1,26 @@
 import { useState } from 'react';
+import { flowsApi } from '../../lib/flows-api.js';
 import { API_BASE_URL } from '../../lib/api.js';
+import type { NodeDef, DashboardLayout } from '@zaa-tool/shared';
 
 interface UseDashboardActionsParams {
   flowId: string;
   dashboardPassword: string;
   flowName: string;
-  nodeData: Record<string, any>;
-  formInputs: Record<string, Record<string, any>>;
-  graphRef: React.MutableRefObject<any>;
+  nodeData: Record<string, unknown>;
+  formInputs: Record<string, Record<string, unknown>>;
+  graphRef: React.MutableRefObject<unknown>;
   setFlowName: React.Dispatch<React.SetStateAction<string>>;
   setIsLocked: React.Dispatch<React.SetStateAction<boolean>>;
   setDashboardPassword: React.Dispatch<React.SetStateAction<string>>;
-  setNodes: React.Dispatch<React.SetStateAction<any[]>>;
-  setNodeData: React.Dispatch<React.SetStateAction<Record<string, any>>>;
-  setLayout: React.Dispatch<React.SetStateAction<any[]>>;
-  setFormInputs: React.Dispatch<React.SetStateAction<Record<string, Record<string, any>>>>;
+  setNodes: React.Dispatch<React.SetStateAction<NodeDef[]>>;
+  setNodeData: React.Dispatch<React.SetStateAction<Record<string, unknown>>>;
+  setLayout: React.Dispatch<React.SetStateAction<unknown[]>>;
+  setFormInputs: React.Dispatch<React.SetStateAction<Record<string, Record<string, unknown>>>>;
   setExecutingNodes: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
 }
+
+const UI_NODE_TYPES = ['ui:input', 'ui:text', 'ui:table', 'ui:chart', 'ui:image', 'file'];
 
 export function useDashboardActions({
   flowId,
@@ -43,22 +47,9 @@ export function useDashboardActions({
   const handleFormSubmit = async (nodeId: string) => {
     setExecutingNodes((prev) => ({ ...prev, [nodeId]: true }));
     try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (dashboardPassword) {
-        headers['X-Dashboard-Password'] = dashboardPassword;
-      }
-
-      const res = await fetch(`${API_BASE_URL}/api/flows/${flowId}/trigger`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ startNodeId: nodeId, inputs: formInputs[nodeId] || {} }),
-      });
-
-      if (!res.ok) {
-        throw new Error('Failed to run workflow trigger');
-      }
-    } catch (err: any) {
-      console.error(err);
+      await flowsApi.trigger(flowId, { startNodeId: nodeId, inputs: formInputs[nodeId] || {} }, dashboardPassword || undefined);
+    } catch (err) {
+      console.error('Failed to trigger flow:', err);
     }
   };
 
@@ -69,109 +60,68 @@ export function useDashboardActions({
     setLockError(null);
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/flows/${flowId}/verify-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: passwordInput }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to verify password');
-      }
-
+      const data = await flowsApi.verifyPassword(flowId, passwordInput);
       setDashboardPassword(passwordInput);
       sessionStorage.setItem(`dashboard_password_${flowId}`, passwordInput);
-      setFlowName(flowName || data.name || 'Workflow Dashboard');
+      setFlowName(flowName || 'Workflow Dashboard');
 
       const graph = data.graph_json || { nodes: [], edges: [] };
       graphRef.current = graph;
-      const uiNodes = graph.nodes.filter((n: any) =>
-        ['ui:input', 'ui:text', 'ui:table', 'ui:chart', 'ui:image', 'file'].includes(n.type) &&
-        n.data?.showInDashboard !== false
+
+      const uiNodes = (graph.nodes || []).filter(
+        (n: NodeDef) => UI_NODE_TYPES.includes(n.type) && n.data?.showInDashboard !== false
       );
       setNodes(uiNodes);
 
-      const initialData: Record<string, any> = {};
-      const initialFormInputs: Record<string, Record<string, any>> = {};
-
-      uiNodes.forEach((n: any) => {
-        let inputs = n.data?.inputs || {};
-        let outputs = n.data?.outputs || {};
-
-        if (n.type === 'file') {
-          const config = n.data?.config || {};
-          const isChangeable = config.changeable !== false;
-          if (isChangeable) {
-            inputs = { ...inputs, file: null };
-            outputs = { ...outputs, file: null };
-          }
+      const initialData: Record<string, unknown> = {};
+      const initialFormInputs: Record<string, Record<string, unknown>> = {};
+      for (const n of uiNodes) {
+        let inputs = (n.data?.inputs || {}) as Record<string, unknown>;
+        let outputs = (n.data?.outputs || {}) as Record<string, unknown>;
+        if (n.type === 'file' && (n.data?.config as Record<string, unknown>)?.changeable !== false) {
+          inputs = { ...inputs, file: null };
+          outputs = { ...outputs, file: null };
         }
-
         initialData[n.id] = {
-          inputs,
-          outputs,
-          values: n.data?.values || {},
-          type: n.type,
-          label: n.data?.label || n.type,
-          tableConfig: n.data?.tableConfig || {},
-          chartConfig: n.data?.chartConfig || {},
-          config: n.data?.config || {},
-          selectedRow: n.data?.selectedRow || null,
+          inputs, outputs, values: n.data?.values || {},
+          type: n.type, label: n.data?.label || n.type,
+          tableConfig: n.data?.tableConfig || {}, chartConfig: n.data?.chartConfig || {},
+          config: n.data?.config || {}, selectedRow: n.data?.selectedRow || null,
         };
-
         if (n.type === 'ui:input') {
-          initialFormInputs[n.id] = {
-            ...(n.data?.values || {}),
-            ...(n.data?.outputs?.values || {}),
-          };
+          initialFormInputs[n.id] = { ...(n.data?.values || {}), ...((n.data?.outputs as Record<string, unknown>)?.values as Record<string, unknown> || {}) };
         }
-      });
+      }
       setNodeData(initialData);
       setFormInputs(initialFormInputs);
 
-      const savedLayout = data.dashboard_layout || { items: [] };
-      const layoutItems = uiNodes.map((n: any) => {
-        const item = savedLayout.items?.find((l: any) => l.i === n.id);
-        const base = item || { i: n.id, x: 0, y: 0, w: 6, h: 4 };
-        return { ...base, isDraggable: false, isResizable: false };
-      });
-      setLayout(layoutItems);
+      const savedLayout = (data.dashboard_layout as DashboardLayout) || { items: [] };
+      setLayout(
+        uiNodes.map((n: NodeDef) => {
+          const item = savedLayout.items?.find((l) => l.i === n.id);
+          return { ...(item || { i: n.id, x: 0, y: 0, w: 6, h: 4 }), isDraggable: false, isResizable: false };
+        })
+      );
       setIsLocked(false);
-    } catch (err: any) {
-      setLockError(err.message);
+    } catch (err: unknown) {
+      setLockError((err as Error).message);
     } finally {
       setIsUnlocking(false);
     }
   };
 
-  const handleTableSelect = async (nodeId: string, row: any) => {
-    setNodeData((prev) => {
-      const current = prev[nodeId] || {};
-      return { ...prev, [nodeId]: { ...current, selectedRow: row } };
-    });
-
+  const handleTableSelect = async (nodeId: string, row: unknown) => {
+    setNodeData((prev) => ({ ...prev, [nodeId]: { ...(prev[nodeId] as Record<string, unknown> || {}), selectedRow: row } }));
     setExecutingNodes((prev) => ({ ...prev, [nodeId]: true }));
     try {
-      const res = await fetch(`${API_BASE_URL}/api/flows/${flowId}/trigger`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ startNodeId: nodeId, inputs: { selectedRow: row } }),
-      });
-
-      if (!res.ok) {
-        throw new Error('Failed to run workflow trigger');
-      }
-    } catch (err: any) {
-      console.error(err);
+      await flowsApi.trigger(flowId, { startNodeId: nodeId, inputs: { selectedRow: row } }, dashboardPassword || undefined);
+    } catch (err) {
+      console.error('Failed to trigger table select:', err);
     }
   };
 
-  const handleInputChange = (nodeId: string, fieldKey: string, val: any) => {
-    setFormInputs((prev) => ({
-      ...prev,
-      [nodeId]: { ...(prev[nodeId] || {}), [fieldKey]: val },
-    }));
+  const handleInputChange = (nodeId: string, fieldKey: string, val: unknown) => {
+    setFormInputs((prev) => ({ ...prev, [nodeId]: { ...(prev[nodeId] || {}), [fieldKey]: val } }));
   };
 
   const handleFileUpload = async (nodeId: string, file: File) => {
@@ -179,28 +129,17 @@ export function useDashboardActions({
     const formData = new FormData();
     formData.append('file', file);
 
-    const config = nodeData[nodeId]?.config || {};
+    const config = (nodeData[nodeId] as Record<string, unknown>)?.config as Record<string, unknown> || {};
     const folder = config.folder || '';
-    const queryParams = folder ? `?dir=${encodeURIComponent(folder)}` : '';
+    const queryParams = folder ? `?dir=${encodeURIComponent(String(folder))}` : '';
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/resources/files${queryParams}`, {
-        method: 'POST',
-        body: formData,
-      });
+      const res = await fetch(`${API_BASE_URL}/api/resources/files${queryParams}`, { method: 'POST', body: formData });
       if (res.ok) {
         const uploaded = await res.json();
-        setNodeData((prev) => ({
-          ...prev,
-          [nodeId]: { ...prev[nodeId], outputs: { file: uploaded } },
-        }));
-
+        setNodeData((prev) => ({ ...prev, [nodeId]: { ...(prev[nodeId] as Record<string, unknown>), outputs: { file: uploaded } } }));
         setExecutingNodes((prev) => ({ ...prev, [nodeId]: true }));
-        await fetch(`${API_BASE_URL}/api/flows/${flowId}/trigger`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ startNodeId: nodeId, inputs: { file: uploaded.path } }),
-        });
+        await flowsApi.trigger(flowId, { startNodeId: nodeId, inputs: { file: uploaded.path } }, dashboardPassword || undefined);
       }
     } catch (err) {
       console.error('Failed to upload file:', err);
@@ -210,17 +149,8 @@ export function useDashboardActions({
   };
 
   return {
-    passwordInput,
-    lockError,
-    isUnlocking,
-    showPassword,
-    uploadingNodes,
-    setPasswordInput,
-    setShowPassword,
-    handleFormSubmit,
-    handleUnlock,
-    handleTableSelect,
-    handleInputChange,
-    handleFileUpload,
+    passwordInput, lockError, isUnlocking, showPassword, uploadingNodes,
+    setPasswordInput, setShowPassword,
+    handleFormSubmit, handleUnlock, handleTableSelect, handleInputChange, handleFileUpload,
   };
 }

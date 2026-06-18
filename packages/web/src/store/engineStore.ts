@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import type { GraphJson } from '@zaa-tool/shared';
 import { EngineClient } from '../lib/engine-client.js';
-import { API_BASE_URL } from '../lib/api.js';
 import { createLogEntry } from './engineTypes.js';
 import type { EngineState } from './engineTypes.js';
 import { handleWsMessage } from '../lib/wsEventHandler.js';
@@ -58,10 +57,7 @@ export const useEngineStore = create<EngineState>((set, get) => ({
         },
         () => {
           set((state) => ({
-            logs: [
-              ...state.logs,
-              createLogEntry('system', 'WebSocket connection error'),
-            ],
+            logs: [...state.logs, createLogEntry('system', 'WebSocket connection error')],
             isRunning: false,
             wsConnected: false,
           }));
@@ -71,28 +67,17 @@ export const useEngineStore = create<EngineState>((set, get) => ({
       ws.onopen = async () => {
         set((state) => ({
           wsConnected: true,
-          logs: [
-            ...state.logs,
-            createLogEntry('system', 'Connected. Sending flow…'),
-          ],
+          logs: [...state.logs, createLogEntry('system', 'Connected. Sending flow…')],
         }));
 
         try {
-          const response = await fetch(`${API_BASE_URL}/api/run`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ graph, startNodeId }),
-          });
-
+          const response = await EngineClient.runFlow(graph, startNodeId);
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
           }
         } catch (e) {
           set((state) => ({
-            logs: [
-              ...state.logs,
-              createLogEntry('system', `Failed to submit flow: ${e}`),
-            ],
+            logs: [...state.logs, createLogEntry('system', `Failed to submit flow: ${e}`)],
             isRunning: false,
           }));
           ws.close();
@@ -100,10 +85,7 @@ export const useEngineStore = create<EngineState>((set, get) => ({
       };
     } catch (e) {
       set((state) => ({
-        logs: [
-          ...state.logs,
-          createLogEntry('system', `Failed to connect: ${e}`),
-        ],
+        logs: [...state.logs, createLogEntry('system', `Failed to connect: ${e}`)],
         isRunning: false,
       }));
     }

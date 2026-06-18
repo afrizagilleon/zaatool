@@ -2,11 +2,11 @@ import type { GraphJson } from "@zaa-tool/shared";
 import { API_BASE_URL, WS_BASE_URL } from "./api.js";
 
 export class EngineClient {
-  static async runFlow(graph: GraphJson): Promise<Response> {
+  static async runFlow(graph: GraphJson, startNodeId?: string): Promise<Response> {
     return fetch(`${API_BASE_URL}/api/run`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(graph),
+      body: JSON.stringify({ graph, startNodeId }),
     });
   }
 

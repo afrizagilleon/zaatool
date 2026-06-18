@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { API_BASE_URL } from '../lib/api';
+import { flowsApi } from '../lib/flows-api';
 import { useFlowStore } from '../store/flowStore';
 import { useUiStore } from '../store/uiStore';
+import type { GraphJson } from '@zaa-tool/shared';
 
 export interface Workflow {
   id: string;
@@ -34,11 +35,8 @@ export function useWorkflows() {
   const fetchWorkflows = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/flows`);
-      if (res.ok) {
-        const data = await res.json();
-        setWorkflows(data);
-      }
+      const data = await flowsApi.list();
+      setWorkflows(data);
     } catch (err) {
       console.error('Failed to fetch workflows:', err);
     } finally {
@@ -52,73 +50,49 @@ export function useWorkflows() {
 
   const openWorkflow = async (id: string) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/flows/${id}`);
-      if (res.ok) {
-        const data = await res.json();
-        let parsed = data.graph_json;
-        if (typeof parsed === 'string') {
-          parsed = JSON.parse(parsed);
-        }
-        if (!parsed) {
-          parsed = { nodes: [], edges: [] };
-        }
-
-        // Ensure ID and Name are overridden from the top-level table if needed
-        parsed.id = data.id;
-        parsed.name = data.name;
-
-        loadFromJson(parsed);
-        setActiveTab('editor');
-      }
+      const data = await flowsApi.getById(id);
+      const graph: GraphJson = {
+        ...data.graph_json,
+        id: data.id,
+        name: data.name,
+      };
+      loadFromJson(graph);
+      setActiveTab('editor');
     } catch (err) {
-      console.error(err);
+      console.error('Failed to open workflow:', err);
     }
   };
 
   const handleCreateNew = async () => {
     if (!newName.trim()) return;
-
     try {
       const newId = uuidv4();
-      const emptyGraph = {
+      const emptyGraph: GraphJson = {
+        version: '2.0',
         id: newId,
         name: newName.trim(),
         nodes: [],
         edges: [],
         viewport: { x: 0, y: 0, zoom: 1 },
       };
-
-      const res = await fetch(`${API_BASE_URL}/api/flows`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: newId,
-          name: newName.trim(),
-          graph_json: emptyGraph,
-        }),
-      });
-
-      if (res.ok) {
-        setIsCreateOpen(false);
-        setNewName('');
-        fetchWorkflows();
-        openWorkflow(newId);
-      }
+      await flowsApi.save({ id: newId, name: newName.trim(), graph_json: emptyGraph });
+      setIsCreateOpen(false);
+      setNewName('');
+      fetchWorkflows();
+      openWorkflow(newId);
     } catch (err) {
-      console.error(err);
+      console.error('Failed to create workflow:', err);
     }
   };
 
   const deleteWorkflow = async () => {
     if (!workflowToDelete) return;
     try {
-      const res = await fetch(`${API_BASE_URL}/api/flows/${workflowToDelete}`, { method: 'DELETE' });
-      if (res.ok) {
-        setWorkflowToDelete(null);
-        fetchWorkflows();
-      }
+      await flowsApi.delete(workflowToDelete);
+      setWorkflowToDelete(null);
+      fetchWorkflows();
     } catch (err) {
-      console.error(err);
+      console.error('Failed to delete workflow:', err);
     }
   };
 

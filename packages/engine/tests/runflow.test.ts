@@ -1,6 +1,10 @@
 import { runFlow } from '../src/core/flow-runner.js';
+import { registerDefaultExecutors } from '../src/core/executor-bootstrap.js';
 import { EventEmitter } from 'events';
 import { GraphJson } from '@zaa-tool/shared';
+
+// Register executors before running any flow (mirrors server-entry.ts composition root)
+registerDefaultExecutors();
 
 const graph: GraphJson = {
     "version": "1.0",
