@@ -40,6 +40,45 @@ export async function executeNode(params: ExecuteNodeParams): Promise<{ success:
     }
   }
 
+  // Inject form context: all ui:input values available as inputs.form
+  // inputs.form = flat merge (last wins by topo order)
+  // inputs.form.__nodes['Label'] = per-form namespace for conflict resolution
+  const formFlat: Record<string, unknown> = {};
+  const formByLabel: Record<string, Record<string, unknown>> = {};
+  for (const n of graph.nodes) {
+    if (n.type === "ui:input") {
+      const scopeOutput = scope.get(n.id) as Record<string, unknown> | undefined;
+      const values = ((scopeOutput?.values ?? n.data.values) || {}) as Record<string, unknown>;
+      const label = n.data.label || n.id;
+      Object.assign(formFlat, values);
+      formByLabel[label] = values;
+    }
+  }
+  inputs.form = { ...formFlat, __nodes: formByLabel };
+
+  // Evaluate runCondition before executing — skip node if false
+  const runCondition = node.data.runCondition?.trim();
+  if (runCondition) {
+    try {
+      // eslint-disable-next-line no-new-func
+      const condFn = new Function("inputs", `"use strict"; return !!(${runCondition});`);
+      const shouldRun = condFn(inputs) as boolean;
+      if (!shouldRun) {
+        console.log(`\n⏭ [${nodeId}] ${node.data.label} (SKIPPED: runCondition false)`);
+        ee?.emit("node:skip", { type: "node:skip", nodeId, reason: runCondition });
+        // Produce null outputs so downstream nodes receive null (not stale cache)
+        const nullOutputs = Object.fromEntries(
+          node.data.outputsSchema.map((s) => [s.name, null])
+        );
+        scope.set(nodeId, nullOutputs);
+        // All outgoing edges stay inactive (not added to activeEdges)
+        return { success: true };
+      }
+    } catch (e) {
+      return { success: false, error: `runCondition error in "${node.data.label}": ${(e as Error).message}` };
+    }
+  }
+
   console.log(`\n▶ [${nodeId}] ${node.data.label}`);
   console.log(`  inputs:`, truncateLog(inputs));
 

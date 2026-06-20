@@ -11,8 +11,9 @@ import { Button } from '../ui/button';
 import { Sparkle, TerminalWindow } from '@phosphor-icons/react';
 import { useFlowStore } from '../../store/flowStore';
 import { useUiStore } from '../../store/uiStore';
-import { useAiGeneration } from '../../hooks/useAiGeneration';
+import { useAiGeneration, type FormNodeContext } from '../../hooks/useAiGeneration';
 import { AiGeneratorPanel } from './AiGeneratorPanel';
+import type { UiInputField } from '@zaa-tool/shared';
 
 interface CodeEditorDialogProps {
   open: boolean;
@@ -30,11 +31,12 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
   console.log("[CodeEditorDialog] Render, open:", open, "nodeId:", nodeId, "foundNode:", !!node);
 
   const [code, setCode] = useState(node?.data.code || '');
+  const [runCondition, setRunCondition] = useState(node?.data.runCondition || '');
   const [isAiPanelOpen, setIsAiPanelOpen] = useState(true);
   const [isReferenceOpen, setIsReferenceOpen] = useState(false);
   const editorRef = useRef<any>(null);
 
-  // Compute upstream nodes
+  // Compute upstream nodes (via edges)
   const upstreamEdges = edges.filter((e) => e.target === nodeId);
   const upstreamNodes = upstreamEdges
     .map((e) => {
@@ -46,6 +48,18 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
       };
     })
     .filter((n): n is { label: string; outputsSchema: any[] } => n !== null);
+
+  // Compute form context: all ui:input nodes in the flow, available as inputs.form
+  const formNodes: FormNodeContext[] = nodes
+    .filter((n) => n.type === 'ui:input')
+    .map((n) => ({
+      label: n.data.label || n.id,
+      fields: (n.data.uiSchema?.fields ?? []).map((f: UiInputField) => ({
+        id: f.id,
+        type: f.type,
+        label: f.label,
+      })),
+    }));
 
   const runtime = node?.data.runtime ?? 'node';
   const inputsSchema = node?.data.inputsSchema || [];
@@ -72,11 +86,13 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
     inputsSchema,
     outputsSchema,
     upstreamNodes,
+    formNodes,
   });
 
   useEffect(() => {
     if (open && node) {
       setCode(node.data.code || '');
+      setRunCondition(node.data.runCondition || '');
       setGeneratedContent(null);
       setPrompt('');
     }
@@ -92,7 +108,7 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
   };
 
   const handleSave = () => {
-    updateNodeData(nodeId, { code });
+    updateNodeData(nodeId, { code, runCondition: runCondition.trim() || undefined });
     onOpenChange(false);
   };
 
@@ -166,6 +182,32 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
           </div>
         </DialogHeader>
 
+        {/* Run Condition bar */}
+        <div className="shrink-0 px-5 py-2 border-b border-border bg-muted/10 flex items-center gap-3">
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 shrink-0">
+            Run Condition
+          </span>
+          <div className="flex-1 relative">
+            <input
+              type="text"
+              value={runCondition}
+              onChange={(e) => setRunCondition(e.target.value)}
+              placeholder="e.g. inputs.form.freq === 'per week'   |   inputs.is_selected && inputs.form.date !== null"
+              className="w-full h-7 px-3 font-mono text-[11px] bg-background border border-border rounded focus:outline-none focus:border-primary text-foreground placeholder:text-muted-foreground/30"
+            />
+          </div>
+          {runCondition.trim() && (
+            <span className="shrink-0 text-[9px] font-semibold px-2 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20 uppercase tracking-wider">
+              Conditional
+            </span>
+          )}
+          {!runCondition.trim() && (
+            <span className="shrink-0 text-[9px] text-muted-foreground/30 uppercase tracking-wider">
+              Always runs
+            </span>
+          )}
+        </div>
+
         <div className="flex flex-1 overflow-hidden min-h-0 bg-background">
           {/* Reference Sidebar */}
           {isReferenceOpen && (
@@ -178,63 +220,76 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
               </div>
               
               <div className="p-4 space-y-5">
+
                 {/* Inputs Section */}
                 <div className="space-y-2">
-                  <h4 className="text-[11px] font-bold text-foreground/80 uppercase tracking-widest">Inputs</h4>
+                  <h4 className="text-[11px] font-bold text-foreground/80 uppercase tracking-widest">Wired Inputs</h4>
                   {inputsSchema.length === 0 ? (
                     <div className="text-[10px] text-muted-foreground/60 italic">No inputs defined.</div>
                   ) : (
-                    <div className="space-y-2">
-                      {inputsSchema.map((field: any, idx: number) => {
-                        const isTable = field.type === 'table';
-                        const isFile = field.type === 'file';
-                        const isImage = field.type === 'image';
-                        return (
-                          <div key={idx} className="p-2 bg-muted/40 border border-border/60 rounded">
-                            <div className="flex items-center justify-between">
-                              <span className="font-mono text-[11px] font-bold text-primary">{field.name}</span>
-                              <span className="text-[9px] uppercase font-semibold text-muted-foreground/80 bg-muted px-1.5 py-0.5 rounded">{field.type}</span>
-                            </div>
-                            
-                            {/* Access Example code */}
-                            <div className="mt-1.5 font-mono text-[10px] text-muted-foreground/90 space-y-1">
-                              {language === 'javascript' ? (
-                                <>
-                                  <div className="text-foreground/70">const val = inputs.{field.name};</div>
-                                  {isTable && <div className="text-primary/70 font-semibold">{"// Methods: .getRows(), .getColumn(\"col\"), .getRow(0), .getHeaders(), .getCell(0, \"col\"), .count(), .filter(row => row.age > 20)"}</div>}
-                                  {isFile && <div className="text-primary/70 font-semibold">// Methods: .readAsText(), .readAsBase64(), .readAsBuffer(), .exists()</div>}
-                                  {isImage && <div className="text-primary/70 font-semibold">// Methods: .toDataUri(mimeType), .readAsBase64(), .exists()</div>}
-                                </>
-                              ) : (
-                                <>
-                                  <div className="text-foreground/70">val = inputs['{field.name}']</div>
-                                  {isTable && <div className="text-primary/70 font-semibold">{"# Methods: .get_rows(), .get_column(\"col\"), .get_row(0), .get_headers(), .get_cell(0, \"col\"), .count(), .filter(lambda row: row['age'] > 20)"}</div>}
-                                  {isFile && <div className="text-primary/70 font-semibold"># Methods: .read_as_text(), .read_as_base64(), .exists()</div>}
-                                  {isImage && <div className="text-primary/70 font-semibold"># Methods: .to_data_uri(mime_type), .read_as_base64(), .exists()</div>}
-                                </>
-                              )}
-                            </div>
+                    <div className="space-y-1.5">
+                      {inputsSchema.map((field: any, idx: number) => (
+                        <div key={idx} className="p-2 bg-muted/40 border border-border/60 rounded">
+                          <div className="flex items-center justify-between">
+                            <span className="font-mono text-[11px] font-bold text-primary">{field.name}</span>
+                            <span className="text-[9px] uppercase font-semibold text-muted-foreground/80 bg-muted px-1.5 py-0.5 rounded">{field.type}</span>
                           </div>
-                        );
-                      })}
+                          <div className="mt-1 font-mono text-[10px] text-foreground/60">
+                            {language === 'javascript' ? `inputs.${field.name}` : `inputs['${field.name}']`}
+                            {field.type === 'table' && <span className="ml-2 text-primary/60">{language === 'javascript' ? '// .getRows() .getColumn() .count() .filter()' : '# .get_rows() .get_column() .count() .filter()'}</span>}
+                            {field.type === 'file' && <span className="ml-2 text-primary/60">{language === 'javascript' ? '// .readAsText() .readAsBuffer() .exists()' : '# .read_as_text() .exists()'}</span>}
+                            {field.type === 'image' && <span className="ml-2 text-primary/60">{language === 'javascript' ? '// .toDataUri() .readAsBase64()' : '# .to_data_uri() .read_as_base64()'}</span>}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
 
-                {/* Secrets Section */}
-                <div className="space-y-2">
-                  <h4 className="text-[11px] font-bold text-foreground/80 uppercase tracking-widest">Secrets & Credentials</h4>
-                  <div className="p-2 bg-muted/40 border border-border/60 rounded text-[10px] space-y-1.5">
-                    <p className="text-muted-foreground/80">Secrets are automatically injected into the process environment.</p>
-                    <div className="font-mono text-foreground/70">
-                      {language === 'javascript' ? (
-                        <div>const key = process.env.MY_SECRET_KEY;</div>
-                      ) : (
-                        <>
-                          <div>import os</div>
-                          <div>key = os.environ.get("MY_SECRET_KEY")</div>
-                        </>
+                {/* Form Context Section */}
+                {formNodes.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-[11px] font-bold text-foreground/80 uppercase tracking-widest">Form Context</h4>
+                    <div className="p-2 bg-amber-500/5 border border-amber-500/20 rounded text-[10px] space-y-2">
+                      <p className="text-muted-foreground/80">
+                        All Input Form values — accessible anywhere via <span className="font-mono text-amber-500">inputs.form</span>, no edge needed.
+                      </p>
+                      {formNodes.map((form) => (
+                        <div key={form.label} className="space-y-1 border-t border-border/30 pt-2">
+                          <div className="font-semibold text-foreground/60 text-[10px]">{form.label}</div>
+                          {form.fields.length === 0 ? (
+                            <div className="text-muted-foreground/40 italic">No fields yet.</div>
+                          ) : (
+                            <div className="font-mono space-y-0.5">
+                              {form.fields.map((f) => (
+                                <div key={f.id} className="flex items-center gap-2">
+                                  <span className="text-amber-500">{f.id}</span>
+                                  <span className="text-muted-foreground/40 text-[9px]">{f.type}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                      {formNodes.length > 1 && (
+                        <p className="text-[9px] text-muted-foreground/60 border-t border-amber-500/20 pt-1.5">
+                          Multiple forms: <span className="font-mono text-amber-500">inputs.form.__nodes["Label"].fieldId</span>
+                        </p>
                       )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Run Condition */}
+                <div className="space-y-2">
+                  <h4 className="text-[11px] font-bold text-foreground/80 uppercase tracking-widest">Run Condition</h4>
+                  <div className="p-2 bg-muted/40 border border-border/60 rounded text-[10px] space-y-1.5">
+                    <p className="text-muted-foreground/80">JS expression in the bar above. If <span className="font-mono">false</span>, node is skipped and outputs <span className="font-mono">null</span>. Has full access to <span className="font-mono">inputs</span> and <span className="font-mono">inputs.form</span>.</p>
+                    <div className="font-mono text-foreground/60 space-y-0.5 border-t border-border/40 pt-1.5 text-[10px]">
+                      <div className="text-muted-foreground/40">// single</div>
+                      <div>inputs.form.field === 'value'</div>
+                      <div className="text-muted-foreground/40 mt-1">// compound</div>
+                      <div>inputs.form.a !== null &amp;&amp; inputs.b</div>
                     </div>
                   </div>
                 </div>
@@ -245,15 +300,15 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
                   {outputsSchema.length === 0 ? (
                     <div className="text-[10px] text-muted-foreground/60 italic">No outputs schema defined.</div>
                   ) : (
-                    <div className="p-2 bg-muted/40 border border-border/60 rounded text-[10px] space-y-2">
-                      <p className="text-muted-foreground/80">Return a value/object matching the schema format:</p>
-                      <div className="font-mono text-foreground/70 space-y-1">
+                    <div className="p-2 bg-muted/40 border border-border/60 rounded text-[10px] space-y-1.5">
+                      <p className="text-muted-foreground/80">Return an object matching the schema:</p>
+                      <div className="font-mono text-foreground/70 space-y-0.5">
                         {language === 'javascript' ? (
                           <>
                             <div>return &#123;</div>
                             {outputsSchema.map((field: any, idx: number) => (
-                              <div key={idx} className="pl-3">
-                                {field.name}: {field.type === 'string' ? '"value"' : field.type === 'number' ? '42' : field.type === 'boolean' ? 'true' : '[]'},
+                              <div key={idx} className="pl-3 text-foreground/60">
+                                {field.name}: <span className="text-muted-foreground/50">{field.type === 'string' ? '"..."' : field.type === 'number' ? '0' : field.type === 'boolean' ? 'true' : field.type === 'table' ? '[]' : '{}'}</span>,
                               </div>
                             ))}
                             <div>&#125;;</div>
@@ -262,8 +317,8 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
                           <>
                             <div>return &#123;</div>
                             {outputsSchema.map((field: any, idx: number) => (
-                              <div key={idx} className="pl-3">
-                                "{field.name}": {field.type === 'string' ? '"value"' : field.type === 'number' ? '42' : field.type === 'boolean' ? 'True' : '[]'},
+                              <div key={idx} className="pl-3 text-foreground/60">
+                                "{field.name}": <span className="text-muted-foreground/50">{field.type === 'string' ? '"..."' : field.type === 'number' ? '0' : field.type === 'boolean' ? 'True' : field.type === 'table' ? '[]' : '{}'}</span>,
                               </div>
                             ))}
                             <div>&#125;</div>
@@ -273,6 +328,18 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
                     </div>
                   )}
                 </div>
+
+                {/* Secrets Section */}
+                <div className="space-y-2">
+                  <h4 className="text-[11px] font-bold text-foreground/80 uppercase tracking-widest">Secrets</h4>
+                  <div className="p-2 bg-muted/40 border border-border/60 rounded text-[10px] space-y-1">
+                    <p className="text-muted-foreground/80">Injected as environment variables.</p>
+                    <div className="font-mono text-foreground/60">
+                      {language === 'javascript' ? 'process.env.MY_SECRET' : 'os.environ.get("MY_SECRET")'}
+                    </div>
+                  </div>
+                </div>
+
               </div>
             </div>
           )}

@@ -282,6 +282,7 @@ export function PublishedDashboard({ flowId }: PublishedDashboardProps) {
                             formInputs={formInputs[node.id] || {}}
                             onInputChange={(fieldKey, val) => handleInputChange(node.id, fieldKey, val)}
                             onFormSubmit={() => handleFormSubmit(node.id)}
+                            onAutoTrigger={(latestInputs) => handleFormSubmit(node.id, latestInputs)}
                             isExecuting={!!executingNodes[node.id]}
                             getFieldOptions={(field) => getFieldOptions(node, field)}
                             fontSize={fontSizes[node.id]}

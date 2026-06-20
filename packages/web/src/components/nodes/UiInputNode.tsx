@@ -223,7 +223,7 @@ export function UiInputNode({ id, data, selected }: UiInputNodeProps) {
             })
           )}
 
-          {(uiSchema.layout?.showSubmit !== false && uiSchema.fields && uiSchema.fields.length > 0) && (
+          {(uiSchema.layout?.showSubmit !== false && uiSchema.layout?.triggerOn !== 'change' && uiSchema.fields && uiSchema.fields.length > 0) && (
             <div className="col-span-full pt-2">
               <Button type="submit" className="w-full h-8 text-xs">{uiSchema.layout?.submitLabel || 'Submit'}</Button>
             </div>

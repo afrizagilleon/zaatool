@@ -32,6 +32,7 @@ export interface NodeDef {
       inputsSchema: SchemaField[];
       outputsSchema: SchemaField[];
       config?: Record<string, unknown>;
+      runCondition?: string;
       uiSchema?: UiInputSchema;
       tableConfig?: UiTableConfig;
       chartConfig?: UiChartConfig;

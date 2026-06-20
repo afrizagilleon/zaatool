@@ -38,9 +38,10 @@ export interface TriggerPayload {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const { headers: initHeaders, ...restInit } = init ?? {};
   const res = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { "Content-Type": "application/json", ...(init?.headers as Record<string, string>) },
-    ...init,
+    headers: { "Content-Type": "application/json", ...(initHeaders as Record<string, string>) },
+    ...restInit,
   });
   if (!res.ok) throw new Error(`API ${path} failed: ${res.status}`);
   return res.json();

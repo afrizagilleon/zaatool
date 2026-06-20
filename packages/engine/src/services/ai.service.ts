@@ -5,6 +5,11 @@ import { GeminiProvider } from "./providers/gemini.provider.js";
 import { AnthropicProvider } from "./providers/anthropic.provider.js";
 import type { AiProvider } from "./providers/ai-provider.interface.js";
 
+export interface FormNodeContext {
+  label: string;
+  fields: { id: string; type: string; label: string }[];
+}
+
 export interface GenerateOptions {
   instruction: string;
   runtime: string;
@@ -13,6 +18,7 @@ export interface GenerateOptions {
     outputsSchema: unknown[];
   };
   upstreamNodes?: Record<string, unknown>[];
+  formNodes?: FormNodeContext[];
   provider: string;
   model: string;
   systemPrompt?: string;

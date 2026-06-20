@@ -11,6 +11,7 @@ interface DashboardInputWidgetProps {
   formInputs: Record<string, any>;
   onInputChange: (fieldKey: string, val: any) => void;
   onFormSubmit: () => void;
+  onAutoTrigger?: (latestInputs: Record<string, any>) => void;
   isExecuting: boolean;
   getFieldOptions: (field: any) => any[];
   fontSize?: number;
@@ -21,11 +22,32 @@ export function DashboardInputWidget({
   formInputs,
   onInputChange,
   onFormSubmit,
+  onAutoTrigger,
   isExecuting,
   getFieldOptions,
   fontSize
 }: DashboardInputWidgetProps) {
   const size = fontSize || 12;
+  const triggerOn = node.data?.uiSchema?.layout?.triggerOn;
+  const showSubmit =
+    node.data?.uiSchema?.layout?.showSubmit !== false &&
+    triggerOn !== 'change' &&
+    node.data?.uiSchema?.fields?.length > 0;
+
+  // select/radio: trigger immediately; compute fresh inputs before state update propagates
+  const handleImmediateChange = (fieldId: string, val: any) => {
+    onInputChange(fieldId, val);
+    if (triggerOn === 'change') {
+      onAutoTrigger?.({ ...formInputs, [fieldId]: val });
+    }
+  };
+
+  // text/textarea/number: trigger on blur; by blur time formInputs prop is already updated
+  const handleBlurTrigger = () => {
+    if (triggerOn === 'change') {
+      onAutoTrigger?.(formInputs);
+    }
+  };
 
   return (
     <div className="h-full flex flex-col justify-between">
@@ -45,11 +67,12 @@ export function DashboardInputWidget({
                   style={{ fontSize: `${size}px` }}
                   value={formInputs[f.id] || ''}
                   onChange={(e) => onInputChange(f.id, e.target.value)}
+                  onBlur={handleBlurTrigger}
                 />
               ) : f.type === 'select' ? (
                 <Select
                   value={formInputs[f.id] || ''}
-                  onValueChange={(val) => onInputChange(f.id, val)}
+                  onValueChange={(val) => handleImmediateChange(f.id, val)}
                 >
                   <SelectTrigger
                     className="h-8.5 bg-background border-border text-foreground shrink-0"
@@ -73,7 +96,7 @@ export function DashboardInputWidget({
               ) : f.type === 'radio' ? (
                 <RadioGroup
                   value={formInputs[f.id] || ''}
-                  onValueChange={(val) => onInputChange(f.id, val)}
+                  onValueChange={(val) => handleImmediateChange(f.id, val)}
                   className="flex flex-col space-y-1 mt-1"
                 >
                   {getFieldOptions(f).map((opt: any) => (
@@ -99,20 +122,23 @@ export function DashboardInputWidget({
                   style={{ fontSize: `${size}px` }}
                   value={formInputs[f.id] || ''}
                   onChange={(e) => onInputChange(f.id, e.target.value)}
+                  onBlur={handleBlurTrigger}
                 />
               )}
             </div>
           );
         })}
       </div>
-      <Button
-        onClick={onFormSubmit}
-        className="w-full h-8.5 bg-primary text-primary-foreground hover:bg-primary/90 font-bold text-xs flex items-center justify-center gap-1.5 mt-2 shrink-0 rounded-lg"
-        disabled={isExecuting}
-      >
-        <Play weight="fill" className="w-3 h-3" />
-        {node.data?.uiSchema?.layout?.submitLabel || 'Submit'}
-      </Button>
+      {showSubmit && (
+        <Button
+          onClick={onFormSubmit}
+          className="w-full h-8.5 bg-primary text-primary-foreground hover:bg-primary/90 font-bold text-xs flex items-center justify-center gap-1.5 mt-2 shrink-0 rounded-lg"
+          disabled={isExecuting}
+        >
+          <Play weight="fill" className="w-3 h-3" />
+          {node.data?.uiSchema?.layout?.submitLabel || 'Submit'}
+        </Button>
+      )}
     </div>
   );
 }

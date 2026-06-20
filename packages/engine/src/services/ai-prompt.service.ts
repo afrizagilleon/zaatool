@@ -35,6 +35,31 @@ export class AiPromptService {
     prompt += `- Inputs: ${JSON.stringify(options.thisNode.inputsSchema)}\n`;
     prompt += `- Outputs: ${JSON.stringify(options.thisNode.outputsSchema)}\n`;
 
+    prompt += `\nRun Condition (runCondition):\n`;
+    prompt += `Each node has an optional runCondition — a JS expression evaluated before execution.\n`;
+    prompt += `If false, the node is skipped and outputs null. Has access to 'inputs' (wired edges) and 'inputs.form' (form context).\n`;
+    prompt += `Examples:\n`;
+    prompt += `  inputs.form.freq === 'per week'\n`;
+    prompt += `  inputs.form.freq === 'per week' && inputs.form.start_date !== null\n`;
+    prompt += `  inputs.is_selected === true\n`;
+
+    if (options.formNodes && options.formNodes.length > 0) {
+      prompt += `\nForm Context (inputs.form):\n`;
+      prompt += `All Input Form nodes in the flow are automatically available via 'inputs.form' without needing an edge connection.\n`;
+      if (options.formNodes.length === 1) {
+        const form = options.formNodes[0];
+        prompt += `Form: "${form.label}" — fields: ${form.fields.map((f) => `${f.id} (${f.type})`).join(", ")}\n`;
+        prompt += `Access: const { ${form.fields.map((f) => f.id).join(", ")} } = inputs.form;\n`;
+      } else {
+        prompt += `Multiple forms present — use flat access for convenience or namespaced access to avoid conflicts:\n`;
+        options.formNodes.forEach((form) => {
+          prompt += `- "${form.label}": fields [${form.fields.map((f) => `${f.id}`).join(", ")}]\n`;
+          prompt += `  Namespaced: inputs.form.__nodes["${form.label}"].fieldId\n`;
+        });
+        prompt += `Flat access (last-write-wins if field IDs conflict): inputs.form.fieldId\n`;
+      }
+    }
+
     prompt += `\nData Type Guidelines:\n`;
     prompt += `- 'table': Tabular data. Must be returned as a flat array of objects (e.g. [{"id": 1, "name": "John"}, {"id": 2, "name": "Jane"}]). Do not return a stringified JSON array, return a real array of objects.\n`;
     prompt += `- 'image': A string representing an image URL or local storage path (e.g. 'uploads/image.png').\n`;

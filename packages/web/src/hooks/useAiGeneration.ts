@@ -9,6 +9,11 @@ export interface Skill {
   content: string;
 }
 
+export interface FormNodeContext {
+  label: string;
+  fields: { id: string; type: string; label: string }[];
+}
+
 interface UseAiGenerationProps {
   runtime: string;
   nodeId?: string;
@@ -18,9 +23,10 @@ interface UseAiGenerationProps {
     label: string;
     outputsSchema: any[];
   }[];
+  formNodes?: FormNodeContext[];
 }
 
-export function useAiGeneration({ runtime, inputsSchema, outputsSchema, upstreamNodes }: UseAiGenerationProps) {
+export function useAiGeneration({ runtime, inputsSchema, outputsSchema, upstreamNodes, formNodes }: UseAiGenerationProps) {
   const [provider, setProvider] = useState('openrouter');
   const [model, setModel] = useState('google/gemini-2.5-flash');
   const [prompt, setPrompt] = useState('');
@@ -81,6 +87,7 @@ export function useAiGeneration({ runtime, inputsSchema, outputsSchema, upstream
             outputsSchema: outputsSchema || []
           },
           upstreamNodes: upstreamNodes || [],
+          formNodes: formNodes || [],
           provider,
           model
         })

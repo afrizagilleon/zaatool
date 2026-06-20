@@ -44,10 +44,11 @@ export function useDashboardActions({
   const [showPassword, setShowPassword] = useState(false);
   const [uploadingNodes, setUploadingNodes] = useState<Record<string, boolean>>({});
 
-  const handleFormSubmit = async (nodeId: string) => {
+  const handleFormSubmit = async (nodeId: string, overrideInputs?: Record<string, unknown>) => {
+    const inputs = overrideInputs ?? (formInputs[nodeId] || {});
     setExecutingNodes((prev) => ({ ...prev, [nodeId]: true }));
     try {
-      await flowsApi.trigger(flowId, { startNodeId: nodeId, inputs: formInputs[nodeId] || {} }, dashboardPassword || undefined);
+      await flowsApi.trigger(flowId, { startNodeId: nodeId, inputs }, dashboardPassword || undefined);
     } catch (err) {
       console.error('Failed to trigger flow:', err);
     }

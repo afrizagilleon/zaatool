@@ -20,6 +20,7 @@ export function serializeFlow(state: Pick<FlowState, "id" | "name" | "nodes" | "
         inputsSchema: n.data.inputsSchema,
         outputsSchema: n.data.outputsSchema,
         config: n.data.config,
+        runCondition: n.data.runCondition,
         uiSchema: n.data.uiSchema,
         tableConfig: n.data.tableConfig,
         chartConfig: n.data.chartConfig,
