@@ -75,7 +75,7 @@ export function DashboardInputWidget({
                   onValueChange={(val) => handleImmediateChange(f.id, val)}
                 >
                   <SelectTrigger
-                    className="h-8.5 bg-background border-border text-foreground shrink-0"
+                    className="h-8.5 w-full bg-background border-border text-foreground"
                     style={{ fontSize: `${size}px` }}
                   >
                     <SelectValue placeholder={f.placeholder || 'Select...'} />

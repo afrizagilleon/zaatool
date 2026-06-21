@@ -10,8 +10,13 @@ export class AiPromptService {
     }
 
     if (options.existingCode && options.existingCode.trim()) {
-      prompt += `\nExisting Code:\n\`\`\`${options.runtime === "python" ? "python" : "javascript"}\n${options.existingCode}\n\`\`\`\n`;
-      prompt += `Please base your code on the existing code above, fixing errors, enhancing it, or refactoring it as requested in the instruction.\n`;
+      const codeBlockLang = options.runtime === "python" ? "python" : options.runtime === "json" ? "json" : "javascript";
+      prompt += `\nExisting Code:\n\`\`\`${codeBlockLang}\n${options.existingCode}\n\`\`\`\n`;
+      if (options.runtime === "json") {
+        prompt += `This is the CURRENT form schema. Preserve ALL existing fields exactly as-is. Only ADD new fields or MODIFY a specific field if the instruction explicitly asks for it. Do NOT remove any existing fields unless the user explicitly says to remove them.\n`;
+      } else {
+        prompt += `Please base your code on the existing code above, fixing errors, enhancing it, or refactoring it as requested in the instruction.\n`;
+      }
     }
 
     prompt += `\nTask: ${options.instruction}\n`;
@@ -69,6 +74,9 @@ export class AiPromptService {
     if (options.runtime === "json") {
       prompt += `\nWrite ONLY raw, valid JSON inside a markdown code block (\`\`\`json ... \`\`\`). Do not explain. Do not wrap with extra text.\n`;
       prompt += `Important: The JSON must represent the schema for the form. It must have a 'fields' array, where each field has: 'id', 'type' (text, textarea, number, select, radio), 'label', and optional 'required' (boolean), 'placeholder', 'options' (array of {label, value} objects for select/radio).\n`;
+      if (options.existingCode && options.existingCode.trim()) {
+        prompt += `CRITICAL: You MUST output the complete merged schema — include ALL existing fields from the Existing Code plus any new/modified fields. Never output a partial schema or drop existing fields.\n`;
+      }
       prompt += `Example output form schema:\n`;
       prompt += `\`\`\`json\n{\n  "fields": [\n    {"id": "name", "type": "text", "label": "Full Name", "required": true},\n    {"id": "gender", "type": "select", "label": "Gender", "options": [{"label": "Male", "value": "male"}, {"label": "Female", "value": "female"}]}\n  ],\n  "layout": {"columns": 1, "triggerOn": "submit"}\n}\n\`\`\``;
     } else if (options.runtime === "python") {

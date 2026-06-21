@@ -70,6 +70,9 @@ export function AiFormBuilderDialog({ open, onOpenChange, nodeId, onApplySchema,
       const match = generatedContent.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
       if (match) {
         jsonStr = match[1];
+      } else if (jsonStr.trimStart().startsWith('```')) {
+        // Partial stream: opening fence present but closing not yet arrived — strip the first line
+        jsonStr = jsonStr.replace(/^```[^\n]*\n?/, '').replace(/\n?```\s*$/, '');
       }
       setEditorValue(jsonStr.trim());
     }
@@ -149,7 +152,7 @@ export function AiFormBuilderDialog({ open, onOpenChange, nodeId, onApplySchema,
               skills={skills}
               isGenerating={isGenerating}
               generatedContent={null}
-              onGenerate={generate}
+              onGenerate={() => generate(editorValue)}
               onAccept={handleApply}
               onReject={handleReject}
               isDarkMode={false}

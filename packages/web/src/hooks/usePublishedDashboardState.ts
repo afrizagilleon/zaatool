@@ -47,23 +47,7 @@ export function usePublishedDashboardState(flowId: string) {
     flowName: flow.flowName,
   });
 
-  const getFieldOptions = (node: any, field: any) => {
-    const data = flow.nodeData[node.id] || {};
-    const dynamicOpts = data.inputs?.[`options_${field.id}`];
-    if (Array.isArray(dynamicOpts)) {
-      return dynamicOpts.map((opt) => {
-        if (typeof opt === 'string') return { label: opt, value: opt };
-        if (opt && typeof opt === 'object') {
-          return {
-            label: opt.label || opt.name || String(opt.value),
-            value: String(opt.value || opt.id),
-          };
-        }
-        return { label: String(opt), value: String(opt) };
-      });
-    }
-    return field.options || [];
-  };
+  const getFieldOptions = (_node: any, field: any) => field.options || [];
 
   return {
     flowName: flow.flowName,

@@ -1,7 +1,7 @@
 import { Handle, Position, useUpdateNodeInternals } from '@xyflow/react';
 import type { NodeProps, Node } from '@xyflow/react';
 import { AppWindow, Eye, EyeSlash, Play } from '@phosphor-icons/react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { cn } from '../../lib/utils';
 import { useUiStore } from '../../store/uiStore';
 import { useFlowStore } from '../../store/flowStore';
@@ -30,48 +30,33 @@ export function UiInputNode({ id, data, selected }: UiInputNodeProps) {
 
   const runFlow = useEngineStore((s) => s.runFlow);
   const getGraphJson = useFlowStore((s) => s.getGraphJson);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   const [formValues, setFormValues] = useState<Record<string, any>>({});
 
-  const dynamicValues = useMemo(() => {
-    const vals: Record<string, any> = {};
-    if (data.inputs) {
-      for (const [key, val] of Object.entries(data.inputs)) {
-        if (key.startsWith('value_')) {
-          const fieldId = key.replace('value_', '');
-          vals[fieldId] = val;
-        }
-      }
-    }
-    return vals;
-  }, [data.inputs]);
-
-  // Initialize formValues from data.values and dynamicValues
   useEffect(() => {
-    setFormValues({
-      ...(data.values || {}),
-      ...dynamicValues,
-    });
-  }, [data.values, dynamicValues]);
+    setFormValues(data.values || {});
+  }, [data.values]);
 
   const handleFieldChange = (fieldId: string, value: any, triggerImmediately = false) => {
     const nextValues = { ...formValues, [fieldId]: value };
     setFormValues(nextValues);
     updateNodeData(id, { values: nextValues });
 
-    if (uiSchema.layout?.triggerOn === 'change' || triggerImmediately) {
-      setTimeout(() => {
-        runFlow(getGraphJson());
-      }, 0);
+    if (triggerImmediately) {
+      clearTimeout(debounceTimerRef.current);
+      setTimeout(() => runFlow(getGraphJson()), 0);
+    } else if (uiSchema.layout?.triggerOn === 'change') {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = setTimeout(() => runFlow(getGraphJson()), 800);
     }
   };
 
   const handleBlur = (_fieldId: string) => {
     updateNodeData(id, { values: formValues });
     if (uiSchema.layout?.triggerOn === 'change') {
-      setTimeout(() => {
-        runFlow(getGraphJson());
-      }, 0);
+      clearTimeout(debounceTimerRef.current);
+      setTimeout(() => runFlow(getGraphJson()), 0);
     }
   };
 
@@ -83,22 +68,7 @@ export function UiInputNode({ id, data, selected }: UiInputNodeProps) {
     }, 0);
   };
 
-  const getFieldOptions = (field: any) => {
-    const dynamicOpts = data.inputs?.[`options_${field.id}`];
-    if (Array.isArray(dynamicOpts)) {
-      return dynamicOpts.map(opt => {
-        if (typeof opt === 'string') return { label: opt, value: opt };
-        if (opt && typeof opt === 'object') {
-          return {
-            label: opt.label || opt.name || String(opt.value),
-            value: String(opt.value || opt.id)
-          };
-        }
-        return { label: String(opt), value: String(opt) };
-      });
-    }
-    return field.options || [];
-  };
+  const getFieldOptions = (field: any) => field.options || [];
 
   // Create handles array strings to trigger updates
   const fieldsStr = JSON.stringify(uiSchema.fields?.map(f => f.id) || []);
@@ -107,28 +77,7 @@ export function UiInputNode({ id, data, selected }: UiInputNodeProps) {
     updateNodeInternals(id);
   }, [id, fieldsStr, isVertical, updateNodeInternals]);
 
-  // Extract all target handles (value_ and options_)
-  const targetHandles = useMemo(() => {
-    const handles: { id: string; label: string; type: string }[] = [];
-    const fields = uiSchema.fields || [];
-    for (const field of fields) {
-      if (field.replaceable) {
-        handles.push({
-          id: `value_${field.id}`,
-          label: `value_${field.id}`,
-          type: field.type === 'number' ? 'number' : (field.type as string) === 'boolean' ? 'boolean' : 'string',
-        });
-      }
-      if (['select', 'multi-select', 'radio'].includes(field.type)) {
-        handles.push({
-          id: `options_${field.id}`,
-          label: `options_${field.id}`,
-          type: 'array',
-        });
-      }
-    }
-    return handles;
-  }, [uiSchema.fields]);
+  const targetHandles: { id: string; label: string; type: string }[] = [];
 
   // Handle styles
   const handleClass = "!w-2.5 !h-2.5 !border-[1.5px] !border-node-bg !bg-handle hover:!bg-primary transition-colors !rounded-none";
@@ -156,34 +105,28 @@ export function UiInputNode({ id, data, selected }: UiInputNodeProps) {
           ) : (
             uiSchema.fields.map((field) => {
               const options = getFieldOptions(field);
-              const isBound = dynamicValues[field.id] !== undefined;
-              const isDisabled = isBound || (field.props?.disabled as boolean);
+              const isDisabled = field.props?.disabled as boolean;
               return (
                 <div key={field.id} className="space-y-1.5 flex flex-col">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-[10px]">{field.label}{field.required && ' *'}</Label>
-                    {isBound && (
-                      <span className="text-[7px] font-bold text-primary bg-primary/10 px-1 py-0.5 rounded uppercase">Dynamic</span>
-                    )}
-                  </div>
+                  <Label className="text-[10px]">{field.label}{field.required && ' *'}</Label>
 
                   {field.type === 'textarea' ? (
-                    <Textarea 
-                      value={formValues[field.id] || ''} 
+                    <Textarea
+                      value={formValues[field.id] || ''}
                       onChange={(e) => handleFieldChange(field.id, e.target.value)}
                       onBlur={() => handleBlur(field.id)}
-                      placeholder={isBound ? "Bound to dynamic input" : field.placeholder} 
-                      className="text-xs min-h-[60px]" 
-                      disabled={isDisabled} 
+                      placeholder={field.placeholder}
+                      className="text-xs min-h-[60px]"
+                      disabled={isDisabled}
                     />
                   ) : field.type === 'select' ? (
-                    <Select 
-                      value={formValues[field.id] || ''} 
+                    <Select
+                      value={formValues[field.id] || ''}
                       onValueChange={(val) => handleFieldChange(field.id, val, uiSchema.layout?.triggerOn === 'change')}
                       disabled={isDisabled}
                     >
-                      <SelectTrigger className="h-8 text-xs" type="button">
-                        <SelectValue placeholder={isBound ? 'Dynamic Value' : (field.placeholder || 'Select...')} />
+                      <SelectTrigger className="h-8 text-xs w-full" type="button">
+                        <SelectValue placeholder={field.placeholder || 'Select...'} />
                       </SelectTrigger>
                       <SelectContent>
                         {options.map((opt: any) => (
@@ -193,8 +136,8 @@ export function UiInputNode({ id, data, selected }: UiInputNodeProps) {
                       </SelectContent>
                     </Select>
                   ) : field.type === 'radio' ? (
-                    <RadioGroup 
-                      value={formValues[field.id] || ''} 
+                    <RadioGroup
+                      value={formValues[field.id] || ''}
                       onValueChange={(val) => handleFieldChange(field.id, val, uiSchema.layout?.triggerOn === 'change')}
                       className="flex flex-col space-y-1 mt-1"
                       disabled={isDisabled}
@@ -213,7 +156,7 @@ export function UiInputNode({ id, data, selected }: UiInputNodeProps) {
                       value={formValues[field.id] || ''}
                       onChange={(e) => handleFieldChange(field.id, field.type === 'number' ? Number(e.target.value) : e.target.value)}
                       onBlur={() => handleBlur(field.id)}
-                      placeholder={isBound ? "Bound to dynamic input" : field.placeholder}
+                      placeholder={field.placeholder}
                       className="h-8 text-xs"
                       disabled={isDisabled}
                     />

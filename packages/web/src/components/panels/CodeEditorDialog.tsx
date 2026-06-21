@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import Editor from '@monaco-editor/react';
+import Editor, { DiffEditor } from '@monaco-editor/react';
 import {
   Dialog,
   DialogContent,
@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from '../ui/dialog';
 import { Button } from '../ui/button';
-import { Sparkle, TerminalWindow } from '@phosphor-icons/react';
+import { Sparkle, TerminalWindow, Check, X } from '@phosphor-icons/react';
 import { useFlowStore } from '../../store/flowStore';
 import { useUiStore } from '../../store/uiStore';
 import { useAiGeneration, type FormNodeContext } from '../../hooks/useAiGeneration';
@@ -344,36 +344,80 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
             </div>
           )}
 
-          {/* Main Editor */}
-          <div 
+          {/* Main Editor / Diff Editor */}
+          <div
             className="flex-1 flex flex-col min-w-0 relative"
             onKeyDown={(e) => e.stopPropagation()}
             onKeyUp={(e) => e.stopPropagation()}
           >
-            <Editor
-              height="100%"
-              language={language}
-              theme={monacoTheme}
-              value={code}
-              onChange={handleEditorChange}
-              onMount={(editor) => {
-                editorRef.current = editor;
-              }}
-              options={{
-                minimap: { enabled: false },
-                fontSize: 14,
-                fontFamily: 'JetBrains Mono, Consolas, monospace',
-                padding: { top: 24, bottom: 24 },
-                scrollBeyondLastLine: false,
-                lineNumbers: 'on',
-                renderLineHighlight: 'all',
-                bracketPairColorization: { enabled: true },
-                guides: { indentation: true },
-              }}
-            />
+            {generatedContent !== null ? (
+              <>
+                {/* Diff accept/reject bar */}
+                <div className="shrink-0 flex items-center justify-between px-4 py-2 border-b border-emerald-500/30 bg-emerald-500/5">
+                  <span className="text-[11px] font-bold text-emerald-500 uppercase tracking-widest">
+                    AI Suggestion — Review Changes
+                  </span>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      className="h-7 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-sm"
+                      onClick={acceptGeneratedCode}
+                    >
+                      <Check size={13} className="mr-1.5" weight="bold" /> Accept All
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-3 text-xs hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 font-bold"
+                      onClick={rejectGeneratedCode}
+                    >
+                      <X size={13} className="mr-1.5" weight="bold" /> Discard
+                    </Button>
+                  </div>
+                </div>
+                <DiffEditor
+                  height="100%"
+                  language={language}
+                  theme={monacoTheme}
+                  original={code}
+                  modified={generatedContent}
+                  options={{
+                    renderSideBySide: false,
+                    minimap: { enabled: false },
+                    fontSize: 14,
+                    fontFamily: 'JetBrains Mono, Consolas, monospace',
+                    padding: { top: 16, bottom: 16 },
+                    scrollBeyondLastLine: false,
+                    readOnly: false,
+                  }}
+                />
+              </>
+            ) : (
+              <Editor
+                height="100%"
+                language={language}
+                theme={monacoTheme}
+                value={code}
+                onChange={handleEditorChange}
+                onMount={(editor) => {
+                  editorRef.current = editor;
+                }}
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 14,
+                  fontFamily: 'JetBrains Mono, Consolas, monospace',
+                  padding: { top: 24, bottom: 24 },
+                  scrollBeyondLastLine: false,
+                  lineNumbers: 'on',
+                  renderLineHighlight: 'all',
+                  bracketPairColorization: { enabled: true },
+                  guides: { indentation: true },
+                }}
+              />
+            )}
           </div>
 
-          {/* AI Panel */}
+          {/* AI Panel — generatedContent always null here; diff shows in main area */}
           {isAiPanelOpen && (
             <AiGeneratorPanel
               runtime={runtime}
@@ -387,7 +431,7 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
               setSelectedSkills={setSelectedSkills}
               skills={skills}
               isGenerating={isGenerating}
-              generatedContent={generatedContent}
+              generatedContent={null}
               onGenerate={() => generate(code)}
               onAccept={acceptGeneratedCode}
               onReject={rejectGeneratedCode}

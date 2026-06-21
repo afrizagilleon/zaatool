@@ -56,23 +56,7 @@ export function deserializeFlow(graph: GraphJson & { dashboardPassword?: string 
   activeNodeId: null;
 } {
   const nodes: FlowNode[] = (graph.nodes || []).map((n) => {
-    let inputsSchema = n.data?.inputsSchema || [];
-    if (n.type === "ui:input" && n.data?.uiSchema?.fields) {
-      inputsSchema = n.data.uiSchema.fields.flatMap((f) => {
-        const list = [];
-        if (f.replaceable) {
-          list.push({
-            name: `value_${f.id}`,
-            type: (f.type === "number" ? "number" : f.type === "boolean" ? "boolean" : "string") as import("@zaa-tool/shared").SchemaFieldType,
-            required: false,
-          });
-        }
-        if (["select", "multi-select", "radio"].includes(f.type)) {
-          list.push({ name: `options_${f.id}`, type: "array" as import("@zaa-tool/shared").SchemaFieldType, required: false });
-        }
-        return list;
-      });
-    }
+    const inputsSchema = n.data?.inputsSchema || [];
     return {
       id: n.id,
       type: n.type,

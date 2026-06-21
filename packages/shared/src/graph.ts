@@ -83,7 +83,6 @@ export interface UiInputField {
   label: string;
   placeholder?: string;
   required?: boolean;
-  replaceable?: boolean;
   defaultValue?: unknown;
   options?: { value: string; label: string }[];
   props?: {

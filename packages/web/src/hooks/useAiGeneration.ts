@@ -114,7 +114,7 @@ export function useAiGeneration({ runtime, inputsSchema, outputsSchema, upstream
               accumulatedText += data.text;
 
               let cleanedText = accumulatedText
-                .replace(/^```(javascript|python|js|ts|markdown|md|text)?\n/i, '')
+                .replace(/^```(javascript|python|js|ts|markdown|md|text|json)?\n/i, '')
                 .replace(/\n```$/, '');
               setGeneratedContent(cleanedText);
             } catch { }
