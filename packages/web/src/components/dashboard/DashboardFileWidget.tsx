@@ -25,20 +25,27 @@ export function DashboardFileWidget({
   const isChangeable = config.changeable !== false;
   const fileTypeFilter = config.fileType || 'all';
 
+  // Presets kept for backward compatibility with flows saved before "Allowed File Types"
+  // became a free-text comma list.
+  const LEGACY_PRESETS: Record<string, string> = {
+    all: '',
+    images: 'image/*',
+    excel_csv: '.csv, .xls, .xlsx, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    videos: 'video/*',
+    documents: '.pdf, .doc, .docx, .txt, .md, application/msword, application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  };
+
   const getAcceptAttribute = (fileType?: string) => {
     if (!fileType) return undefined;
-    switch (fileType) {
-      case 'images':
-        return 'image/*';
-      case 'excel_csv':
-        return '.csv, .xls, .xlsx, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-      case 'videos':
-        return 'video/*';
-      case 'documents':
-        return '.pdf, .doc, .docx, .txt, .md, application/msword, application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-      default:
-        return undefined;
-    }
+    if (fileType in LEGACY_PRESETS) return LEGACY_PRESETS[fileType] || undefined;
+
+    const tokens = fileType
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .map((t) => (t.includes('/') || t.startsWith('.') ? t : `.${t}`));
+
+    return tokens.length > 0 ? tokens.join(',') : undefined;
   };
 
   if (isUploading || isExecuting) {

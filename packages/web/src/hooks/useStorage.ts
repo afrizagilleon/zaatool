@@ -13,14 +13,18 @@ export interface FileEntry {
 export function useStorage() {
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [currentPath, setCurrentPath] = useState<string[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   const fetchFiles = useCallback(async () => {
     setIsLoading(true);
     try {
-      const dirQuery = currentPath.length > 0 ? `?dir=${encodeURIComponent(currentPath.join('/'))}` : '';
-      const res = await fetch(`${API_BASE_URL}/api/resources/files${dirQuery}`);
+      const params = new URLSearchParams();
+      if (currentPath.length > 0) params.set('dir', currentPath.join('/'));
+      if (searchTerm.trim()) params.set('search', searchTerm.trim());
+      const query = params.toString() ? `?${params.toString()}` : '';
+      const res = await fetch(`${API_BASE_URL}/api/resources/files${query}`);
       if (res.ok) {
         setFiles(await res.json());
       }
@@ -29,7 +33,7 @@ export function useStorage() {
     } finally {
       setIsLoading(false);
     }
-  }, [currentPath]);
+  }, [currentPath, searchTerm]);
 
   useEffect(() => {
     fetchFiles();
@@ -77,6 +81,24 @@ export function useStorage() {
     return false;
   }, [currentPath, fetchFiles]);
 
+  const renameItem = useCallback(async (id: string, newName: string) => {
+    if (!newName.trim()) return false;
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/resources/files/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName.trim() }),
+      });
+      if (res.ok) {
+        await fetchFiles();
+        return true;
+      }
+    } catch (err) {
+      console.error('Failed to rename item:', err);
+    }
+    return false;
+  }, [fetchFiles]);
+
   const deleteItem = useCallback(async (id: string) => {
     try {
       const res = await fetch(`${API_BASE_URL}/api/resources/files/${id}`, {
@@ -93,6 +115,7 @@ export function useStorage() {
   }, [fetchFiles]);
 
   const navigateToFolder = useCallback((folderName: string) => {
+    setSearchTerm('');
     setCurrentPath((prev) => [...prev, folderName]);
   }, []);
 
@@ -108,18 +131,27 @@ export function useStorage() {
     setCurrentPath([]);
   }, []);
 
+  const navigateToPath = useCallback((segments: string[]) => {
+    setSearchTerm('');
+    setCurrentPath(segments);
+  }, []);
+
   return {
     files,
     currentPath,
+    searchTerm,
+    setSearchTerm,
     isUploading,
     isLoading,
     fetchFiles,
     uploadFile,
     createFolder,
+    renameItem,
     deleteItem,
     navigateToFolder,
     navigateUp,
     navigateToIndex,
     navigateToRoot,
+    navigateToPath,
   };
 }

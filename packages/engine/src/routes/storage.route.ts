@@ -25,5 +25,6 @@ export const storageRouter = Router();
 
 storageRouter.get("/files", storageController.getAll);
 storageRouter.post("/files", upload.single("file"), storageController.uploadFile);
+storageRouter.patch("/files/:id", storageController.renameItem);
 storageRouter.delete("/files/:id", storageController.deleteItem);
 storageRouter.post("/folders", storageController.createFolder);

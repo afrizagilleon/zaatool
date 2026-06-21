@@ -1,6 +1,7 @@
 import { useFlowStore } from '../store/flowStore.js';
 import { createLogEntry } from '../store/engineTypes.js';
 import type { LogEntry } from '../store/engineTypes.js';
+import { withPropagatedInput } from './edgePropagation.js';
 
 export function handleWsMessage(data: any, set: any, get: any, ws: WebSocket): void {
   const eventType: string = data.event || data.type || 'system';
@@ -42,12 +43,9 @@ export function handleWsMessage(data: any, set: any, get: any, ws: WebSocket): v
         for (const edge of outgoingEdges) {
           const targetNode = flowStore.nodes.find((n) => n.id === edge.target);
           if (targetNode && edge.targetHandle && edge.sourceHandle) {
-            const currentInputs = targetNode.data.inputs || {};
-            const nextInputs = {
-              ...currentInputs,
-              [edge.targetHandle]: nodeOutput[edge.sourceHandle],
-            };
-            flowStore.updateNodeData(edge.target, { inputs: nextInputs });
+            flowStore.updateNodeData(edge.target, {
+              inputs: withPropagatedInput(targetNode.data.inputs, edge.targetHandle, nodeOutput[edge.sourceHandle]),
+            });
           }
         }
       }

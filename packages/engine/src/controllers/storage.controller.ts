@@ -6,7 +6,8 @@ export class StorageController {
   getAll(req: Request, res: Response) {
     try {
       const dir = req.query.dir ? String(req.query.dir) : "";
-      const items = storageService.listItems(dir);
+      const search = req.query.search ? String(req.query.search) : "";
+      const items = search ? storageService.searchItems(search, dir) : storageService.listItems(dir);
       res.json(items);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -58,6 +59,19 @@ export class StorageController {
   deleteItem(req: Request, res: Response) {
     try {
       const result = storageService.deleteItem(String(req.params.id));
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+
+  renameItem(req: Request, res: Response) {
+    try {
+      const { name } = req.body;
+      if (!name) {
+        return res.status(400).json({ error: "New name is required" });
+      }
+      const result = storageService.renameItem(String(req.params.id), name);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message });

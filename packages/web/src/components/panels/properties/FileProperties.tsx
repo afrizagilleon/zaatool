@@ -1,26 +1,28 @@
 import { useState } from 'react';
 import { useFlowStore } from '../../../store/flowStore';
-import { useStorage } from '../../../hooks/useStorage';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../ui/select';
 import { Label } from '../../ui/label';
-import { ScrollArea } from '../../ui/scroll-area';
 import { Switch } from '../../ui/switch';
 import { Input } from '../../ui/input';
+import { Button } from '../../ui/button';
+import { FileExplorerPickerDialog } from '../../resources/FileExplorerPickerDialog';
+import { FileText, Folder, X } from '@phosphor-icons/react';
+import { cn } from '../../../lib/utils';
 
 export function FileProperties({ nodeId }: { nodeId: string }) {
   const nodes = useFlowStore(s => s.nodes);
   const updateNodeData = useFlowStore(s => s.updateNodeData);
-  const { files, isLoading } = useStorage();
-  const [searchTerm, setSearchTerm] = useState('');
+  const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
+  const [isFolderPickerOpen, setIsFolderPickerOpen] = useState(false);
 
   const node = nodes.find(n => n.id === nodeId);
   if (!node) return null;
 
-  const currentFile = node.data.inputs?.file;
+  const currentFile = (node.data.inputs?.file as string) || '';
 
   const nodeConfig = node.data.config || {};
   const changeable = nodeConfig.changeable !== false;
-  const fileType = (nodeConfig.fileType as string) || 'all';
+  const rawFileType = (nodeConfig.fileType as string) || '';
+  const fileType = rawFileType === 'all' ? '' : rawFileType;
   const folder = (nodeConfig.folder as string) || '';
 
   const updateConfig = (newConfig: Record<string, any>) => {
@@ -32,19 +34,14 @@ export function FileProperties({ nodeId }: { nodeId: string }) {
     });
   };
 
-  const handleFileChange = (val: string) => {
+  const setFile = (path: string | null) => {
     updateNodeData(nodeId, {
       inputs: {
         ...node.data.inputs,
-        file: val === '__none__' ? null : val
+        file: path
       }
     });
   };
-
-  const nonFolderFiles = files.filter(f => f.mime_type !== 'folder');
-  const filteredFiles = searchTerm
-    ? nonFolderFiles.filter(f => f.name.toLowerCase().includes(searchTerm.toLowerCase()))
-    : nonFolderFiles;
 
   return (
     <div className="space-y-6">
@@ -52,34 +49,28 @@ export function FileProperties({ nodeId }: { nodeId: string }) {
         <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Source File Selection</span>
         <div className="space-y-2">
           <Label>Select File from Storage</Label>
-          <Select value={(currentFile as string) || ''} onValueChange={handleFileChange}>
-            <SelectTrigger>
-              <SelectValue placeholder={isLoading ? 'Loading files...' : 'Select a file'} />
-            </SelectTrigger>
-            <SelectContent>
-              <div className="px-2 py-1.5 sticky top-0 bg-popover z-10" onKeyDown={(e) => e.stopPropagation()}>
-                <Input
-                  placeholder="Search files..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="h-7 text-xs"
-                />
-              </div>
-              <ScrollArea className="h-[200px]">
-                <SelectItem value="__none__">— None —</SelectItem>
-                {filteredFiles.map(f => (
-                  <SelectItem key={f.path} value={f.path}>
-                    {f.name}
-                  </SelectItem>
-                ))}
-                {filteredFiles.length === 0 && !isLoading && (
-                  <div className="p-2 text-xs text-muted-foreground text-center">
-                    {searchTerm ? 'No matching files' : 'No files found'}
-                  </div>
-                )}
-              </ScrollArea>
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="outline"
+              onClick={() => setIsFilePickerOpen(true)}
+              className="flex-1 h-9 justify-start text-xs font-normal gap-2 min-w-0"
+            >
+              <FileText size={14} className="text-muted-foreground shrink-0" />
+              <span className={cn('truncate', !currentFile && 'text-muted-foreground italic')}>
+                {currentFile || 'No file selected'}
+              </span>
+            </Button>
+            {currentFile && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 text-muted-foreground hover:text-destructive shrink-0"
+                onClick={() => setFile(null)}
+              >
+                <X size={14} />
+              </Button>
+            )}
+          </div>
         </div>
         <div className="text-xs text-muted-foreground italic">
           Select a file from your project storage to be used as input data.
@@ -105,31 +96,42 @@ export function FileProperties({ nodeId }: { nodeId: string }) {
           <>
             <div className="space-y-2">
               <Label className="text-xs">Allowed File Types</Label>
-              <Select
+              <Input
+                placeholder="e.g. pdf, docx or image/*"
                 value={fileType}
-                onValueChange={(v) => updateConfig({ fileType: v })}
-              >
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Files (*.*)</SelectItem>
-                  <SelectItem value="images">Images Only (image/*)</SelectItem>
-                  <SelectItem value="excel_csv">Excel/CSV (.csv, .xls, .xlsx)</SelectItem>
-                  <SelectItem value="videos">Videos Only (video/*)</SelectItem>
-                  <SelectItem value="documents">Documents (.pdf, .doc, .txt, .md)</SelectItem>
-                </SelectContent>
-              </Select>
+                onChange={(e) => updateConfig({ fileType: e.target.value })}
+                className="h-8 text-xs"
+              />
+              <p className="text-[9px] text-muted-foreground">
+                Comma-separated extensions or MIME patterns (e.g. <code>pdf, docx</code> or <code>image/*</code>).
+                Leave empty to allow any file.
+              </p>
             </div>
 
             <div className="space-y-2">
               <Label className="text-xs">Destination Folder</Label>
-              <Input
-                placeholder="e.g. uploads/images"
-                value={folder}
-                onChange={(e) => updateConfig({ folder: e.target.value })}
-                className="h-8 text-xs"
-              />
+              <div className="flex items-center gap-1.5">
+                <Button
+                  variant="outline"
+                  onClick={() => setIsFolderPickerOpen(true)}
+                  className="flex-1 h-9 justify-start text-xs font-normal gap-2 min-w-0"
+                >
+                  <Folder size={14} className="text-muted-foreground shrink-0" />
+                  <span className={cn('truncate', !folder && 'text-muted-foreground italic')}>
+                    {folder || 'storage (root)'}
+                  </span>
+                </Button>
+                {folder && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 text-muted-foreground hover:text-destructive shrink-0"
+                    onClick={() => updateConfig({ folder: '' })}
+                  >
+                    <X size={14} />
+                  </Button>
+                )}
+              </div>
               <p className="text-[9px] text-muted-foreground">
                 Saves uploaded files to this specific subfolder in project storage.
               </p>
@@ -137,6 +139,22 @@ export function FileProperties({ nodeId }: { nodeId: string }) {
           </>
         )}
       </div>
+
+      <FileExplorerPickerDialog
+        open={isFilePickerOpen}
+        onOpenChange={setIsFilePickerOpen}
+        mode="file"
+        initialPath={currentFile}
+        onSelect={setFile}
+      />
+
+      <FileExplorerPickerDialog
+        open={isFolderPickerOpen}
+        onOpenChange={setIsFolderPickerOpen}
+        mode="folder"
+        initialPath={folder}
+        onSelect={(path) => updateConfig({ folder: path })}
+      />
     </div>
   );
 }

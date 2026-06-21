@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { applyNodeChanges, applyEdgeChanges, addEdge } from '@xyflow/react';
 import { useUiStore } from './uiStore';
 import { serializeFlow, deserializeFlow } from '../lib/flow-serializer';
+import { withPropagatedInput, withClearedInput } from '../lib/edgePropagation';
 import type { Connection } from '@xyflow/react';
 import type { GraphJson, DashboardLayout } from '@zaa-tool/shared';
 import type { FlowState, FlowNode } from './flowTypes';
@@ -29,7 +30,22 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   },
 
   onEdgesChange: (changes) => {
-    set({ edges: applyEdgeChanges(changes, get().edges) });
+    const currentEdges = get().edges;
+
+    // Clear stale data on a disconnected display node instead of leaving it showing
+    // the last value it had while still connected.
+    changes.forEach((change) => {
+      if (change.type !== 'remove') return;
+      const edge = currentEdges.find((e) => e.id === change.id);
+      if (!edge?.targetHandle) return;
+      const targetNode = get().nodes.find((n) => n.id === edge.target);
+      if (!targetNode) return;
+      get().updateNodeData(edge.target, {
+        inputs: withClearedInput(targetNode.data.inputs, edge.targetHandle),
+      });
+    });
+
+    set({ edges: applyEdgeChanges(changes, currentEdges) });
   },
 
   onConnect: (connection: Connection) => {
@@ -41,6 +57,22 @@ export const useFlowStore = create<FlowState>((set, get) => ({
         },
         get().edges,
       ),
+    });
+
+    // Carry forward the source's last known output so the newly-wired node
+    // updates immediately without requiring a full flow re-run.
+    const { source, sourceHandle, target, targetHandle } = connection;
+    if (!source || !sourceHandle || !target || !targetHandle) return;
+
+    const sourceNode = get().nodes.find((n) => n.id === source);
+    const cachedValue = sourceNode?.data.outputs?.[sourceHandle];
+    if (cachedValue === undefined) return;
+
+    const targetNode = get().nodes.find((n) => n.id === target);
+    if (!targetNode) return;
+
+    get().updateNodeData(target, {
+      inputs: withPropagatedInput(targetNode.data.inputs, targetHandle, cachedValue),
     });
   },
 

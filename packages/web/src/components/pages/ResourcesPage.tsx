@@ -18,9 +18,12 @@ export function ResourcesPage() {
   const {
     files,
     currentPath,
+    searchTerm,
+    setSearchTerm,
     isUploading,
     uploadFile,
     createFolder,
+    renameItem,
     deleteItem,
     navigateToFolder,
     navigateToIndex,
@@ -80,9 +83,12 @@ export function ResourcesPage() {
             <StorageTab
               files={files}
               currentPath={currentPath}
+              searchTerm={searchTerm}
               isUploading={isUploading}
+              onSearchChange={setSearchTerm}
               onUpload={uploadFile}
               onCreateFolder={createFolder}
+              onRename={renameItem}
               onDelete={deleteItem}
               onNavigateFolder={navigateToFolder}
               onNavigateIndex={navigateToIndex}
