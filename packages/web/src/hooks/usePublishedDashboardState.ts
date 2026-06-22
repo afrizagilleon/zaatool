@@ -80,6 +80,7 @@ export function usePublishedDashboardState(flowId: string) {
     handleFormSubmit: actions.handleFormSubmit,
     handleInputChange: actions.handleInputChange,
     handleFileUpload: actions.handleFileUpload,
+    handleFileRemove: actions.handleFileRemove,
     handleTableSelect: actions.handleTableSelect,
     getResponsiveLayout: layoutHelpers.getResponsiveLayout,
     setFontSizes: layoutHelpers.setFontSizes,

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 
 export function useDashboardLayout(layout: any[]) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -8,6 +8,13 @@ export function useDashboardLayout(layout: any[]) {
   const [fontSizes, setFontSizes] = useState<Record<string, number>>({});
   const [imageZooms, setImageZooms] = useState<Record<string, number>>({});
   const [copiedTextNode, setCopiedTextNode] = useState<string | null>(null);
+
+  // Measure synchronously before paint so the grid doesn't briefly render
+  // at the fallback width (visible as a "too wide" flash on load) before
+  // the ResizeObserver's first, async callback corrects it.
+  useLayoutEffect(() => {
+    if (containerRef.current) setWidth(containerRef.current.getBoundingClientRect().width);
+  }, []);
 
   useEffect(() => {
     if (!containerRef.current) return;

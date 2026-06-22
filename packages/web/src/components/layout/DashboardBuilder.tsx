@@ -1,5 +1,5 @@
-import ReactGridLayout from 'react-grid-layout';
-const Grid = ReactGridLayout as React.ComponentType<ReactGridLayout.ReactGridLayoutProps & { children?: React.ReactNode }>;
+import ReactGridLayout, { type GridLayoutProps } from 'react-grid-layout';
+const Grid = ReactGridLayout as React.ComponentType<GridLayoutProps>;
 import 'react-grid-layout/css/styles.css';
 import { useDashboardBuilder } from '../../hooks/useDashboardBuilder.js';
 import { Button } from '../ui/button.js';
@@ -58,12 +58,40 @@ function NodeWidgetPreview({ node }: { node: FlowNode }) {
   );
 }
 
+// Width is NEVER scaled - the grid stays a native 12 columns, exactly as
+// before (6-wide widgets = half width). Only the VERTICAL axis is rendered
+// at a finer resolution so height drag-resize lands on half-steps (the
+// original 80px row split into two 40px steps). x/w pass through untouched,
+// y/h are scaled at the <Grid> boundary only, so stored values keep their
+// original 12-col / 80px-row meaning and width can never get corrupted by
+// a round-trip.
+const GRID_COLS = 12;
+const ROW_SCALE = 2;
+const GRID_ROW_HEIGHT = 80 / ROW_SCALE;
+const GRID_MARGIN: [number, number] = [8, 6];
+
 export function DashboardBuilder() {
   const {
     uiNodes, layout, copied, isSaving, containerRef, width,
     dashboardPassword, setDashboardPassword, shareUrl,
     handleLayoutChange, handleSaveLayout, handleCopyUrl,
   } = useDashboardBuilder();
+
+  const renderLayout = layout.map((item) => ({
+    ...item,
+    y: item.y * ROW_SCALE,
+    h: item.h * ROW_SCALE,
+  }));
+
+  const handleGridChange = (newLayout: typeof renderLayout) => {
+    handleLayoutChange(
+      newLayout.map((item) => ({
+        ...item,
+        y: item.y / ROW_SCALE,
+        h: item.h / ROW_SCALE,
+      })),
+    );
+  };
 
   return (
     <div className="flex-1 flex flex-col h-full bg-background overflow-hidden animate-in fade-in">
@@ -124,14 +152,12 @@ export function DashboardBuilder() {
           ) : (
             <Grid
               className="layout"
-              layout={layout}
-              cols={12}
-              rowHeight={80}
+              layout={renderLayout}
               width={width}
-              onLayoutChange={handleLayoutChange}
-              draggableHandle=".grid-drag-handle"
-              isDraggable
-              isResizable
+              gridConfig={{ cols: GRID_COLS, rowHeight: GRID_ROW_HEIGHT, margin: GRID_MARGIN }}
+              dragConfig={{ enabled: true, handle: '.grid-drag-handle' }}
+              resizeConfig={{ enabled: true, handles: ['se', 'sw'] }}
+              onLayoutChange={handleGridChange}
             >
               {uiNodes.map((node, idx) => (
                 <div key={node.id || `node-${idx}`}>

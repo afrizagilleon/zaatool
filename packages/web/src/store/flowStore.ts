@@ -123,8 +123,24 @@ export const useFlowStore = create<FlowState>((set, get) => ({
 
   removeNode: (id) => {
     const state = get();
+
+    // Clear propagated values on downstream nodes fed by this node, same as a
+    // manual edge removal would, so deleting a node doesn't leave stale data
+    // (e.g. an image src) cached on nodes it used to feed.
+    let nodes = state.nodes;
+    state.edges.forEach((edge) => {
+      if (edge.source !== id || !edge.targetHandle) return;
+      const targetNode = nodes.find((n) => n.id === edge.target);
+      if (!targetNode) return;
+      nodes = nodes.map((n) =>
+        n.id === edge.target
+          ? { ...n, data: { ...n.data, inputs: withClearedInput(n.data.inputs, edge.targetHandle as string) } }
+          : n,
+      );
+    });
+
     set({
-      nodes: state.nodes.filter((n) => n.id !== id),
+      nodes: nodes.filter((n) => n.id !== id),
       edges: state.edges.filter((e) => e.source !== id && e.target !== id),
       activeNodeId: state.activeNodeId === id ? null : state.activeNodeId,
     });

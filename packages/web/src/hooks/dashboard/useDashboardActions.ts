@@ -77,12 +77,8 @@ export function useDashboardActions({
       const initialData: Record<string, unknown> = {};
       const initialFormInputs: Record<string, Record<string, unknown>> = {};
       for (const n of uiNodes) {
-        let inputs = (n.data?.inputs || {}) as Record<string, unknown>;
-        let outputs = (n.data?.outputs || {}) as Record<string, unknown>;
-        if (n.type === 'file' && (n.data?.config as Record<string, unknown>)?.changeable !== false) {
-          inputs = { ...inputs, file: null };
-          outputs = { ...outputs, file: null };
-        }
+        const inputs = (n.data?.inputs || {}) as Record<string, unknown>;
+        const outputs = (n.data?.outputs || {}) as Record<string, unknown>;
         initialData[n.id] = {
           inputs, outputs, values: n.data?.values || {},
           type: n.type, label: n.data?.label || n.type,
@@ -149,9 +145,26 @@ export function useDashboardActions({
     }
   };
 
+  const handleFileRemove = async (nodeId: string) => {
+    setNodeData((prev) => {
+      const current = (prev[nodeId] as Record<string, unknown>) || {};
+      const inputs = (current.inputs as Record<string, unknown>) || {};
+      return {
+        ...prev,
+        [nodeId]: { ...current, inputs: { ...inputs, file: null }, outputs: { file: null } },
+      };
+    });
+    setExecutingNodes((prev) => ({ ...prev, [nodeId]: true }));
+    try {
+      await flowsApi.trigger(flowId, { startNodeId: nodeId, inputs: { file: null } }, dashboardPassword || undefined);
+    } catch (err) {
+      console.error('Failed to remove file:', err);
+    }
+  };
+
   return {
     passwordInput, lockError, isUnlocking, showPassword, uploadingNodes,
     setPasswordInput, setShowPassword,
-    handleFormSubmit, handleUnlock, handleTableSelect, handleInputChange, handleFileUpload,
+    handleFormSubmit, handleUnlock, handleTableSelect, handleInputChange, handleFileUpload, handleFileRemove,
   };
 }

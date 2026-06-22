@@ -333,21 +333,47 @@
 .react-resizable {
   position: relative;
 }
-.react-resizable-handle {
-  position: absolute;
-  width: 12px;
-  height: 12px;
-  bottom: 4px;
-  right: 4px;
-  cursor: se-resize;
+/* Resize handles: always-visible L-corner marks at the bottom-right (se)
+   and bottom-left (sw) of each widget so it's obvious a widget is resizable.
+   react-grid-layout adds the .react-resizable-handle-{se,sw} classes and a
+   default ::after glyph (hidden until hover) - we suppress that glyph and
+   style the handle's own border directly, cancelling the library's rotate
+   transform so the borders stay axis-aligned. !important guarantees these
+   win over the library stylesheet regardless of CSS import order. */
+.react-grid-item > .react-resizable-handle {
+  opacity: 1 !important;
   z-index: 50;
-  border-bottom: 2px solid hsl(var(--muted-foreground) / 0.35);
-  border-right: 2px solid hsl(var(--muted-foreground) / 0.35);
+  transform: none !important;
   transition: border-color 0.15s ease;
 }
-.react-resizable-handle:hover {
-  border-bottom-color: hsl(var(--primary));
-  border-right-color: hsl(var(--primary));
+.react-grid-item > .react-resizable-handle::after {
+  content: none !important;
+}
+.react-grid-item > .react-resizable-handle.react-resizable-handle-se {
+  width: 14px !important;
+  height: 14px !important;
+  right: 4px !important;
+  bottom: 4px !important;
+  cursor: se-resize !important;
+  border-right: 2.5px solid hsl(var(--muted-foreground) / 0.55) !important;
+  border-bottom: 2.5px solid hsl(var(--muted-foreground) / 0.55) !important;
+}
+.react-grid-item > .react-resizable-handle.react-resizable-handle-sw {
+  width: 14px !important;
+  height: 14px !important;
+  left: 4px !important;
+  bottom: 4px !important;
+  cursor: sw-resize !important;
+  border-left: 2.5px solid hsl(var(--muted-foreground) / 0.55) !important;
+  border-bottom: 2.5px solid hsl(var(--muted-foreground) / 0.55) !important;
+}
+.react-grid-item:hover > .react-resizable-handle.react-resizable-handle-se {
+  border-right-color: hsl(var(--primary)) !important;
+  border-bottom-color: hsl(var(--primary)) !important;
+}
+.react-grid-item:hover > .react-resizable-handle.react-resizable-handle-sw {
+  border-left-color: hsl(var(--primary)) !important;
+  border-bottom-color: hsl(var(--primary)) !important;
 }
 .react-grid-item.react-grid-placeholder {
   background: hsl(var(--primary) / 0.1) !important;

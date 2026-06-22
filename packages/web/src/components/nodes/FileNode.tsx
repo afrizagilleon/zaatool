@@ -1,10 +1,10 @@
 import { Handle, Position, useUpdateNodeInternals } from '@xyflow/react';
 import type { NodeProps, Node } from '@xyflow/react';
 import { File as FileIcon, UploadSimple, Eye, EyeSlash } from '@phosphor-icons/react';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { cn } from '../../lib/utils';
 import { useUiStore } from '../../store/uiStore';
-import { useStorage } from '../../hooks/useStorage';
+import { useFileExists } from '../../hooks/useFileExists';
 import type { FlowNodeData } from '../../store/flowStore';
 
 type FileNodeProps = NodeProps<Node<FlowNodeData, 'file'>>;
@@ -14,19 +14,13 @@ export function FileNode({ id, data, selected }: FileNodeProps) {
   const isVertical = layoutDirection === 'TB';
   const updateNodeInternals = useUpdateNodeInternals();
   const [showPanel, setShowPanel] = useState(true);
-  const { files, isLoading } = useStorage();
 
   useEffect(() => {
     updateNodeInternals(id);
   }, [id, isVertical, updateNodeInternals]);
 
   const selectedFile = data.inputs?.file;
-
-  const fileExists = useMemo(() => {
-    if (!selectedFile) return true;
-    if (isLoading) return true;
-    return files.some(f => f.path === selectedFile);
-  }, [selectedFile, files, isLoading]);
+  const fileExists = useFileExists(selectedFile as string | undefined);
 
   const handleClass = "!w-2.5 !h-2.5 !border-[1.5px] !border-node-bg !bg-handle hover:!bg-primary transition-colors !rounded-none";
 

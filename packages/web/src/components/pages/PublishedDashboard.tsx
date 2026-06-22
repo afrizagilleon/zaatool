@@ -1,5 +1,5 @@
-import ReactGridLayout from 'react-grid-layout';
-const Grid = ReactGridLayout as any;
+import ReactGridLayout, { type GridLayoutProps } from 'react-grid-layout';
+const Grid = ReactGridLayout as React.ComponentType<GridLayoutProps>;
 import 'react-grid-layout/css/styles.css';
 import { Play, FileText, Image as ImageIcon, Spinner, Warning, Table as TableIcon, Sun, Moon, Camera, ChartBar } from '@phosphor-icons/react';
 import { usePublishedDashboardState } from '../../hooks/usePublishedDashboardState';
@@ -14,6 +14,14 @@ import { DashboardPasswordLock } from '../dashboard/DashboardPasswordLock';
 interface PublishedDashboardProps {
   flowId: string;
 }
+
+// Must match the grid resolution used in DashboardBuilder.tsx so saved
+// layouts render at the same physical size in the published view: width is
+// native 12-col, only the vertical axis is scaled.
+const GRID_COLS = 12;
+const ROW_SCALE = 2;
+const GRID_ROW_HEIGHT = 80 / ROW_SCALE;
+const GRID_MARGIN: [number, number] = [8, 6];
 
 export function PublishedDashboard({ flowId }: PublishedDashboardProps) {
   const {
@@ -45,6 +53,7 @@ export function PublishedDashboard({ flowId }: PublishedDashboardProps) {
     handleFormSubmit,
     handleInputChange,
     handleFileUpload,
+    handleFileRemove,
     handleTableSelect,
     getResponsiveLayout,
     setFontSizes,
@@ -138,12 +147,16 @@ export function PublishedDashboard({ flowId }: PublishedDashboardProps) {
             ) : (
               <Grid
                 className="layout"
-                layout={getResponsiveLayout()}
-                cols={12}
-                rowHeight={80}
+                layout={getResponsiveLayout().map((item: any) => ({
+                  ...item,
+                  w: Math.min(12, Math.max(2, Math.round(item.w))),
+                  y: item.y * ROW_SCALE,
+                  h: Math.max(1, item.h) * ROW_SCALE,
+                }))}
                 width={width}
-                isDraggable={false}
-                isResizable={false}
+                gridConfig={{ cols: GRID_COLS, rowHeight: GRID_ROW_HEIGHT, margin: GRID_MARGIN }}
+                dragConfig={{ enabled: false }}
+                resizeConfig={{ enabled: false }}
               >
               {nodes.map((node, idx) => {
                 const data = nodeData[node.id] || {};
@@ -328,6 +341,7 @@ export function PublishedDashboard({ flowId }: PublishedDashboardProps) {
                             isExecuting={!!executingNodes[node.id]}
                             isUploading={!!uploadingNodes[node.id]}
                             onFileUpload={(file) => handleFileUpload(node.id, file)}
+                            onFileRemove={() => handleFileRemove(node.id)}
                           />
                         )}
                       </div>

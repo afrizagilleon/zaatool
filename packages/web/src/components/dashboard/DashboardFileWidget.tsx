@@ -8,6 +8,7 @@ interface DashboardFileWidgetProps {
   isExecuting: boolean;
   isUploading: boolean;
   onFileUpload: (file: File) => void;
+  onFileRemove: () => void;
 }
 
 export function DashboardFileWidget({
@@ -16,7 +17,8 @@ export function DashboardFileWidget({
   outputs,
   isExecuting,
   isUploading,
-  onFileUpload
+  onFileUpload,
+  onFileRemove
 }: DashboardFileWidgetProps) {
   const fileObj = outputs.file || data.inputs?.file || null;
   const fileName = fileObj?.name || (typeof fileObj === 'string' ? fileObj.split('/').pop() : '');
@@ -94,6 +96,15 @@ export function DashboardFileWidget({
           >
             Download
           </a>
+          {isChangeable && (
+            <button
+              type="button"
+              onClick={onFileRemove}
+              className="text-xs font-bold text-destructive hover:text-destructive/80 underline cursor-pointer"
+            >
+              Remove
+            </button>
+          )}
         </div>
       </div>
     );
