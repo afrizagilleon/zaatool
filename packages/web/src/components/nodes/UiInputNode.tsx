@@ -30,7 +30,7 @@ export function UiInputNode({ id, data, selected }: UiInputNodeProps) {
 
   const runFlow = useEngineStore((s) => s.runFlow);
   const getGraphJson = useFlowStore((s) => s.getGraphJson);
-  const debounceTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const [formValues, setFormValues] = useState<Record<string, any>>({});
 

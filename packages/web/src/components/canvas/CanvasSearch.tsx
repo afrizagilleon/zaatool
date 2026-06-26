@@ -21,9 +21,9 @@ export function CanvasSearch({ nodes, setActiveNodeId, setCodePanelOpen, setCent
       return;
     }
     const filtered = nodes.filter((n) => {
-      const label = n.data?.label || '';
-      const id = n.id || '';
-      const type = n.type || '';
+      const label = String(n.data?.label || '');
+      const id = String(n.id || '');
+      const type = String(n.type || '');
       return (
         label.toLowerCase().includes(query.toLowerCase()) ||
         id.toLowerCase().includes(query.toLowerCase()) ||

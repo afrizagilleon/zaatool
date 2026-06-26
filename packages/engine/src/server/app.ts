@@ -79,8 +79,11 @@ export function createApp(onFlowEvent: (data: Record<string, unknown>) => void) 
   // Public flow fetch (bypasses authMiddleware)
   app.get("/api/flows/:id/public", async (req, res) => {
     try {
-      const flow = await flowsService.getById(req.params.id);
+      const flow = await flowsService.getBySlugOrId(req.params.id);
       if (!flow) return res.status(404).json({ error: "Flow not found" });
+      if (!flow.is_published) {
+        return res.status(403).json({ error: "This dashboard is not published." });
+      }
 
       if (flow.dashboard_password_hash) {
         const password = req.headers["x-dashboard-password"] || req.query.password;
@@ -116,8 +119,11 @@ export function createApp(onFlowEvent: (data: Record<string, unknown>) => void) 
   app.post("/api/flows/:id/verify-password", async (req, res) => {
     try {
       const { password } = req.body;
-      const flow = await flowsService.getById(req.params.id);
+      const flow = await flowsService.getBySlugOrId(req.params.id);
       if (!flow) return res.status(404).json({ error: "Flow not found" });
+      if (!flow.is_published) {
+        return res.status(403).json({ error: "This dashboard is not published." });
+      }
 
       const { graph_json, dashboard_layout } = flowsService.parseFlow(flow);
 
@@ -151,8 +157,11 @@ export function createApp(onFlowEvent: (data: Record<string, unknown>) => void) 
   app.post("/api/flows/:id/trigger", async (req, res) => {
     try {
       const { startNodeId, inputs } = req.body;
-      const flow = await flowsService.getById(req.params.id);
+      const flow = await flowsService.getBySlugOrId(req.params.id);
       if (!flow) return res.status(404).json({ error: "Flow not found" });
+      if (!flow.is_published) {
+        return res.status(403).json({ error: "This dashboard is not published." });
+      }
 
       if (flow.dashboard_password_hash) {
         const password = req.headers["x-dashboard-password"];

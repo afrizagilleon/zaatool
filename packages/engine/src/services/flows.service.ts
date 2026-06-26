@@ -9,6 +9,8 @@ export interface FlowRecord {
   graph_json: string;
   dashboard_layout: string | null;
   dashboard_password_hash: string | null;
+  is_published: boolean;
+  share_slug: string | null;
   created_at: Date;
   updated_at: Date;
 }
@@ -39,23 +41,41 @@ export class FlowsService {
     return rows[0];
   }
 
+  async getBySlugOrId(idOrSlug: string): Promise<FlowRecord | null> {
+    const { rows } = await pool.query(
+      "SELECT * FROM flows WHERE share_slug = $1 OR (share_slug IS NULL AND id = $1)",
+      [idOrSlug]
+    );
+    if (rows.length === 0) return null;
+    return rows[0];
+  }
+
   async save(
     id: string | undefined,
     name: string | undefined,
     graphJson: GraphJson | string,
     dashboardLayout?: DashboardLayout | string,
-    dashboardPassword?: string
-  ): Promise<{ success: boolean; id: string; name: string }> {
+    dashboardPassword?: string,
+    isPublished?: boolean,
+    shareSlug?: string
+  ): Promise<{ success: boolean; id: string; name: string; is_published: boolean; share_slug: string }> {
     const flowId = id || uuidv4();
     const flowName = name || "Untitled Flow";
     const jsonStr = typeof graphJson === "string" ? graphJson : JSON.stringify(graphJson);
 
     const { rows } = await pool.query(
-      "SELECT dashboard_password_hash FROM flows WHERE id = $1",
+      "SELECT dashboard_password_hash, is_published, share_slug FROM flows WHERE id = $1",
       [flowId]
     );
-    const currentHash: string | null = rows.length > 0 ? rows[0].dashboard_password_hash : null;
+    const existingRow = rows[0];
+    const currentHash = existingRow ? existingRow.dashboard_password_hash : null;
     const nextHash = await dashboardPasswordService.resolveNextHash(dashboardPassword, currentHash);
+
+    const nextPublished = isPublished !== undefined ? isPublished : (existingRow ? existingRow.is_published : true);
+    let nextSlug = shareSlug !== undefined ? shareSlug : (existingRow ? existingRow.share_slug : null);
+    if (!nextSlug) {
+      nextSlug = uuidv4();
+    }
 
     const layoutValue =
       dashboardLayout !== undefined
@@ -65,18 +85,20 @@ export class FlowsService {
         : null;
 
     await pool.query(
-      `INSERT INTO flows (id, name, graph_json, dashboard_layout, dashboard_password_hash)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO flows (id, name, graph_json, dashboard_layout, dashboard_password_hash, is_published, share_slug)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (id) DO UPDATE
        SET name = EXCLUDED.name,
            graph_json = EXCLUDED.graph_json,
            dashboard_layout = COALESCE(EXCLUDED.dashboard_layout, flows.dashboard_layout),
            dashboard_password_hash = EXCLUDED.dashboard_password_hash,
+           is_published = EXCLUDED.is_published,
+           share_slug = EXCLUDED.share_slug,
            updated_at = CURRENT_TIMESTAMP`,
-      [flowId, flowName, jsonStr, layoutValue, nextHash]
+      [flowId, flowName, jsonStr, layoutValue, nextHash, nextPublished, nextSlug]
     );
 
-    return { success: true, id: flowId, name: flowName };
+    return { success: true, id: flowId, name: flowName, is_published: nextPublished, share_slug: nextSlug };
   }
 
   async delete(id: string): Promise<{ success: boolean }> {

@@ -13,7 +13,7 @@ interface StorageTabProps {
   searchTerm: string;
   isUploading: boolean;
   onSearchChange: (term: string) => void;
-  onUpload: (file: File) => Promise<boolean>;
+  onUpload: (files: File[]) => Promise<boolean>;
   onCreateFolder: (name: string) => Promise<boolean>;
   onRename: (id: string, newName: string) => Promise<boolean>;
   onDelete: (id: string) => Promise<boolean>;
@@ -46,9 +46,9 @@ export function StorageTab({
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      await onUpload(file);
+    const selectedFiles = e.target.files;
+    if (selectedFiles && selectedFiles.length > 0) {
+      await onUpload(Array.from(selectedFiles));
     }
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -93,7 +93,7 @@ export function StorageTab({
               className="h-8 text-xs pl-8 w-44"
             />
           </div>
-          <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
+          <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" multiple />
           <Button onClick={() => setIsNewFolderOpen(true)} variant="outline" size="sm" className="h-8">
             <FolderPlus className="mr-1.5" size={14} /> New Folder
           </Button>

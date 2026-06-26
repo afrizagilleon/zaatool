@@ -6,6 +6,7 @@ import { Button } from '../ui/button.js';
 import {
   Layout, FloppyDisk, ArrowSquareOut, Play, FileText,
   Image as ImageIcon, Table as TableIcon, ChartBar,
+  Globe, ArrowCounterClockwise,
 } from '@phosphor-icons/react';
 import type { FlowNode } from '../../store/flowStore.js';
 
@@ -74,6 +75,7 @@ export function DashboardBuilder() {
   const {
     uiNodes, layout, copied, isSaving, containerRef, width,
     dashboardPassword, setDashboardPassword, shareUrl,
+    isPublished, setIsPublished, handleRegenerateLink,
     handleLayoutChange, handleSaveLayout, handleCopyUrl,
   } = useDashboardBuilder();
 
@@ -83,9 +85,9 @@ export function DashboardBuilder() {
     h: item.h * ROW_SCALE,
   }));
 
-  const handleGridChange = (newLayout: typeof renderLayout) => {
+  const handleGridChange = (newLayout: any) => {
     handleLayoutChange(
-      newLayout.map((item) => ({
+      newLayout.map((item: any) => ({
         ...item,
         y: item.y / ROW_SCALE,
         h: item.h / ROW_SCALE,
@@ -119,15 +121,37 @@ export function DashboardBuilder() {
             )}
           </div>
 
-          <div className="flex items-center bg-muted border border-border rounded-lg px-3 py-1 text-xs">
+          <button
+            onClick={() => setIsPublished(!isPublished)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 h-8 text-xs font-semibold rounded-lg border transition-all ${
+              isPublished
+                ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/20'
+                : 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20 hover:bg-zinc-500/20'
+            }`}
+          >
+            <Globe className="w-3.5 h-3.5" />
+            {isPublished ? 'Published' : 'Unpublished'}
+          </button>
+
+          <div className="flex items-center bg-muted border border-border rounded-lg px-3 py-1.5 h-8 text-xs">
             <span className="text-muted-foreground mr-2 font-mono">Public URL:</span>
-            <span className="text-foreground font-mono select-all truncate max-w-[240px]">{shareUrl}</span>
+            <span className={`font-mono select-all truncate max-w-[200px] ${!isPublished ? 'text-muted-foreground line-through' : 'text-foreground'}`}>
+              {shareUrl}
+            </span>
             <button onClick={handleCopyUrl} className="ml-3 font-semibold text-foreground hover:text-primary transition-colors cursor-pointer shrink-0">
               {copied ? 'Copied!' : 'Copy'}
             </button>
+            <button
+              onClick={handleRegenerateLink}
+              title="Regenerate Share Link"
+              className="ml-3 font-semibold text-muted-foreground hover:text-primary transition-colors cursor-pointer shrink-0 flex items-center gap-0.5"
+            >
+              <ArrowCounterClockwise className="w-3 h-3" />
+              Regenerate
+            </button>
           </div>
 
-          <Button size="sm" variant="outline" className="border-border hover:bg-muted text-xs h-8 flex items-center gap-1.5" onClick={() => window.open(shareUrl, '_blank')}>
+          <Button size="sm" variant="outline" className="border-border hover:bg-muted text-xs h-8 flex items-center gap-1.5" disabled={!isPublished} onClick={() => window.open(shareUrl, '_blank')}>
             <ArrowSquareOut className="w-4 h-4" />
             Launch App
           </Button>

@@ -33,6 +33,8 @@ export class FlowsController {
         graph_json,
         dashboard_layout,
         dashboard_password: flow.dashboard_password_hash ? "[UNCHANGED]" : "",
+        is_published: flow.is_published,
+        share_slug: flow.share_slug,
       });
     } catch (e: unknown) {
       res.status(500).json({ error: (e as Error).message });
@@ -41,8 +43,16 @@ export class FlowsController {
 
   async save(req: Request, res: Response) {
     try {
-      const { id, name, graph_json, dashboard_layout, dashboard_password } = req.body;
-      const result = await flowsService.save(id, name, graph_json, dashboard_layout, dashboard_password);
+      const { id, name, graph_json, dashboard_layout, dashboard_password, is_published, share_slug } = req.body;
+      const result = await flowsService.save(
+        id,
+        name,
+        graph_json,
+        dashboard_layout,
+        dashboard_password,
+        is_published,
+        share_slug
+      );
       res.json(result);
     } catch (e: unknown) {
       res.status(500).json({ error: (e as Error).message });

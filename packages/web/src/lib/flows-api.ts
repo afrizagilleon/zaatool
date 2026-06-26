@@ -7,6 +7,8 @@ export interface SaveFlowPayload {
   graph_json: GraphJson;
   dashboard_layout?: DashboardLayout;
   dashboard_password?: string;
+  is_published?: boolean;
+  share_slug?: string;
 }
 
 export interface FlowSummary {
@@ -22,6 +24,8 @@ export interface FlowDetail {
   graph_json: GraphJson;
   dashboard_layout: DashboardLayout;
   dashboard_password: string;
+  is_published: boolean;
+  share_slug: string | null;
 }
 
 export interface PublicFlowResponse {
@@ -54,7 +58,7 @@ export const flowsApi = {
   getById: (id: string): Promise<FlowDetail> =>
     request(`/api/flows/${id}`),
 
-  save: (payload: SaveFlowPayload): Promise<{ success: boolean; id: string; name: string }> =>
+  save: (payload: SaveFlowPayload): Promise<{ success: boolean; id: string; name: string; is_published: boolean; share_slug: string }> =>
     request("/api/flows", { method: "POST", body: JSON.stringify(payload) }),
 
   delete: (id: string): Promise<{ success: boolean }> =>

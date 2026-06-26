@@ -1,18 +1,21 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useFlowStore } from '../store/flowStore.js';
 import { flowsApi } from '../lib/flows-api.js';
-import type { DashboardLayout, DashboardLayoutItem } from '@zaa-tool/shared';
+import type { DashboardLayoutItem } from '@zaa-tool/shared';
 
 export interface DashboardBuilderState {
   uiNodes: ReturnType<typeof useFlowStore.getState>['nodes'];
   layout: DashboardLayoutItem[];
   copied: boolean;
   isSaving: boolean;
-  containerRef: React.RefObject<HTMLDivElement>;
+  containerRef: React.RefObject<HTMLDivElement | null>;
   width: number;
   dashboardPassword: string;
   setDashboardPassword: (value: string) => void;
   shareUrl: string;
+  isPublished: boolean;
+  setIsPublished: (val: boolean) => void;
+  handleRegenerateLink: () => void;
   handleLayoutChange: (newLayout: DashboardLayoutItem[]) => void;
   handleSaveLayout: () => Promise<void>;
   handleCopyUrl: () => void;
@@ -36,6 +39,10 @@ export function useDashboardBuilder(): DashboardBuilderState {
   const setDashboardLayout = useFlowStore((s) => s.setDashboardLayout);
   const dashboardPassword = useFlowStore((s) => s.dashboardPassword);
   const setDashboardPassword = useFlowStore((s) => s.setDashboardPassword);
+  const isPublished = useFlowStore((s) => s.isPublished);
+  const setIsPublished = useFlowStore((s) => s.setIsPublished);
+  const shareSlug = useFlowStore((s) => s.shareSlug);
+  const setShareSlug = useFlowStore((s) => s.setShareSlug);
 
   const [layout, setLayout] = useState<DashboardLayoutItem[]>([]);
   const [copied, setCopied] = useState(false);
@@ -109,14 +116,19 @@ export function useDashboardBuilder(): DashboardBuilderState {
   const handleSaveLayout = async () => {
     setIsSaving(true);
     try {
-      const { getGraphJson, dashboardPassword: pwd } = useFlowStore.getState();
-      await flowsApi.save({
+      const { getGraphJson, dashboardPassword: pwd, isPublished: pub, shareSlug: slug } = useFlowStore.getState();
+      const result = await flowsApi.save({
         id: flowId,
         name: flowName,
         graph_json: getGraphJson(),
         dashboard_layout: { items: layout },
         dashboard_password: pwd,
+        is_published: pub,
+        share_slug: slug || undefined,
       });
+      if (result.share_slug) {
+        setShareSlug(result.share_slug);
+      }
     } catch (e) {
       console.error(e);
       alert('Failed to save layout to engine.');
@@ -125,12 +137,17 @@ export function useDashboardBuilder(): DashboardBuilderState {
     }
   };
 
-  const shareUrl = `${window.location.origin}/share/${flowId}`;
+  const shareUrl = `${window.location.origin}/share/${shareSlug || flowId}`;
 
   const handleCopyUrl = () => {
     navigator.clipboard.writeText(shareUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleRegenerateLink = () => {
+    const newSlug = crypto.randomUUID();
+    setShareSlug(newSlug);
   };
 
   return {
@@ -143,6 +160,9 @@ export function useDashboardBuilder(): DashboardBuilderState {
     dashboardPassword,
     setDashboardPassword,
     shareUrl,
+    isPublished,
+    setIsPublished,
+    handleRegenerateLink,
     handleLayoutChange,
     handleSaveLayout,
     handleCopyUrl,

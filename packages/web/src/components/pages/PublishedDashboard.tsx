@@ -159,7 +159,7 @@ export function PublishedDashboard({ flowId }: PublishedDashboardProps) {
                 resizeConfig={{ enabled: false }}
               >
               {nodes.map((node, idx) => {
-                const data = nodeData[node.id] || {};
+                const data = (nodeData[node.id] || {}) as any;
                 const outputs = data.outputs || {};
                 const type = node.type;
                 const label = data.label;

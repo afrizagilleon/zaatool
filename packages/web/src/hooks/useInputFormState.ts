@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useFlowStore } from '../store/flowStore';
 import { useEngineStore } from '../store/engineStore';
 import type { FlowNodeData } from '../store/flowStore';
@@ -70,7 +70,7 @@ export function useInputFormState(id: string, data: FlowNodeData): InputFormStat
   };
 
   const getFieldOptions = (field: any): { label: string; value: string }[] => {
-    const dynamicOpts = data.inputs?.[options_+field.id];
+    const dynamicOpts = data.inputs?.[`options_${field.id}`];
     if (Array.isArray(dynamicOpts)) {
       return dynamicOpts.map((opt) => {
         if (typeof opt === 'string') return { label: opt, value: opt };

@@ -1,9 +1,8 @@
 import { useFlowStore } from '../store/flowStore.js';
 import { createLogEntry } from '../store/engineTypes.js';
-import type { LogEntry } from '../store/engineTypes.js';
 import { withPropagatedInput } from './edgePropagation.js';
 
-export function handleWsMessage(data: any, set: any, get: any, ws: WebSocket): void {
+export function handleWsMessage(data: any, set: any, _get: any, ws: WebSocket): void {
   const eventType: string = data.event || data.type || 'system';
   const nodeId: string | undefined = data.nodeId;
 

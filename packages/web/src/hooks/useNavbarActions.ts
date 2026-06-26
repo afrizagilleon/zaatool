@@ -48,6 +48,8 @@ export function useNavbarActions() {
           id: detail.id,
           name: detail.name,
           dashboardPassword: detail.dashboard_password || '',
+          is_published: detail.is_published,
+          share_slug: detail.share_slug,
         };
         loadFromJson(graph);
       }

@@ -61,7 +61,10 @@ export function useDashboardFlow(flowId: string) {
         const savedPassword = sessionStorage.getItem(`dashboard_password_${flowId}`) ?? undefined;
 
         const data = await flowsApi.getPublic(flowId, savedPassword).catch(async (err: Error) => {
-          if (err.message.includes('401') || err.message.includes('403')) {
+          if (err.message.includes('403')) {
+            throw new Error('This dashboard has not been published yet.');
+          }
+          if (err.message.includes('401')) {
             sessionStorage.removeItem(`dashboard_password_${flowId}`);
             setIsLocked(true);
             const meta = await flowsApi.getPublic(flowId);

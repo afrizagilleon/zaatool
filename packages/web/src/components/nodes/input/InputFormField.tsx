@@ -1,4 +1,4 @@
-﻿import { Input } from '../../ui/input';
+import { Input } from '../../ui/input';
 import { Textarea } from '../../ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../ui/select';
 import { RadioGroup, RadioGroupItem } from '../../ui/radio-group';
@@ -79,8 +79,8 @@ export function InputFormField({
       >
         {options.map((opt) => (
           <div key={opt.value} className="flex items-center space-x-2">
-            <RadioGroupItem value={opt.value} id={${field.id}-} disabled={isDisabled} type="button" />
-            <Label htmlFor={${field.id}-} className="text-xs font-normal">
+            <RadioGroupItem value={opt.value} id={`${field.id}-${opt.value}`} disabled={isDisabled} type="button" />
+            <Label htmlFor={`${field.id}-${opt.value}`} className="text-xs font-normal">
               {opt.label}
             </Label>
           </div>

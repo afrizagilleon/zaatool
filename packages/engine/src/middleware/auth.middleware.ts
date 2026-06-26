@@ -11,8 +11,9 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
   const isGraphsRoute = path === "/graphs";
   const isPublicFlowRoute = path.startsWith("/flows/") && path.endsWith("/public") && method === "GET";
   const isPublicTriggerRoute = path.startsWith("/flows/") && path.includes("/trigger") && method === "POST";
+  const isVerifyPasswordRoute = path.startsWith("/flows/") && path.endsWith("/verify-password") && method === "POST";
 
-  if (isAuthRoute || isHealthRoute || isGraphsRoute || isPublicFlowRoute || isPublicTriggerRoute) {
+  if (isAuthRoute || isHealthRoute || isGraphsRoute || isPublicFlowRoute || isPublicTriggerRoute || isVerifyPasswordRoute) {
     return next();
   }
 

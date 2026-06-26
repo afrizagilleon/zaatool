@@ -21,7 +21,7 @@ export function ResourcesPage() {
     searchTerm,
     setSearchTerm,
     isUploading,
-    uploadFile,
+    uploadFiles,
     createFolder,
     renameItem,
     deleteItem,
@@ -86,7 +86,7 @@ export function ResourcesPage() {
               searchTerm={searchTerm}
               isUploading={isUploading}
               onSearchChange={setSearchTerm}
-              onUpload={uploadFile}
+              onUpload={uploadFiles}
               onCreateFolder={createFolder}
               onRename={renameItem}
               onDelete={deleteItem}

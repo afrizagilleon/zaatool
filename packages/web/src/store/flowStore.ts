@@ -19,10 +19,14 @@ export const useFlowStore = create<FlowState>((set, get) => ({
   viewport: { x: 0, y: 0, zoom: 1 },
   dashboardLayout: { items: [] },
   dashboardPassword: '',
+  isPublished: true,
+  shareSlug: null,
 
   setDashboardLayout: (layout: DashboardLayout) => set({ dashboardLayout: layout }),
   setFlowName: (name) => set({ name }),
   setDashboardPassword: (password) => set({ dashboardPassword: password }),
+  setIsPublished: (val) => set({ isPublished: val }),
+  setShareSlug: (val) => set({ shareSlug: val }),
   setViewport: (viewport) => set({ viewport }),
 
   onNodesChange: (changes) => {

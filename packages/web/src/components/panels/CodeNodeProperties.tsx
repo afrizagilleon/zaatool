@@ -11,14 +11,13 @@ import {
 } from '../ui/select';
 import { Textarea } from '../ui/textarea';
 import { SchemaEditor } from './SchemaEditor';
-import type { Node } from '@xyflow/react';
 
 interface CodeNodePropertiesProps {
-  activeNode: Node;
+  activeNode: any;
   isCodeNode: boolean;
   runtime: string;
-  updateNodeData: (id: string, data: Record<string, unknown>) => void;
-  updateSchemaField: (nodeId: string, schema: string, index: number, patch: Record<string, unknown>) => void;
+  updateNodeData: (id: string, data: Record<string, any>) => void;
+  updateSchemaField: (nodeId: string, schema: 'inputsSchema' | 'outputsSchema', index: number, patch: any) => void;
   openCodeEditor: (id: string) => void;
 }
 

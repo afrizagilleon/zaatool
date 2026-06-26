@@ -55,7 +55,10 @@ export function useWorkflows() {
         ...data.graph_json,
         id: data.id,
         name: data.name,
-      };
+        dashboardPassword: data.dashboard_password || '',
+        is_published: data.is_published,
+        share_slug: data.share_slug,
+      } as any;
       loadFromJson(graph);
       setActiveTab('editor');
     } catch (err) {

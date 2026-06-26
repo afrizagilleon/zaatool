@@ -15,7 +15,6 @@ export function usePublishedDashboardState(flowId: string) {
   const flow = useDashboardFlow(flowId);
 
   useDashboardWebSocket({
-    flowId,
     graphRef: flow.graphRef,
     setExecutingNodes,
     setNodeData: flow.setNodeData,

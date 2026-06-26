@@ -1,4 +1,3 @@
-import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { BarChartWidget } from '../../dashboard/charts/BarChartWidget';
 import { LineChartWidget } from '../../dashboard/charts/LineChartWidget';
 import { AreaChartWidget } from '../../dashboard/charts/AreaChartWidget';

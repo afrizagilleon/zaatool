@@ -120,6 +120,26 @@ export async function initDb() {
       END $$;
     `);
 
+    // Add is_published column to flows table
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE flows ADD COLUMN is_published BOOLEAN DEFAULT TRUE;
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
+
+    // Add share_slug column to flows table
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE flows ADD COLUMN share_slug VARCHAR(255) UNIQUE;
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
+
     await client.query("COMMIT");
     console.log("✅ Database initialized successfully.");
   } catch (err) {

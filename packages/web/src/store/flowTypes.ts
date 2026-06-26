@@ -18,11 +18,15 @@ export interface FlowState {
   viewport: { x: number; y: number; zoom: number };
   dashboardLayout: DashboardLayout;
   dashboardPassword: string;
+  isPublished: boolean;
+  shareSlug: string | null;
 
   setViewport: (viewport: { x: number; y: number; zoom: number }) => void;
   setDashboardLayout: (layout: DashboardLayout) => void;
   setFlowName: (name: string) => void;
   setDashboardPassword: (password: string) => void;
+  setIsPublished: (val: boolean) => void;
+  setShareSlug: (val: string | null) => void;
 
   onNodesChange: OnNodesChange<FlowNode>;
   onEdgesChange: OnEdgesChange;

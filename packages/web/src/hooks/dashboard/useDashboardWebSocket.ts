@@ -2,7 +2,6 @@ import { useRef, useEffect } from 'react';
 import { WS_BASE_URL } from '../../lib/api.js';
 
 interface UseDashboardWebSocketParams {
-  flowId: string;
   graphRef: React.MutableRefObject<any>;
   setExecutingNodes: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   setNodeData: React.Dispatch<React.SetStateAction<Record<string, any>>>;
@@ -10,7 +9,6 @@ interface UseDashboardWebSocketParams {
 }
 
 export function useDashboardWebSocket({
-  flowId,
   graphRef,
   setExecutingNodes,
   setNodeData,

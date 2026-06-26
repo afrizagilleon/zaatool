@@ -45,12 +45,14 @@ export function serializeFlow(state: Pick<FlowState, "id" | "name" | "nodes" | "
   };
 }
 
-export function deserializeFlow(graph: GraphJson & { dashboardPassword?: string }): {
+export function deserializeFlow(graph: GraphJson & { dashboardPassword?: string; is_published?: boolean; share_slug?: string | null }): {
   id: string;
   name: string;
   viewport: { x: number; y: number; zoom: number };
   dashboardLayout: DashboardLayout;
   dashboardPassword: string;
+  isPublished: boolean;
+  shareSlug: string | null;
   nodes: FlowNode[];
   edges: FlowState["edges"];
   activeNodeId: null;
@@ -71,6 +73,8 @@ export function deserializeFlow(graph: GraphJson & { dashboardPassword?: string 
     viewport: graph.viewport || { x: 0, y: 0, zoom: 1 },
     dashboardLayout: graph.dashboardLayout || { items: [] },
     dashboardPassword: graph.dashboardPassword || "",
+    isPublished: graph.is_published !== false,
+    shareSlug: graph.share_slug || null,
     nodes,
     edges: (graph.edges || []).map((e) => ({
       id: e.id,

@@ -39,27 +39,31 @@ export function useStorage() {
     fetchFiles();
   }, [fetchFiles]);
 
-  const uploadFile = useCallback(async (file: File) => {
+  const uploadFiles = useCallback(async (files: File[]) => {
+    if (files.length === 0) return false;
     setIsUploading(true);
-    const formData = new FormData();
-    formData.append('file', file);
-
+    let success = true;
     try {
       const dirQuery = currentPath.length > 0 ? `?dir=${encodeURIComponent(currentPath.join('/'))}` : '';
-      const res = await fetch(`${API_BASE_URL}/api/resources/files${dirQuery}`, {
-        method: 'POST',
-        body: formData,
+      const uploadPromises = files.map(async (file) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await fetch(`${API_BASE_URL}/api/resources/files${dirQuery}`, {
+          method: 'POST',
+          body: formData,
+        });
+        return res.ok;
       });
-      if (res.ok) {
-        await fetchFiles();
-        return true;
-      }
+      const results = await Promise.all(uploadPromises);
+      success = results.every(r => r);
+      await fetchFiles();
     } catch (err) {
-      console.error('Failed to upload file:', err);
+      console.error('Failed to upload files:', err);
+      success = false;
     } finally {
       setIsUploading(false);
     }
-    return false;
+    return success;
   }, [currentPath, fetchFiles]);
 
   const createFolder = useCallback(async (name: string) => {
@@ -144,7 +148,7 @@ export function useStorage() {
     isUploading,
     isLoading,
     fetchFiles,
-    uploadFile,
+    uploadFiles,
     createFolder,
     renameItem,
     deleteItem,
