@@ -29,8 +29,8 @@ The project covers a broad surface area: a custom DAG execution engine, real-tim
 |---|---|
 | `Code (JS)` | Executes JavaScript in an isolated VM with access to injected secrets |
 | `Code (Python)` | Runs Python scripts; auto-installs pip packages declared in node config |
-| `If` | Conditional branching — routes flow along true/false edges |
-| `Loop` | Iterates over an array, running a sub-graph for each item |
+| `If` | Conditional branching *(executor disabled — use if/else inside a Code node)* |
+| `Loop` | Array iteration *(executor disabled — use array.map() inside a Code node)* |
 | `HTTP` | Makes outbound HTTP requests |
 | `File` | Reads files from MinIO object storage |
 | `UI: Input` | Renders a configurable form (text, select, multi-select, password, etc.) |
@@ -60,7 +60,7 @@ The project covers a broad surface area: a custom DAG execution engine, real-tim
 
 ### Dashboard Builder
 - Drag-and-drop grid layout (react-grid-layout) for composing UI nodes into a dashboard
-- Publish a flow as a public shareable dashboard at `/share/:id`
+- Publish a flow as a public shareable dashboard at `/share/:id` *(one-click Deploy button coming soon)*
 - Optional password protection with bcrypt verification and rate-limiting (locks after 5 failed attempts)
 - Published dashboards can trigger flow re-runs from the UI (form submit, table row click)
 
@@ -155,12 +155,27 @@ pnpm install
 Create `packages/engine/.env`:
 
 ```env
-DATABASE_URL=postgresql://zaa_user:zaa_password@localhost:5432/zaa_tool
-JWT_SECRET=your-secret-key
+# PostgreSQL — match these to docker-compose.yml or your own instance
+POSTGRES_USER=<db-user>
+POSTGRES_PASSWORD=<db-password>
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=zaa_tool
+
+JWT_SECRET=<random-secret>
+
+# MinIO
 MINIO_ENDPOINT=localhost
 MINIO_PORT=9000
-MINIO_ACCESS_KEY=minioadmin
-MINIO_SECRET_KEY=minioadmin
+MINIO_ACCESS_KEY=<minio-user>
+MINIO_SECRET_KEY=<minio-password>
+```
+
+Optionally create `packages/web/.env` to override API endpoints (defaults to `localhost:4000`):
+
+```env
+VITE_API_URL=http://localhost:4000
+VITE_WS_URL=ws://localhost:4000
 ```
 
 ### 4. Run
@@ -170,7 +185,7 @@ pnpm dev
 ```
 
 - Web UI: `http://localhost:5173`
-- API: `http://localhost:3000`
+- API: `http://localhost:4000`
 - MinIO Console: `http://localhost:9001`
 
 ---
@@ -179,7 +194,7 @@ pnpm dev
 
 **Flow execution** works by first topologically sorting the DAG (Kahn's algorithm), then iterating nodes in order. Each node is skipped if none of its incoming edges are "active" — edges become active only when their source node runs successfully. This naturally implements conditional branching: only the branches reachable from an If node's true or false output get executed.
 
-**Loop nodes** are handled specially: the graph analyzer identifies all nodes inside a loop body (reachable from the `body` handle but not the `exit` handle) and excludes them from the top-level sort. The loop executor runs those nodes as a sub-flow on each iteration.
+**Loop nodes** are handled specially: the graph analyzer identifies all nodes inside a loop body (reachable from the `body` handle but not the `exit` handle) and excludes them from the top-level sort. The sub-flow infrastructure is in place, though the loop executor is currently disabled in favour of using `array.map()` inside a Code node.
 
 **Real-time streaming** uses a single long-lived WebSocket connection. The server emits lifecycle events from each node execution through an `EventEmitter`; the WebSocket manager fans those out to all connected clients. The React client updates node status and appends log lines in the run console as events arrive.
 
