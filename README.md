@@ -2,7 +2,7 @@
 
 A self-hosted visual automation platform for building, running, and publishing workflow pipelines — built as a full-stack portfolio project.
 
-![Hero](packages/web/src/assets/hero.png)
+<img width="2560" height="1352" alt="node editor" src="https://github.com/user-attachments/assets/a52e744a-ede1-47cd-b4ec-a1b0399a05bb" />
 
 ---
 
@@ -199,6 +199,17 @@ pnpm dev
 **Real-time streaming** uses a single long-lived WebSocket connection. The server emits lifecycle events from each node execution through an `EventEmitter`; the WebSocket manager fans those out to all connected clients. The React client updates node status and appends log lines in the run console as events arrive.
 
 **Published dashboards** are rendered from the same `GraphJson` that powers the editor, but filtered to only UI nodes. The dashboard builder lets you arrange those nodes in a grid and lock the layout before publishing. Public endpoints bypass JWT auth but optionally require a dashboard-specific password.
+
+---
+
+## Other Screenshots
+
+<img width="2560" height="1345" alt="published dashboard" src="https://github.com/user-attachments/assets/db958103-295c-4f00-8483-e4c34528be1a" />
+
+<img width="2560" height="1349" alt="dashboard building" src="https://github.com/user-attachments/assets/a5f22124-a8db-4aab-8b3c-2b26be338050" />
+
+<img width="2560" height="1431" alt="published dashboard 2" src="https://github.com/user-attachments/assets/a346cf62-39fd-4599-ab36-cdabaa4b77f0" />
+
 
 ---
 
