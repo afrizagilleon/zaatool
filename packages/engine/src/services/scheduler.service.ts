@@ -1,6 +1,7 @@
 import { pool } from "../db/connection.js";
 import { runFlow } from "../core/flow-runner.js";
-import { EventEmitter } from "node:events";
+import { createRunEmitter, type RunEventSink } from "../core/run-emitter.js";
+import { randomUUID } from "node:crypto";
 import type { GraphJson } from "@zaa-tool/shared";
 
 function matchCronField(pattern: string, value: number): boolean {
@@ -51,10 +52,10 @@ export function matchCron(cronStr: string, date: Date): boolean {
 
 export class SchedulerService {
   private timer: NodeJS.Timeout | null = null;
-  private onFlowEvent: ((data: Record<string, unknown>) => void) | null = null;
+  private publishRunEvent: RunEventSink | null = null;
 
-  start(onFlowEvent: (data: Record<string, unknown>) => void) {
-    this.onFlowEvent = onFlowEvent;
+  start(publishRunEvent: RunEventSink) {
+    this.publishRunEvent = publishRunEvent;
     if (this.timer) return;
 
     console.log("⏰ Background Scheduler Service started.");
@@ -140,21 +141,13 @@ export class SchedulerService {
         return;
       }
 
-      const ee = new EventEmitter();
-      const events = ["node:start", "node:log", "node:done", "node:error", "flow:done"] as const;
-      
-      for (const event of events) {
-        ee.on(event, (data: Record<string, unknown>) => {
-          if (this.onFlowEvent) {
-            this.onFlowEvent({
-              ...data,
-              triggeredBy: "scheduler",
-              flowId,
-            });
-          }
-        });
-      }
+      const publish = this.publishRunEvent;
+      const runId = randomUUID();
+      const ee = createRunEmitter({ runId, flowId }, (event) =>
+        publish?.({ ...event, triggeredBy: "scheduler" })
+      );
 
+      // No seedOutputs: a scheduled run computes from the graph alone.
       await runFlow(graph, ee, startNodeId);
     } catch (err) {
       console.error(`Error executing scheduled flow ${flowId}:`, err);

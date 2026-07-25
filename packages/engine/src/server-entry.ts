@@ -2,6 +2,7 @@ import http from "http";
 import { initDb } from "./db/initializer.js";
 import { createApp } from "./server/app.js";
 import { WebSocketManager } from "./server/websocket-manager.js";
+import { RunEventHub } from "./server/run-event-hub.js";
 import { schedulerService } from "./services/scheduler.service.js";
 import { registerDefaultExecutors } from "./core/executor-bootstrap.js";
 
@@ -18,11 +19,14 @@ export async function startServer(port = 4000) {
   }
 
   const server = http.createServer();
-  const wssManager = new WebSocketManager(server);
+  const runEventHub = new RunEventHub();
+  const wssManager = new WebSocketManager(server, runEventHub);
+  const publishRunEvent = (event: Parameters<RunEventHub["publish"]>[0]) =>
+    runEventHub.publish(event);
 
-  schedulerService.start((data) => wssManager.broadcast(data));
+  schedulerService.start(publishRunEvent);
 
-  const app = createApp((data) => wssManager.broadcast(data));
+  const app = createApp(publishRunEvent);
   server.on("request", app);
 
   server.listen(port, () => {

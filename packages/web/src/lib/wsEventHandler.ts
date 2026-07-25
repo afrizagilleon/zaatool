@@ -2,7 +2,12 @@ import { useFlowStore } from '../store/flowStore.js';
 import { createLogEntry } from '../store/engineTypes.js';
 import { withPropagatedInput } from './edgePropagation.js';
 
-export function handleWsMessage(data: any, set: any, _get: any, ws: WebSocket): void {
+export function handleWsMessage(data: any, set: any, get: any, ws: WebSocket): void {
+  // The engine only streams runs this socket subscribed to, but a socket may
+  // outlive the run it was opened for. Anything not belonging to the run this
+  // store is following must not touch node state.
+  if (data.runId !== get().runId) return;
+
   const eventType: string = data.event || data.type || 'system';
   const nodeId: string | undefined = data.nodeId;
 
@@ -83,6 +88,28 @@ export function handleWsMessage(data: any, set: any, _get: any, ws: WebSocket): 
         ],
         nodeStatuses: { ...state.nodeStatuses, ...(nodeId ? { [nodeId]: 'error' as const } : {}) },
       }));
+      break;
+    }
+
+    case 'node:skip': {
+      set((state: any) => ({
+        logs: [
+          ...state.logs,
+          createLogEntry('system', `Node "${nodeId}" skipped${data.reason ? ` (${data.reason})` : ''}`, nodeId),
+        ],
+      }));
+      break;
+    }
+
+    case 'flow:error': {
+      set((state: any) => ({
+        logs: [
+          ...state.logs,
+          createLogEntry('flow:error', `Flow failed: ${data.error ?? 'Unknown error'}`),
+        ],
+        isRunning: false,
+      }));
+      ws.close();
       break;
     }
 

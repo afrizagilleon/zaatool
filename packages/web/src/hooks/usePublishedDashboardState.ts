@@ -14,7 +14,7 @@ export function usePublishedDashboardState(flowId: string) {
 
   const flow = useDashboardFlow(flowId);
 
-  useDashboardWebSocket({
+  const { subscribeToRun } = useDashboardWebSocket({
     graphRef: flow.graphRef,
     setExecutingNodes,
     setNodeData: flow.setNodeData,
@@ -36,6 +36,7 @@ export function usePublishedDashboardState(flowId: string) {
     setLayout: flow.setLayout,
     setFormInputs: flow.setFormInputs,
     setExecutingNodes,
+    subscribeToRun,
   });
 
   const layoutHelpers = useDashboardLayout(flow.layout);

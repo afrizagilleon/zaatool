@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { GraphJson } from '@zaa-tool/shared';
+import { useFlowStore } from './flowStore.js';
 import { EngineClient } from '../lib/engine-client.js';
 import { createLogEntry } from './engineTypes.js';
 import type { EngineState } from './engineTypes.js';
@@ -13,6 +14,7 @@ export const useEngineStore = create<EngineState>((set, get) => ({
   wsConnected: false,
   nodeStatuses: {},
   activeHandles: {},
+  runId: null,
 
   clearLogs: () => set({ logs: [] }),
 
@@ -29,6 +31,7 @@ export const useEngineStore = create<EngineState>((set, get) => ({
       isRunning: true,
       nodeStatuses: initialStatuses,
       activeHandles: {},
+      runId: null,
     });
 
     try {
@@ -71,10 +74,12 @@ export const useEngineStore = create<EngineState>((set, get) => ({
         }));
 
         try {
-          const response = await EngineClient.runFlow(graph, startNodeId);
-          if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-          }
+          const seedOutputs = useFlowStore.getState().getSeedOutputs();
+          const { runId } = await EngineClient.runFlow(graph, startNodeId, seedOutputs);
+          set({ runId });
+          // Subscribe only after the id exists; anything the run already emitted
+          // is replayed by the engine, so nothing is lost in that gap.
+          EngineClient.subscribeToRun(ws, runId);
         } catch (e) {
           set((state) => ({
             logs: [...state.logs, createLogEntry('system', `Failed to submit flow: ${e}`)],

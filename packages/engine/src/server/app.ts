@@ -3,7 +3,7 @@ import cors from "cors";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFileSync, readdirSync } from "node:fs";
-import { EventEmitter } from "node:events";
+import { randomUUID } from "node:crypto";
 
 import { skillsRouter } from "../routes/skills.route.js";
 import { secretsRouter } from "../routes/secrets.route.js";
@@ -18,7 +18,8 @@ import { flowsService } from "../services/flows.service.js";
 import { dashboardPasswordService } from "../services/dashboard-password.service.js";
 import { authMiddleware } from "../middleware/auth.middleware.js";
 import { runFlow } from "../core/flow-runner.js";
-import type { GraphJson } from "@zaa-tool/shared";
+import { createRunEmitter, type RunEventSink } from "../core/run-emitter.js";
+import type { GraphJson, SeedOutputs } from "@zaa-tool/shared";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const failedAttempts = new Map<string, { count: number; lockUntil: number }>();
@@ -40,7 +41,7 @@ function recordFailedAttempt(flowId: string): boolean {
   return false;
 }
 
-export function createApp(onFlowEvent: (data: Record<string, unknown>) => void) {
+export function createApp(publishRunEvent: RunEventSink) {
   const app = express();
   app.use(cors());
   app.use(express.json({ limit: "50mb" }));
@@ -200,17 +201,16 @@ export function createApp(onFlowEvent: (data: Record<string, unknown>) => void) 
         }
       }
 
-      const ee = new EventEmitter();
-      const events = ["node:start", "node:log", "node:done", "node:error", "flow:done"] as const;
-      for (const event of events) {
-        ee.on(event, (data: Record<string, unknown>) => onFlowEvent(data));
-      }
+      const runId = randomUUID();
+      const ee = createRunEmitter({ runId, flowId: flow.id }, publishRunEvent);
 
+      // No seedOutputs: a published dashboard run always computes from the
+      // graph and this request's inputs, never from stored design-time output.
       runFlow(graph, ee, startNodeId).catch((err: unknown) => {
-        onFlowEvent({ type: "flow:error", error: (err as Error).message });
+        ee.emit("flow:error", { type: "flow:error", error: (err as Error).message });
       });
 
-      res.status(200).json({ status: "started" });
+      res.status(200).json({ status: "started", runId });
     } catch (err: unknown) {
       res.status(500).json({ error: (err as Error).message });
     }
@@ -220,10 +220,12 @@ export function createApp(onFlowEvent: (data: Record<string, unknown>) => void) 
   app.post("/api/run", (req, res) => {
     let graph: GraphJson;
     let startNodeId: string | undefined;
+    let seedOutputs: SeedOutputs | undefined;
 
     if (req.body.graph && req.body.graph.nodes) {
       graph = req.body.graph;
       startNodeId = req.body.startNodeId;
+      seedOutputs = req.body.seedOutputs;
     } else {
       graph = req.body;
     }
@@ -232,18 +234,18 @@ export function createApp(onFlowEvent: (data: Record<string, unknown>) => void) 
       return res.status(400).json({ error: "Invalid graph: missing nodes" });
     }
 
-    const ee = new EventEmitter();
-    const events = ["node:start", "node:log", "node:done", "node:error", "flow:done"] as const;
-    for (const event of events) {
-      ee.on(event, (data: Record<string, unknown>) => onFlowEvent(data));
-    }
+    const runId = randomUUID();
+    const ee = createRunEmitter({ runId, flowId: graph.id ?? "unsaved" }, publishRunEvent);
 
-    runFlow(graph, ee, startNodeId).catch((err: unknown) => {
+    // The editor may seed the outputs it already has so a partial re-run does
+    // not have to re-execute everything upstream. Those values come from the
+    // caller's own session, not from the database.
+    runFlow(graph, ee, startNodeId, undefined, { seedOutputs }).catch((err: unknown) => {
       console.error("Flow execution error:", err);
-      onFlowEvent({ type: "flow:error", error: (err as Error).message });
+      ee.emit("flow:error", { type: "flow:error", error: (err as Error).message });
     });
 
-    res.status(200).json({ status: "started" });
+    res.status(200).json({ status: "started", runId });
   });
 
   return app;

@@ -1,5 +1,34 @@
-import type { GraphJson, NodeDef, DashboardLayout } from "@zaa-tool/shared";
+import type { GraphJson, NodeDef, DashboardLayout, SeedOutputs } from "@zaa-tool/shared";
 import type { FlowState, FlowNode } from "../store/flowTypes.js";
+
+/**
+ * `data.inputs` holds values propagated from upstream nodes at run time and so
+ * is not part of a flow's definition — except on `file` nodes, where
+ * `inputs.file` is the file the user picked in the properties panel. Both the
+ * engine (`file.executor`, `scope-initializer`) and the dashboard read that
+ * selection back, so it has to survive a save.
+ */
+function serializeInputs(node: FlowNode): Record<string, unknown> | undefined {
+  if (node.type !== "file") return undefined;
+  const file = node.data.inputs?.file;
+  return file === undefined ? undefined : { file };
+}
+
+/**
+ * Collects the outputs currently held on the canvas, to be sent alongside a run
+ * request so a partial re-run can start mid-graph. These belong to this editing
+ * session only — they are deliberately not part of {@link serializeFlow}.
+ */
+export function collectSeedOutputs(nodes: FlowNode[]): SeedOutputs {
+  const seed: SeedOutputs = {};
+  for (const node of nodes) {
+    const outputs = node.data.outputs;
+    if (outputs && typeof outputs === "object" && Object.keys(outputs).length > 0) {
+      seed[node.id] = outputs as Record<string, unknown>;
+    }
+  }
+  return seed;
+}
 
 export function serializeFlow(state: Pick<FlowState, "id" | "name" | "nodes" | "edges" | "viewport" | "dashboardLayout">, layoutDirection: "LR" | "TB"): GraphJson {
   return {
@@ -24,8 +53,9 @@ export function serializeFlow(state: Pick<FlowState, "id" | "name" | "nodes" | "
         uiSchema: n.data.uiSchema,
         tableConfig: n.data.tableConfig,
         chartConfig: n.data.chartConfig,
-        inputs: n.data.inputs,
-        outputs: n.data.outputs,
+        // Run-time results are never persisted: a saved graph is a definition,
+        // not a snapshot of the last execution.
+        inputs: serializeInputs(n),
         values: n.data.values,
         selectedRow: n.data.selectedRow,
         format: n.data.format,

@@ -25,6 +25,7 @@ function LogLine({ entry }: { entry: LogEntry }) {
     'node:done': 'text-status-done',
     'node:error': 'text-status-error',
     'flow:done': 'text-status-done font-semibold',
+    'flow:error': 'text-status-error font-semibold',
     system: 'text-muted-foreground/60 italic',
   };
 
@@ -34,6 +35,7 @@ function LogLine({ entry }: { entry: LogEntry }) {
     'node:done': 'bg-status-done/15 text-status-done hover:bg-status-done/25',
     'node:error': 'bg-status-error/15 text-status-error hover:bg-status-error/25',
     'flow:done': 'bg-status-done/15 text-status-done hover:bg-status-done/25',
+    'flow:error': 'bg-status-error/15 text-status-error hover:bg-status-error/25',
     system: 'bg-muted text-muted-foreground/60 hover:bg-muted',
   };
 

@@ -1,12 +1,20 @@
-import type { GraphJson } from "@zaa-tool/shared";
+import type { GraphJson, SeedOutputs } from "@zaa-tool/shared";
 import { storageService } from "../services/storage.service.js";
 import { Scope } from "./scope.js";
 
-export function initializeScopeFromGraph(graph: GraphJson, scope: Scope): void {
-  // Pre-populate cached outputs from a previous run (checkpoint/resume)
-  for (const node of graph.nodes) {
-    if (node.data.outputs) {
-      scope.set(node.id, node.data.outputs as Record<string, unknown>);
+export function initializeScopeFromGraph(
+  graph: GraphJson,
+  scope: Scope,
+  seedOutputs?: SeedOutputs
+): void {
+  // Seed outputs supplied explicitly by the caller for this one run (the editor
+  // re-running part of a graph). Never sourced from the stored graph — a run
+  // must not serve outputs left behind by a previous, unrelated session.
+  if (seedOutputs) {
+    for (const [nodeId, outputs] of Object.entries(seedOutputs)) {
+      if (outputs && typeof outputs === "object") {
+        scope.set(nodeId, outputs);
+      }
     }
   }
 

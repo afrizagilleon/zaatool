@@ -1,5 +1,5 @@
 import { API_BASE_URL } from "./api.js";
-import type { GraphJson, DashboardLayout } from "@zaa-tool/shared";
+import type { GraphJson, DashboardLayout, RunStartedResponse } from "@zaa-tool/shared";
 
 export interface SaveFlowPayload {
   id?: string;
@@ -83,7 +83,7 @@ export const flowsApi = {
     id: string,
     payload: TriggerPayload,
     password?: string
-  ): Promise<{ status: string }> => {
+  ): Promise<RunStartedResponse> => {
     const headers: Record<string, string> = {};
     if (password) headers["X-Dashboard-Password"] = password;
     return request(`/api/flows/${id}/trigger`, {

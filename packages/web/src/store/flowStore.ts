@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { applyNodeChanges, applyEdgeChanges, addEdge } from '@xyflow/react';
 import { useUiStore } from './uiStore';
-import { serializeFlow, deserializeFlow } from '../lib/flow-serializer';
+import { serializeFlow, deserializeFlow, collectSeedOutputs } from '../lib/flow-serializer';
 import { withPropagatedInput, withClearedInput } from '../lib/edgePropagation';
 import type { Connection } from '@xyflow/react';
 import type { GraphJson, DashboardLayout } from '@zaa-tool/shared';
@@ -155,6 +155,8 @@ export const useFlowStore = create<FlowState>((set, get) => ({
     const layoutDirection = useUiStore.getState().layoutDirection;
     return serializeFlow(state, layoutDirection);
   },
+
+  getSeedOutputs: () => collectSeedOutputs(get().nodes),
 
   loadFromJson: (graph: GraphJson) => {
     if (!graph) return;

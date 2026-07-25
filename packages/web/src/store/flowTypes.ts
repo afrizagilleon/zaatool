@@ -1,5 +1,5 @@
 import type { Edge, Node, OnNodesChange, OnEdgesChange, OnConnect } from '@xyflow/react';
-import type { GraphJson, NodeDef, SchemaField, DashboardLayout } from '@zaa-tool/shared';
+import type { GraphJson, NodeDef, SchemaField, DashboardLayout, SeedOutputs } from '@zaa-tool/shared';
 
 export type FlowNodeData = NodeDef['data'] & {
   runtime?: 'node' | 'python';
@@ -42,6 +42,8 @@ export interface FlowState {
   addNode: (node: FlowNode) => void;
   removeNode: (id: string) => void;
   getGraphJson: () => GraphJson;
+  /** Session-local outputs sent with a run request so a partial re-run can start mid-graph. */
+  getSeedOutputs: () => SeedOutputs;
   loadFromJson: (graph: GraphJson) => void;
 }
 

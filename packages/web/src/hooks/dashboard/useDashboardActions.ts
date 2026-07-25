@@ -18,6 +18,8 @@ interface UseDashboardActionsParams {
   setLayout: React.Dispatch<React.SetStateAction<unknown[]>>;
   setFormInputs: React.Dispatch<React.SetStateAction<Record<string, Record<string, unknown>>>>;
   setExecutingNodes: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
+  /** Registers the run started by a trigger so its events reach this dashboard. */
+  subscribeToRun: (runId: string) => void;
 }
 
 const UI_NODE_TYPES = ['ui:input', 'ui:text', 'ui:table', 'ui:chart', 'ui:image', 'file'];
@@ -37,6 +39,7 @@ export function useDashboardActions({
   setLayout,
   setFormInputs,
   setExecutingNodes,
+  subscribeToRun,
 }: UseDashboardActionsParams) {
   const [passwordInput, setPasswordInput] = useState('');
   const [lockError, setLockError] = useState<string | null>(null);
@@ -48,9 +51,11 @@ export function useDashboardActions({
     const inputs = overrideInputs ?? (formInputs[nodeId] || {});
     setExecutingNodes((prev) => ({ ...prev, [nodeId]: true }));
     try {
-      await flowsApi.trigger(flowId, { startNodeId: nodeId, inputs }, dashboardPassword || undefined);
+      const { runId } = await flowsApi.trigger(flowId, { startNodeId: nodeId, inputs }, dashboardPassword || undefined);
+      subscribeToRun(runId);
     } catch (err) {
       console.error('Failed to trigger flow:', err);
+      setExecutingNodes((prev) => ({ ...prev, [nodeId]: false }));
     }
   };
 
@@ -111,9 +116,11 @@ export function useDashboardActions({
     setNodeData((prev) => ({ ...prev, [nodeId]: { ...(prev[nodeId] as Record<string, unknown> || {}), selectedRow: row } }));
     setExecutingNodes((prev) => ({ ...prev, [nodeId]: true }));
     try {
-      await flowsApi.trigger(flowId, { startNodeId: nodeId, inputs: { selectedRow: row } }, dashboardPassword || undefined);
+      const { runId } = await flowsApi.trigger(flowId, { startNodeId: nodeId, inputs: { selectedRow: row } }, dashboardPassword || undefined);
+      subscribeToRun(runId);
     } catch (err) {
       console.error('Failed to trigger table select:', err);
+      setExecutingNodes((prev) => ({ ...prev, [nodeId]: false }));
     }
   };
 
@@ -136,10 +143,12 @@ export function useDashboardActions({
         const uploaded = await res.json();
         setNodeData((prev) => ({ ...prev, [nodeId]: { ...(prev[nodeId] as Record<string, unknown>), outputs: { file: uploaded } } }));
         setExecutingNodes((prev) => ({ ...prev, [nodeId]: true }));
-        await flowsApi.trigger(flowId, { startNodeId: nodeId, inputs: { file: uploaded.path } }, dashboardPassword || undefined);
+        const { runId } = await flowsApi.trigger(flowId, { startNodeId: nodeId, inputs: { file: uploaded.path } }, dashboardPassword || undefined);
+        subscribeToRun(runId);
       }
     } catch (err) {
       console.error('Failed to upload file:', err);
+      setExecutingNodes((prev) => ({ ...prev, [nodeId]: false }));
     } finally {
       setUploadingNodes((prev) => ({ ...prev, [nodeId]: false }));
     }
@@ -156,9 +165,11 @@ export function useDashboardActions({
     });
     setExecutingNodes((prev) => ({ ...prev, [nodeId]: true }));
     try {
-      await flowsApi.trigger(flowId, { startNodeId: nodeId, inputs: { file: null } }, dashboardPassword || undefined);
+      const { runId } = await flowsApi.trigger(flowId, { startNodeId: nodeId, inputs: { file: null } }, dashboardPassword || undefined);
+      subscribeToRun(runId);
     } catch (err) {
       console.error('Failed to remove file:', err);
+      setExecutingNodes((prev) => ({ ...prev, [nodeId]: false }));
     }
   };
 

@@ -1,4 +1,4 @@
-import type { GraphJson } from "@zaa-tool/shared";
+import type { GraphJson, SeedOutputs } from "@zaa-tool/shared";
 import { EventEmitter } from "node:events";
 import { Scope } from "./scope.js";
 import { GraphAnalyzer } from "./graph-analyzer.js";
@@ -8,11 +8,17 @@ import { executeNode } from "./node-executor.js";
 import { initializeScopeFromGraph } from "./scope-initializer.js";
 import type { ExecutorRegistry } from "./types.js";
 
+export interface RunFlowOptions {
+  /** Outputs to pre-populate in scope for this run only. See {@link SeedOutputs}. */
+  seedOutputs?: SeedOutputs;
+}
+
 export async function runFlow(
   graph: GraphJson,
   ee?: EventEmitter,
   startNodeId?: string,
-  registry: ExecutorRegistry = defaultExecutorRegistry
+  registry: ExecutorRegistry = defaultExecutorRegistry,
+  options: RunFlowOptions = {}
 ) {
   const flowStartTime = Date.now();
   const order = GraphAnalyzer.topoSort(graph);
@@ -20,7 +26,7 @@ export async function runFlow(
   const loopBodyNodeIds = GraphAnalyzer.getAllLoopBodyNodes(graph);
 
   const globalScope = new Scope();
-  initializeScopeFromGraph(graph, globalScope);
+  initializeScopeFromGraph(graph, globalScope, options.seedOutputs);
 
   const activeEdges = new Set<string>();
   const reachableNodes = startNodeId ? getReachableNodes(graph, startNodeId) : null;
