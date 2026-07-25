@@ -9,6 +9,8 @@ export interface FlowRecord {
   graph_json: string;
   dashboard_layout: string | null;
   dashboard_password_hash: string | null;
+  dashboard_password_lock_until: Date | null;
+  dashboard_password_failed_attempts: number | null;
   is_published: boolean;
   share_slug: string | null;
   created_at: Date;
@@ -99,6 +101,22 @@ export class FlowsService {
     );
 
     return { success: true, id: flowId, name: flowName, is_published: nextPublished, share_slug: nextSlug };
+  }
+
+  /**
+   * Persists dashboard password throttling state. Kept in the database rather
+   * than in process memory so the lockout survives a restart and holds across
+   * every instance serving the same flow.
+   */
+  async updatePasswordLock(
+    id: string,
+    failedAttempts: number,
+    lockUntil: Date | null
+  ): Promise<void> {
+    await pool.query(
+      "UPDATE flows SET dashboard_password_failed_attempts = $1, dashboard_password_lock_until = $2 WHERE id = $3",
+      [failedAttempts, lockUntil, id]
+    );
   }
 
   async delete(id: string): Promise<{ success: boolean }> {

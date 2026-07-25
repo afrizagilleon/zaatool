@@ -110,6 +110,15 @@ export async function initDb() {
       END $$;
     `);
 
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE flows ADD COLUMN dashboard_password_failed_attempts INTEGER DEFAULT 0;
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
+
     // Add role column to users table
     await client.query(`
       DO $$

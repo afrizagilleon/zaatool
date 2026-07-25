@@ -15,30 +15,23 @@ import { authRouter } from "../routes/auth.route.js";
 import { triggersRouter } from "../routes/triggers.route.js";
 import { flowsController } from "../controllers/flows.controller.js";
 import { flowsService } from "../services/flows.service.js";
-import { dashboardPasswordService } from "../services/dashboard-password.service.js";
+import {
+  dashboardAccessService,
+  DashboardAccessError,
+} from "../services/dashboard-access.service.js";
 import { authMiddleware } from "../middleware/auth.middleware.js";
 import { runFlow } from "../core/flow-runner.js";
 import { createRunEmitter, type RunEventSink } from "../core/run-emitter.js";
 import type { GraphJson, SeedOutputs } from "@zaa-tool/shared";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const failedAttempts = new Map<string, { count: number; lockUntil: number }>();
 
-function checkRateLimit(flowId: string): { locked: boolean } {
-  const info = failedAttempts.get(flowId);
-  if (info && info.lockUntil > Date.now()) return { locked: true };
-  return { locked: false };
-}
-
-function recordFailedAttempt(flowId: string): boolean {
-  const info = failedAttempts.get(flowId);
-  const count = (info?.count || 0) + 1;
-  if (count >= 5) {
-    failedAttempts.set(flowId, { count: 0, lockUntil: Date.now() + 5 * 60 * 1000 });
-    return true; // now locked
+/** Maps an access denial to its own status; anything else is an unexpected 500. */
+function respondWithError(res: express.Response, err: unknown) {
+  if (err instanceof DashboardAccessError) {
+    return res.status(err.status).json({ error: err.message });
   }
-  failedAttempts.set(flowId, { count, lockUntil: 0 });
-  return false;
+  return res.status(500).json({ error: (err as Error).message });
 }
 
 export function createApp(publishRunEvent: RunEventSink) {
@@ -82,37 +75,21 @@ export function createApp(publishRunEvent: RunEventSink) {
     try {
       const flow = await flowsService.getBySlugOrId(req.params.id);
       if (!flow) return res.status(404).json({ error: "Flow not found" });
-      if (!flow.is_published) {
-        return res.status(403).json({ error: "This dashboard is not published." });
+
+      const password = req.headers["x-dashboard-password"] || req.query.password;
+
+      // Announcing that a password is needed is not an attempt, so it must not
+      // count against the lockout budget.
+      if (dashboardAccessService.isPasswordProtected(flow) && !password) {
+        return res.json({ id: flow.id, name: flow.name, isPasswordProtected: true });
       }
 
-      if (flow.dashboard_password_hash) {
-        const password = req.headers["x-dashboard-password"] || req.query.password;
-        if (!password) {
-          return res.json({ id: flow.id, name: flow.name, isPasswordProtected: true });
-        }
-
-        if (checkRateLimit(flow.id).locked) {
-          return res.status(429).json({ error: "Too many failed attempts. Locked for 5 minutes." });
-        }
-
-        const isMatch = await dashboardPasswordService.verifyPassword(
-          String(password),
-          flow.dashboard_password_hash
-        );
-        if (!isMatch) {
-          const nowLocked = recordFailedAttempt(flow.id);
-          return nowLocked
-            ? res.status(429).json({ error: "Too many failed attempts. Locked for 5 minutes." })
-            : res.status(401).json({ error: "Incorrect password" });
-        }
-        failedAttempts.delete(flow.id);
-      }
+      await dashboardAccessService.assertAccess(flow, String(password ?? ""));
 
       const { graph_json, dashboard_layout } = flowsService.parseFlow(flow);
       res.json({ id: flow.id, name: flow.name, graph_json, dashboard_layout });
     } catch (err: unknown) {
-      res.status(500).json({ error: (err as Error).message });
+      respondWithError(res, err);
     }
   });
 
@@ -122,35 +99,13 @@ export function createApp(publishRunEvent: RunEventSink) {
       const { password } = req.body;
       const flow = await flowsService.getBySlugOrId(req.params.id);
       if (!flow) return res.status(404).json({ error: "Flow not found" });
-      if (!flow.is_published) {
-        return res.status(403).json({ error: "This dashboard is not published." });
-      }
+
+      await dashboardAccessService.assertAccess(flow, password);
 
       const { graph_json, dashboard_layout } = flowsService.parseFlow(flow);
-
-      if (!flow.dashboard_password_hash) {
-        return res.json({ success: true, graph_json, dashboard_layout });
-      }
-
-      if (checkRateLimit(flow.id).locked) {
-        return res.status(429).json({ error: "Too many failed attempts. Locked for 5 minutes." });
-      }
-
-      const isMatch = await dashboardPasswordService.verifyPassword(
-        String(password || ""),
-        flow.dashboard_password_hash
-      );
-      if (!isMatch) {
-        const nowLocked = recordFailedAttempt(flow.id);
-        return nowLocked
-          ? res.status(429).json({ error: "Too many failed attempts. Locked for 5 minutes." })
-          : res.status(401).json({ error: "Incorrect password" });
-      }
-
-      failedAttempts.delete(flow.id);
       res.json({ success: true, graph_json, dashboard_layout });
     } catch (err: unknown) {
-      res.status(500).json({ error: (err as Error).message });
+      respondWithError(res, err);
     }
   });
 
@@ -160,18 +115,8 @@ export function createApp(publishRunEvent: RunEventSink) {
       const { startNodeId, inputs } = req.body;
       const flow = await flowsService.getBySlugOrId(req.params.id);
       if (!flow) return res.status(404).json({ error: "Flow not found" });
-      if (!flow.is_published) {
-        return res.status(403).json({ error: "This dashboard is not published." });
-      }
 
-      if (flow.dashboard_password_hash) {
-        const password = req.headers["x-dashboard-password"];
-        const isMatch = await dashboardPasswordService.verifyPassword(
-          String(password || ""),
-          flow.dashboard_password_hash
-        );
-        if (!isMatch) return res.status(401).json({ error: "Unauthorized: Invalid dashboard password" });
-      }
+      await dashboardAccessService.assertAccess(flow, String(req.headers["x-dashboard-password"] ?? ""));
 
       const { graph_json: graph } = flowsService.parseFlow(flow);
 
@@ -212,7 +157,7 @@ export function createApp(publishRunEvent: RunEventSink) {
 
       res.status(200).json({ status: "started", runId });
     } catch (err: unknown) {
-      res.status(500).json({ error: (err as Error).message });
+      respondWithError(res, err);
     }
   });
 
