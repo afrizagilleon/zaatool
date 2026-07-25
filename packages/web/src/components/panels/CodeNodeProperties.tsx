@@ -11,6 +11,7 @@ import {
 } from '../ui/select';
 import { Textarea } from '../ui/textarea';
 import { SchemaEditor } from './SchemaEditor';
+import { NodeSecretsProperties } from './properties/NodeSecretsProperties';
 
 interface CodeNodePropertiesProps {
   activeNode: any;
@@ -177,6 +178,21 @@ export function CodeNodeProperties({
                 Timeout limit in milliseconds. Default is 5000ms (5 seconds).
               </p>
             </div>
+
+            {isCodeNode && (
+              <NodeSecretsProperties
+                selectedKeys={
+                  Array.isArray(activeNode.data.config?.secrets)
+                    ? (activeNode.data.config.secrets as string[])
+                    : []
+                }
+                onChange={(keys) =>
+                  updateNodeData(activeNode.id, {
+                    config: { ...(activeNode.data.config || {}), secrets: keys },
+                  })
+                }
+              />
+            )}
           </div>
         )}
       </div>

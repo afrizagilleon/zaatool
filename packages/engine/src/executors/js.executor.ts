@@ -1,6 +1,7 @@
 import { NodeExecutor, NodeExecutorContext, NodeExecutorResult } from "../core/types.js";
 import { runJsNode } from "../core/js-runner.js";
 import { secretsService } from "../services/secrets.service.js";
+import { declaredSecretKeys } from "../core/node-secrets.js";
 import { truncateLog } from "../core/utils.js";
 
 export class JsCodeExecutor implements NodeExecutor {
@@ -9,7 +10,7 @@ export class JsCodeExecutor implements NodeExecutor {
     const code = node.data.code ?? "";
     const timeout = (node.data.config?.timeout as number) ?? 5000;
 
-    const rawSecrets = await secretsService.getRawSecrets();
+    const secrets = await secretsService.getByKeys(declaredSecretKeys(node));
     const result = await runJsNode(
       code,
       inputs,
@@ -17,7 +18,7 @@ export class JsCodeExecutor implements NodeExecutor {
       (level, msg) => {
         context.ee?.emit("node:log", { type: "node:log", nodeId: node.id, level, payload: msg });
       },
-      rawSecrets,
+      secrets,
       node.data.inputsSchema || []
     );
 

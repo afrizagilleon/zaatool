@@ -1,6 +1,7 @@
 import { Worker } from "worker_threads";
 import path from "path";
 import { fileURLToPath } from "url";
+import { buildSandboxEnv } from "./sandbox-env.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -30,7 +31,10 @@ export function runJsNode(
     const worker = new Worker(
       workerPath,
       {
-        workerData: { code, inputs, secrets, inputsSchema },
+        workerData: { code, inputs, inputsSchema },
+        // The worker gets its own environment rather than a copy of the
+        // engine's, so user code cannot read the server's credentials.
+        env: buildSandboxEnv(secrets),
         execArgv: process.execArgv,
       }
     );

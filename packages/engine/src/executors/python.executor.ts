@@ -1,6 +1,7 @@
 import { NodeExecutor, NodeExecutorContext, NodeExecutorResult } from "../core/types.js";
 import { runPythonNode } from "../core/python-runner.js";
 import { secretsService } from "../services/secrets.service.js";
+import { declaredSecretKeys } from "../core/node-secrets.js";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { truncateLog } from "../core/utils.js";
@@ -63,10 +64,10 @@ export class PythonCodeExecutor implements NodeExecutor {
       return { error: err.message };
     }
 
-    const rawSecrets = await secretsService.getRawSecrets();
+    const secrets = await secretsService.getByKeys(declaredSecretKeys(node));
     const result = await runPythonNode(code, inputs, timeout, (level, msg) => {
       context.ee?.emit("node:log", { type: "node:log", nodeId: node.id, level, payload: msg });
-    }, rawSecrets, node.data.inputsSchema || []);
+    }, secrets, node.data.inputsSchema || []);
 
     result.logs.forEach((l) => console.log(`  [${l.level}] ${l.msg}`));
 

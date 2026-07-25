@@ -9,8 +9,17 @@ export class SecretsService {
     return rows;
   }
 
-  async getRawSecrets(): Promise<Record<string, string>> {
-    const { rows } = await pool.query("SELECT key, value FROM secrets");
+  /**
+   * Resolves only the named secrets.
+   *
+   * There is deliberately no "give me everything" variant: a code node runs
+   * user-authored code and can be reached from a public dashboard, so it must
+   * receive the keys it declared and nothing else.
+   */
+  async getByKeys(keys: string[]): Promise<Record<string, string>> {
+    if (keys.length === 0) return {};
+
+    const { rows } = await pool.query("SELECT key, value FROM secrets WHERE key = ANY($1)", [keys]);
     const result: Record<string, string> = {};
     for (const row of rows) {
       result[row.key] = row.value;

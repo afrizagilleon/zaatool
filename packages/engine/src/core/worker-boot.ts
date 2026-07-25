@@ -2,11 +2,9 @@ import { workerData, parentPort } from "worker_threads";
 import { createRequire } from "module";
 
 const require = createRequire(import.meta.url);
-const { code, inputs, secrets, inputsSchema } = workerData;
-
-if (secrets) {
-  Object.assign(process.env, secrets);
-}
+// Secrets arrive through the worker's `env` option (see js-runner), not through
+// workerData — the worker's process.env is already scoped to this node.
+const { code, inputs, inputsSchema } = workerData;
 
 // catch console.log from user's code → send as event log
 const originalLog = console.log;

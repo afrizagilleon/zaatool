@@ -1,4 +1,5 @@
 import { spawn } from "child_process";
+import { buildSandboxEnv } from "./sandbox-env.js";
 
 export function runPythonNode(
   code: string,
@@ -132,10 +133,7 @@ print(json.dumps(result, cls=CustomEncoder))
 
     const pythonCmd = process.platform === "win32" ? "python" : "python3";
     const proc = spawn(pythonCmd, ["-c", wrapper], {
-      env: {
-        ...process.env,
-        ...secrets,
-      },
+      env: { PYTHONIOENCODING: "utf-8", ...buildSandboxEnv(secrets) },
     });
 
     // send inputs via stdin
