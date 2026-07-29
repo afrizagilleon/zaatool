@@ -8,6 +8,7 @@ import { AiPanel } from './components/panels/AiPanel.js';
 import { RunConsole } from './components/panels/RunConsole.js';
 import { ResourcesPage } from './components/pages/ResourcesPage.js';
 import { WorkflowsPage } from './components/pages/WorkflowsPage.js';
+import { NotebooksPage } from './components/pages/NotebooksPage.js';
 import { Login } from './components/pages/Login.js';
 import { PublishedDashboard } from './components/pages/PublishedDashboard.js';
 import { DashboardBuilder } from './components/layout/DashboardBuilder.js';
@@ -78,6 +79,7 @@ function App() {
           </ReactFlowProvider>
         )}
 
+        {activeTab === 'notebooks' && <NotebooksPage />}
         {activeTab === 'resources' && <ResourcesPage />}
         {activeTab === 'workflows' && <WorkflowsPage />}
         {activeTab === 'deploys' && <DashboardBuilder />}

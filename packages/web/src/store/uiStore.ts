@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
 interface UiState {
-  activeTab: 'editor' | 'resources' | 'deploys' | 'workflows';
+  activeTab: 'editor' | 'notebooks' | 'resources' | 'deploys' | 'workflows';
   isDarkMode: boolean;
   isNodePaletteOpen: boolean;
   isCodePanelOpen: boolean;

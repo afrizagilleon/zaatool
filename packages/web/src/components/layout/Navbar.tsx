@@ -21,6 +21,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 const navTabs = [
   { id: 'workflows' as const, label: 'Workflows', disabled: false },
   { id: 'editor' as const, label: 'Editor', disabled: false },
+  { id: 'notebooks' as const, label: 'Notebooks', disabled: false },
   { id: 'resources' as const, label: 'Resources', disabled: false },
   { id: 'deploys' as const, label: 'Dashboard', disabled: false },
 ] as const;
@@ -112,9 +113,9 @@ export function Navbar() {
       <Tabs
         value={activeTab}
         onValueChange={(val: string) => setActiveTab(val as any)}
-        className="w-[380px]"
+        className="w-[460px]"
       >
-        <TabsList className="grid w-full grid-cols-4 h-7 p-0.5">
+        <TabsList className="grid w-full grid-cols-5 h-7 p-0.5">
           {navTabs.map((tab) => (
             <TabsTrigger key={tab.id} value={tab.id} className="text-xs h-6" disabled={tab.disabled}>
               {tab.label}
