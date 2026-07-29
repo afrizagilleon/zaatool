@@ -20,8 +20,15 @@ interface RunChannel {
   expiresAt: number | null;
 }
 
+const TERMINAL_EVENTS = new Set<RunEvent["type"]>([
+  "flow:done",
+  "flow:error",
+  "run:done",
+  "run:error",
+]);
+
 function isTerminal(event: RunEvent): boolean {
-  return event.type === "flow:done" || event.type === "flow:error";
+  return TERMINAL_EVENTS.has(event.type);
 }
 
 /**

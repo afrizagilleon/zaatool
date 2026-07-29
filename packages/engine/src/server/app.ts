@@ -10,6 +10,7 @@ import { secretsRouter } from "../routes/secrets.route.js";
 import { storageRouter } from "../routes/storage.route.js";
 import { STORAGE_DIR } from "../services/storage.service.js";
 import { flowsRouter } from "../routes/flows.route.js";
+import { createNotebooksRouter } from "../routes/notebooks.route.js";
 import { aiRouter } from "../routes/ai.route.js";
 import { authRouter } from "../routes/auth.route.js";
 import { triggersRouter } from "../routes/triggers.route.js";
@@ -49,6 +50,7 @@ export function createApp(publishRunEvent: RunEventSink) {
   app.use("/api/resources/flows", flowsController.getSummary);
 
   app.use("/api/flows", flowsRouter);
+  app.use("/api/notebooks", createNotebooksRouter(publishRunEvent));
   app.use("/api/triggers", triggersRouter);
   app.use("/api/ai", aiRouter);
 

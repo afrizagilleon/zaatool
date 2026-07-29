@@ -8,13 +8,21 @@
  */
 
 export type RunEventType =
+  // Graph runs (canvas)
   | "node:start"
   | "node:log"
   | "node:done"
   | "node:error"
   | "node:skip"
   | "flow:done"
-  | "flow:error";
+  | "flow:error"
+  // Notebook runs
+  | "cell:start"
+  | "cell:log"
+  | "cell:done"
+  | "cell:error"
+  | "run:done"
+  | "run:error";
 
 /**
  * Every event leaving the engine carries the identity of the run that produced
@@ -23,8 +31,10 @@ export type RunEventType =
 export interface RunEvent {
   type: RunEventType;
   runId: string;
+  /** Id of the document being executed — a flow id for graphs, a notebook id for notebooks. */
   flowId: string;
   nodeId?: string;
+  cellId?: string;
   [key: string]: unknown;
 }
 

@@ -58,6 +58,18 @@ export async function initDb() {
       );
     `);
 
+    // Notebooks
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS notebooks (
+        id VARCHAR(255) PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        runtime VARCHAR(20) NOT NULL DEFAULT 'node',
+        document TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
     // Users table
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (

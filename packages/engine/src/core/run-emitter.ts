@@ -13,6 +13,12 @@ const RUN_EVENT_TYPES: readonly RunEventType[] = [
   "node:skip",
   "flow:done",
   "flow:error",
+  "cell:start",
+  "cell:log",
+  "cell:done",
+  "cell:error",
+  "run:done",
+  "run:error",
 ];
 
 export interface RunIdentity {
