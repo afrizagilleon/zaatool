@@ -36,6 +36,33 @@ export interface NotebookPlan {
   steps: PlanStep[];
 }
 
+/**
+ * Narrows a plan to a single cell, for "run just this one" from the editor.
+ *
+ * The scope that cell depends on is supplied by the caller as run input, which
+ * works because values crossing a cell boundary are JSON by design — the
+ * notebook's state is serialisable, so it can be rehydrated per request instead
+ * of requiring a live kernel.
+ */
+export function selectPlanCell(plan: NotebookPlan, cellId: string): NotebookPlan | null {
+  const find = (steps: PlanStep[]): PlanCell | null => {
+    for (const step of steps) {
+      if (step.kind === "code") {
+        if (step.cellId === cellId) return step;
+        continue;
+      }
+      for (const lane of step.lanes) {
+        const found = find(lane.steps);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  const cell = find(plan.steps);
+  return cell ? { ...plan, steps: [cell] } : null;
+}
+
 export class NotebookCompileError extends Error {
   constructor(readonly issues: string[]) {
     super(`Notebook is not runnable:\n- ${issues.join("\n- ")}`);
@@ -86,14 +113,10 @@ export function compileNotebook(notebook: NotebookJson): NotebookPlan {
         continue;
       }
 
-      if (step.kind === "markdown") {
-        claimId(step.id, `Markdown cell in ${where}`);
-        continue;
-      }
-
-      if (step.kind === "code") {
-        claimId(step.id, `Code cell in ${where}`);
-        const source = typeof step.source === "string" ? step.source : "";
+      if (step.kind === "cell") {
+        claimId(step.id, `Cell in ${where}`);
+        // A cell with only a note carries intent, not computation.
+        const source = typeof step.code === "string" ? step.code : "";
         if (source.trim().length === 0) continue;
 
         plan.push({

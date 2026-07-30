@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useNotebookStore } from '../store/notebookStore.js';
 import { notebooksApi } from '../lib/notebooks-api.js';
 import { connectRunSocket, subscribeToRun } from '../lib/run-socket.js';
+import { scopeBefore } from '../lib/notebook-scope-replay.js';
 
 /**
  * Saves the notebook, starts a run, and streams its result back into the store.
@@ -41,7 +42,8 @@ export function useNotebookRun() {
     }
   }, []);
 
-  const runAll = useCallback(async () => {
+  /** Runs the whole notebook, or just `cellId` seeded with the scope above it. */
+  const run = useCallback(async (cellId?: string) => {
     const store = useNotebookStore.getState();
     if (store.isRunning || startingRef.current) return;
     startingRef.current = true;
@@ -125,9 +127,15 @@ export function useNotebookRun() {
 
     ws.onopen = async () => {
       try {
-        const { runId } = await notebooksApi.run(notebookId);
+        const current = useNotebookStore.getState();
+        const { runId } = await notebooksApi.run(notebookId, {
+          cellId,
+          // Running one cell replays the scope the cells above produced, so no
+          // live kernel is needed to pick up mid-notebook.
+          input: cellId ? scopeBefore(current.steps, current.cellRuns, cellId) : undefined,
+        });
         runIdRef.current = runId;
-        useNotebookStore.getState().startRun(runId);
+        useNotebookStore.getState().startRun(runId, cellId);
         // Events emitted before this point are replayed by the engine.
         subscribeToRun(ws, runId);
       } catch (err) {
@@ -138,5 +146,7 @@ export function useNotebookRun() {
     };
   }, [closeSocket, save]);
 
-  return { runAll, save };
+  const runAll = useCallback(() => run(), [run]);
+
+  return { run, runAll, save };
 }

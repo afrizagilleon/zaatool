@@ -21,8 +21,6 @@ export function computeStaleCells(
     let carried = inheritedStale;
 
     for (const step of list) {
-      if (step.kind === 'markdown') continue;
-
       if (step.kind === 'parallel') {
         // Lanes are independent of one another, so a stale lane does not taint
         // its siblings — but it does taint everything after the group.
@@ -34,9 +32,13 @@ export function computeStaleCells(
         continue;
       }
 
+      // A note-only cell computes nothing, so it can never go stale.
+      const code = step.code?.trim() ?? '';
+      if (code.length === 0) continue;
+
       const run = cellRuns[step.id];
       const neverRan = !run || run.ranSource === undefined;
-      const edited = !neverRan && run.ranSource !== step.source;
+      const edited = !neverRan && run.ranSource !== step.code;
       const isStale = carried || edited;
 
       stale[step.id] = isStale;

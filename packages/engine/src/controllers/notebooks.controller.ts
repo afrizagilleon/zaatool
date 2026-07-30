@@ -3,12 +3,13 @@ import { notebooksService } from "../services/notebooks.service.js";
 import {
   notebookExecutionService,
   NotebookNotFoundError,
+  CellNotFoundError,
 } from "../services/notebook-execution.service.js";
 import { NotebookCompileError } from "../core/notebook-compiler.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 
 function respondWithError(res: Response, err: unknown) {
-  if (err instanceof NotebookNotFoundError) {
+  if (err instanceof NotebookNotFoundError || err instanceof CellNotFoundError) {
     return res.status(404).json({ error: err.message });
   }
   if (err instanceof NotebookCompileError) {
@@ -62,7 +63,7 @@ export class NotebooksController {
       const { runId } = await notebookExecutionService.start(
         String(req.params.id),
         this.publishRunEvent,
-        req.body?.input
+        { input: req.body?.input, cellId: req.body?.cellId }
       );
       res.status(200).json({ status: "started", runId });
     } catch (err: unknown) {

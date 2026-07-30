@@ -29,9 +29,13 @@ export const notebooksApi = {
   delete: (id: string): Promise<{ success: boolean }> =>
     request(`/api/notebooks/${id}`, { method: "DELETE" }),
 
-  run: (id: string, input?: Record<string, unknown>): Promise<RunStartedResponse> =>
+  /** Omit `cellId` to run the whole notebook; supply it with the scope that cell needs as `input`. */
+  run: (
+    id: string,
+    options: { input?: Record<string, unknown>; cellId?: string } = {}
+  ): Promise<RunStartedResponse> =>
     request(`/api/notebooks/${id}/run`, {
       method: "POST",
-      body: JSON.stringify({ input }),
+      body: JSON.stringify(options),
     }),
 };

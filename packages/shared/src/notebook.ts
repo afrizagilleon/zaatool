@@ -14,22 +14,36 @@
 /** One notebook, one language. Values crossing a cell boundary must be JSON. */
 export type NotebookRuntime = "node" | "python";
 
-export interface MarkdownCell {
-  id: string;
-  kind: "markdown";
-  /** Prose. Also the intent an AI assistant reads when generating the next cell. */
-  source: string;
+/**
+ * One unit of work: the note explaining it, the code implementing it, and (at
+ * run time, never in the document) that code's output.
+ *
+ * Both parts are optional, which covers what used to need two cell kinds: a
+ * note alone is a heading or explanation, code alone is a plain step, and
+ * together they keep intent and implementation from drifting apart. The note is
+ * also the spec an AI assistant reads when writing or revising this cell's code.
+ */
+/** Which parts of a cell are folded away. */
+export interface CellFolding {
+  note?: boolean;
+  code?: boolean;
+  output?: boolean;
 }
 
-export interface CodeCell {
+export interface NotebookCell {
   id: string;
-  kind: "code";
-  /** Cell body. Whatever it returns is merged into the notebook scope by name. */
-  source: string;
+  kind: "cell";
+  note?: string;
+  /** Whatever the code returns is merged into the notebook scope by name. */
+  code?: string;
   timeoutMs?: number;
+  /**
+   * Authoring state, persisted deliberately: how a long notebook is folded is
+   * part of how its author arranged it, the same way a canvas stored viewport.
+   * This is not a result — the rule that outputs never enter the document holds.
+   */
+  collapsed?: CellFolding;
 }
-
-export type NotebookCell = MarkdownCell | CodeCell;
 
 export interface NotebookLane {
   id: string;
