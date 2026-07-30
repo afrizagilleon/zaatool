@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo } from 'react';
-import { Plus, StackSimple } from '@phosphor-icons/react';
+import { Plus, StackSimple, ClockCounterClockwise } from '@phosphor-icons/react';
 import type { NotebookStep } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { useUiStore } from '../../store/uiStore';
@@ -11,6 +11,7 @@ import { NotebookToolbar } from './NotebookToolbar';
 import { NotebookCell } from './NotebookCell';
 import { ParallelGroup } from './ParallelGroup';
 import { RunHistory } from './RunHistory';
+import { RunErrorBanner } from './RunErrorBanner';
 import { notebooksApi } from '../../lib/notebooks-api';
 
 interface NotebookEditorProps {
@@ -29,6 +30,9 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
   const isSaving = useNotebookStore((s) => s.isSaving);
   const isRunning = useNotebookStore((s) => s.isRunning);
   const runError = useNotebookStore((s) => s.runError);
+  const runErrorCellId = useNotebookStore((s) => s.runErrorCellId);
+  const latestRunId = useNotebookStore((s) => s.latestRunId);
+  const viewedRunStartedAt = useNotebookStore((s) => s.viewedRunStartedAt);
 
   const setName = useNotebookStore((s) => s.setName);
   const setRuntime = useNotebookStore((s) => s.setRuntime);
@@ -53,6 +57,18 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
 
   const { run, runAll, save } = useNotebookRun();
 
+  /**
+   * Scrolls to a step and flashes it. A cell in a lane that is not the visible one
+   * has no element to scroll to, so this does nothing rather than guessing.
+   */
+  const jumpToStep = useCallback((stepId: string) => {
+    const element = document.getElementById(`step-${stepId}`);
+    if (!element) return;
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    element.classList.add('ring-2', 'ring-primary');
+    window.setTimeout(() => element.classList.remove('ring-2', 'ring-primary'), 1200);
+  }, []);
+
   const openRun = useCallback(
     async (id: string) => {
       const detail = await notebooksApi.getRun(notebookId, id).catch(() => null);
@@ -60,6 +76,11 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
     },
     [notebookId, restoreRun]
   );
+
+  const backToLatest = useCallback(async () => {
+    const detail = await notebooksApi.getRun(notebookId, 'latest').catch(() => null);
+    if (detail) restoreRun(detail, true);
+  }, [notebookId, restoreRun]);
 
   // Ctrl/Cmd+S saves from anywhere in the editor, not only from inside a cell.
   useEffect(() => {
@@ -159,6 +180,9 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
     ]
   );
 
+  const isViewingOlderRun =
+    runId !== null && latestRunId !== null && runId !== latestRunId && viewedRunStartedAt !== null;
+
   const staleCount = useMemo(
     () => Object.entries(staleCells).filter(([cellId, isStale]) => isStale && cellRuns[cellId]?.ranSource !== undefined).length,
     [staleCells, cellRuns]
@@ -193,10 +217,33 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
         onBack={onBack}
       />
 
-      {runError && (
-        <div className="px-4 py-2 text-xs text-status-error border-b border-status-error/40 bg-status-error/5 shrink-0">
-          {runError}
+      {/* Without this, output from a run three days ago would sit on screen with
+          nothing to say so — which undoes the point of the freshness indicator. */}
+      {isViewingOlderRun && (
+        <div className="flex items-center gap-2 px-4 py-1.5 text-[11px] border-b border-amber-500/40 bg-amber-500/5 shrink-0">
+          <ClockCounterClockwise size={12} className="text-amber-500 shrink-0" />
+          <span className="text-amber-500">
+            Showing a run from {new Date(viewedRunStartedAt!).toLocaleString()} — not the most recent
+          </span>
+          <div className="flex-1" />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-5 px-2 text-[10px] font-semibold text-amber-500 hover:text-amber-400"
+            onClick={() => void backToLatest()}
+          >
+            Back to latest
+          </Button>
         </div>
+      )}
+
+      {runError && (
+        <RunErrorBanner
+          error={runError}
+          cellId={runErrorCellId}
+          label={runErrorCellId ? tree.stepLabel(steps, runErrorCellId) : null}
+          onJumpTo={jumpToStep}
+        />
       )}
 
       <div className="flex-1 overflow-auto p-4">

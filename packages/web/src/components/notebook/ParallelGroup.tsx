@@ -49,7 +49,7 @@ export function ParallelGroup({
   };
 
   return (
-    <div className="border border-border bg-muted/20">
+    <div id={`step-${group.id}`} className="border border-border bg-muted/20">
       <div className="flex items-center gap-2 px-2 h-8 border-b border-border bg-muted/40">
         <StackSimple size={13} className="text-muted-foreground shrink-0" />
         <span className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground shrink-0">

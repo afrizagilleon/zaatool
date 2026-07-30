@@ -106,7 +106,10 @@ export function useNotebookRun() {
             break;
           case 'run:error':
             startingRef.current = false;
-            state.finishRun(String(data.error ?? 'Run failed'));
+            state.finishRun(
+              String(data.error ?? 'Run failed'),
+              typeof data.cellId === 'string' ? data.cellId : undefined
+            );
             closeSocket();
             break;
         }

@@ -16,10 +16,16 @@ export interface CellRunState {
   error?: string;
   ms?: number;
   /**
-   * The cell's code at the moment it last ran successfully. Comparing it with
-   * the current code is what makes staleness computable rather than guessed.
+   * The cell's code at the moment it last ran *successfully*. Comparing it with the
+   * current code is what makes staleness computable rather than guessed. Unset for a
+   * failure, so a failed result is never treated as current.
    */
   ranSource?: string;
+  /**
+   * The code that ran, whether it succeeded or not — kept for display so a past
+   * failure can show which version produced it. Never used for freshness.
+   */
+  recordedSource?: string;
 }
 
 /** The three parts of a cell that can be folded away independently. */
@@ -37,6 +43,8 @@ export interface NotebookState {
   isRunning: boolean;
   runId: string | null;
   runError: string | null;
+  /** The cell (or parallel group) the run failed in, so the error can link to it. */
+  runErrorCellId: string | null;
   cellRuns: Record<string, CellRunState>;
 
   createNotebook: (runtime: NotebookRuntime) => void;
@@ -63,8 +71,17 @@ export interface NotebookState {
   toggleSection: (cellId: string, section: CellSection) => void;
   setAllSections: (section: CellSection, isCollapsed: boolean) => void;
 
-  /** Rehydrates results from a recorded run, so opening a notebook is not blank. */
-  restoreRun: (run: import('@zaa-tool/shared').NotebookRunDetail) => void;
+  /** Id of the newest run known, so the editor can tell it is showing an older one. */
+  latestRunId: string | null;
+  /** When the currently shown run started, for the "viewing an older run" notice. */
+  viewedRunStartedAt: string | null;
+
+  /**
+   * Rehydrates results from a recorded run, so opening a notebook is not blank.
+   * `asLatest` marks this run as the newest known — true when restoring on open,
+   * false when the reader picked an older run out of the history.
+   */
+  restoreRun: (run: import('@zaa-tool/shared').NotebookRunDetail, asLatest?: boolean) => void;
 
   setSaving: (isSaving: boolean) => void;
   markSaved: (id: string) => void;
@@ -75,5 +92,5 @@ export interface NotebookState {
   appendCellLog: (cellId: string, log: CellLog) => void;
   markCellDone: (cellId: string, output: Record<string, unknown>, written: string[], ms: number) => void;
   markCellError: (cellId: string, error: string, ms: number) => void;
-  finishRun: (error?: string) => void;
+  finishRun: (error?: string, cellId?: string) => void;
 }

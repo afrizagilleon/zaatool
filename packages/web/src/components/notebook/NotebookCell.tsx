@@ -118,6 +118,11 @@ export function NotebookCell({
 
   const [isEditingNote, setIsEditingNote] = useState(false);
   const [showNote, setShowNote] = useState(hasNote);
+  const [showRecordedSource, setShowRecordedSource] = useState(false);
+
+  // Only worth offering when the code has actually moved on from what ran.
+  const canRevealSource =
+    run?.recordedSource !== undefined && run.recordedSource !== code;
 
   const isRunning = run?.status === 'running';
   const hasOutput =
@@ -130,6 +135,7 @@ export function NotebookCell({
 
   return (
     <div
+      id={`step-${cell.id}`}
       className={cn(
         'group border border-border bg-card',
         run?.status === 'error' && 'border-status-error/50',
@@ -140,8 +146,22 @@ export function NotebookCell({
         <CellStatusDot run={run} isStale={isStale} />
         <span className="text-[10px] font-mono text-muted-foreground/70 select-none">{index + 1}</span>
 
-        {isStale && run?.ranSource !== undefined && (
-          <span className="text-[9px] font-semibold uppercase tracking-wider text-amber-500">stale</span>
+        {/* The recorded source is the answer to "which code produced this?", so where
+            it differs the badge becomes the way to see it rather than a dead label. */}
+        {canRevealSource ? (
+          <button
+            type="button"
+            onClick={() => setShowRecordedSource((shown) => !shown)}
+            className="text-[9px] font-semibold uppercase tracking-wider text-amber-500 underline decoration-dotted hover:decoration-solid"
+            title="This output came from different code — click to see it"
+          >
+            {showRecordedSource ? 'hide code that ran' : 'code changed'}
+          </button>
+        ) : (
+          isStale &&
+          run?.ranSource !== undefined && (
+            <span className="text-[9px] font-semibold uppercase tracking-wider text-amber-500">stale</span>
+          )
         )}
 
         <div className="flex-1" />
@@ -231,16 +251,32 @@ export function NotebookCell({
         isLast={!hasOutput}
         onToggle={() => onToggleSection('code')}
       >
-        <CellEditor
-          value={code}
-          language={runtime === 'python' ? 'python' : 'javascript'}
-          isDarkMode={isDarkMode}
-          placeholder="return { name: value };   //  read earlier cells with inputs.name"
-          onChange={onCodeChange}
-          onRun={onRun}
-          onRunAndAdvance={onRunAndAdvance}
-          onSave={onSave}
-        />
+        <>
+          <CellEditor
+            value={code}
+            language={runtime === 'python' ? 'python' : 'javascript'}
+            isDarkMode={isDarkMode}
+            placeholder="return { name: value };   //  read earlier cells with inputs.name"
+            onChange={onCodeChange}
+            onRun={onRun}
+            onRunAndAdvance={onRunAndAdvance}
+            onSave={onSave}
+          />
+
+          {canRevealSource && showRecordedSource && (
+            <div className="border-t border-amber-500/40 bg-amber-500/5">
+              <div className="px-2 py-1 text-[9px] font-semibold uppercase tracking-widest text-amber-500">
+                Code that produced the output below · read-only
+              </div>
+              <CellEditor
+                value={run!.recordedSource!}
+                language={runtime === 'python' ? 'python' : 'javascript'}
+                isDarkMode={isDarkMode}
+                readOnly
+              />
+            </div>
+          )}
+        </>
       </Section>
 
       {hasOutput && (

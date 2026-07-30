@@ -17,9 +17,12 @@ export interface CellLogEntry {
 
 export interface RecordedCellResult {
   /**
-   * The code that actually ran. Stored so a restored run can be compared with the
-   * cell's current code — without it, reopening a notebook would show outputs with
-   * no way to tell whether they still match.
+   * The code that actually ran, recorded for successes *and* failures.
+   *
+   * Two jobs: comparing it with the cell's current code is what makes freshness
+   * computable, and showing it answers the first question about any past failure —
+   * which version of the code produced it. Freshness only trusts it when there is
+   * no `error`; display does not care.
    */
   source?: string;
   output?: Record<string, unknown>;

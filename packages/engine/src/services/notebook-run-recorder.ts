@@ -65,9 +65,14 @@ export class NotebookRunRecorder {
 
       case "cell:error":
         if (cellId) {
-          // No source is recorded for a failed cell: there is no trustworthy result
-          // to compare against later.
-          this.write(cellId, { error: String(event.error ?? "Unknown error"), ms: Number(event.ms ?? 0) });
+          // The source is kept even though the result cannot be trusted: "which code
+          // produced this error" is the first thing anyone asks of a past failure.
+          // Freshness ignores it because the result carries an error.
+          this.write(cellId, {
+            source: this.sources[cellId],
+            error: String(event.error ?? "Unknown error"),
+            ms: Number(event.ms ?? 0),
+          });
         }
         break;
 

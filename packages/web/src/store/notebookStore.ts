@@ -22,7 +22,10 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   isRunning: false,
   runId: null,
   runError: null,
+  runErrorCellId: null,
   cellRuns: {},
+  latestRunId: null,
+  viewedRunStartedAt: null,
 
   createNotebook: (runtime) => {
     const firstCell = tree.newCell();
@@ -36,7 +39,10 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
       isRunning: false,
       runId: null,
       runError: null,
+      runErrorCellId: null,
       cellRuns: {},
+      latestRunId: null,
+      viewedRunStartedAt: null,
     });
   },
 
@@ -51,6 +57,9 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
       isRunning: false,
       runId: null,
       runError: null,
+      runErrorCellId: null,
+      latestRunId: null,
+      viewedRunStartedAt: null,
       // Outputs are never part of the document — a freshly opened notebook has
       // no results until it runs.
       cellRuns: {},
@@ -148,7 +157,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
    * `ranSource` — so a restored run is checked against the notebook's current code
    * and shows up amber where it no longer matches, rather than looking trustworthy.
    */
-  restoreRun: (run) => {
+  restoreRun: (run, asLatest = false) => {
     const cellRuns: Record<string, CellRunState> = {};
 
     for (const [cellId, result] of Object.entries(run.cell_results ?? {})) {
@@ -159,11 +168,25 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
         written: result.written,
         error: result.error,
         ms: result.ms,
+        // A failure keeps the code it ran for display, but never for freshness.
         ranSource: result.error ? undefined : result.source,
+        recordedSource: result.source,
       };
     }
 
-    set({ cellRuns, runId: run.id, isRunning: false, runError: run.error ?? null });
+    // A recorded run keeps the failing cell's error on that cell, so the banner
+    // links to it by finding the one that errored.
+    const failedCellId = Object.entries(run.cell_results ?? {}).find(([, r]) => r.error)?.[0];
+
+    set({
+      cellRuns,
+      runId: run.id,
+      ...(asLatest ? { latestRunId: run.id } : {}),
+      viewedRunStartedAt: run.started_at,
+      isRunning: false,
+      runError: run.error ?? null,
+      runErrorCellId: failedCellId ?? null,
+    });
   },
 
   setSaving: (isSaving) => set({ isSaving }),
@@ -171,18 +194,34 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
 
   startRun: (runId, onlyCellId) => {
     // Clear results this run will replace, so nothing on screen can be mistaken
-    // for output of the run in progress. A single-cell run touches only its own.
+    // for output of the run in progress.
     const cleared = Object.fromEntries(
       Object.entries(get().cellRuns)
         .filter(([cellId]) => !onlyCellId || cellId === onlyCellId)
         .map(([cellId, run]) => [cellId, { ...emptyRun(), ranSource: run.ranSource }])
     );
 
+    let cellRuns = onlyCellId ? { ...get().cellRuns, ...cleared } : cleared;
+
+    if (onlyCellId) {
+      // Re-running one cell changes what everything downstream was computed from,
+      // so those results can no longer be called current. Dropping their ranSource
+      // is what turns them amber until they are re-run.
+      for (const downstreamId of tree.cellsAfter(get().steps, onlyCellId)) {
+        const run = cellRuns[downstreamId];
+        if (run) cellRuns[downstreamId] = { ...run, ranSource: undefined };
+      }
+    }
+
+    // A run just started is by definition the newest one.
     set({
       runId,
+      latestRunId: runId,
+      viewedRunStartedAt: null,
       isRunning: true,
       runError: null,
-      cellRuns: onlyCellId ? { ...get().cellRuns, ...cleared } : cleared,
+      runErrorCellId: null,
+      cellRuns,
     });
   },
 
@@ -208,21 +247,34 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
     set({
       cellRuns: {
         ...get().cellRuns,
-        [cellId]: { ...current, status: 'done', output, written, ms, error: undefined, ranSource: source },
+        [cellId]: {
+          ...current,
+          status: 'done',
+          output,
+          written,
+          ms,
+          error: undefined,
+          ranSource: source,
+          recordedSource: source,
+        },
       },
     });
   },
 
   markCellError: (cellId, error, ms) => {
     const current = get().cellRuns[cellId] ?? emptyRun();
+    // Running saves first, so the code on screen is the code that just failed.
+    const recordedSource = tree.findCell(get().steps, cellId)?.code;
     set({
       cellRuns: {
         ...get().cellRuns,
-        // A failed cell has no trustworthy result, so it keeps no ranSource.
-        [cellId]: { ...current, status: 'error', error, ms, ranSource: undefined },
+        // A failed cell has no trustworthy result, so it keeps no ranSource — but the
+        // code it ran is kept so the failure can be traced later.
+        [cellId]: { ...current, status: 'error', error, ms, ranSource: undefined, recordedSource },
       },
     });
   },
 
-  finishRun: (error) => set({ isRunning: false, runError: error ?? null }),
+  finishRun: (error, cellId) =>
+    set({ isRunning: false, runError: error ?? null, runErrorCellId: cellId ?? null }),
 }));

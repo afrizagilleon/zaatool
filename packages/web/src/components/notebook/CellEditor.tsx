@@ -15,10 +15,12 @@ interface CellEditorProps {
   isDarkMode: boolean;
   placeholder?: string;
   autoFocus?: boolean;
-  onChange: (value: string) => void;
-  onRun: () => void;
-  onRunAndAdvance: () => void;
-  onSave: () => void;
+  /** Used to show the code a past run executed — nothing about it is editable. */
+  readOnly?: boolean;
+  onChange?: (value: string) => void;
+  onRun?: () => void;
+  onRunAndAdvance?: () => void;
+  onSave?: () => void;
   onBlur?: () => void;
 }
 
@@ -40,6 +42,7 @@ export function CellEditor({
   isDarkMode,
   placeholder,
   autoFocus,
+  readOnly,
   onChange,
   onRun,
   onRunAndAdvance,
@@ -50,19 +53,21 @@ export function CellEditor({
     const languageExtension =
       language === 'python' ? python() : language === 'markdown' ? markdown() : javascript();
 
+    const base = [languageExtension, EditorView.lineWrapping];
+    if (readOnly) return base;
+
     return [
-      languageExtension,
-      EditorView.lineWrapping,
+      ...base,
       // Highest precedence so cell shortcuts win over CodeMirror's defaults.
       Prec.highest(
         keymap.of([
-          { key: 'Mod-Enter', preventDefault: true, run: () => (onRun(), true) },
-          { key: 'Shift-Enter', preventDefault: true, run: () => (onRunAndAdvance(), true) },
-          { key: 'Mod-s', preventDefault: true, run: () => (onSave(), true) },
+          { key: 'Mod-Enter', preventDefault: true, run: () => (onRun?.(), true) },
+          { key: 'Shift-Enter', preventDefault: true, run: () => (onRunAndAdvance?.(), true) },
+          { key: 'Mod-s', preventDefault: true, run: () => (onSave?.(), true) },
         ])
       ),
     ];
-  }, [language, onRun, onRunAndAdvance, onSave]);
+  }, [language, readOnly, onRun, onRunAndAdvance, onSave]);
 
   return (
     <CodeMirror
@@ -70,6 +75,8 @@ export function CellEditor({
       onChange={onChange}
       onBlur={onBlur}
       autoFocus={autoFocus}
+      editable={!readOnly}
+      readOnly={readOnly}
       theme={isDarkMode ? oneDark : 'light'}
       extensions={extensions}
       placeholder={placeholder}

@@ -22,7 +22,7 @@ export function NotebooksPage() {
       // Results come from the last recorded run, never from the document. A
       // notebook that has never run simply opens without output.
       const latest = await notebooksApi.getRun(id, 'latest').catch(() => null);
-      if (latest) restoreRun(latest);
+      if (latest) restoreRun(latest, true);
     } catch (err) {
       setError((err as Error).message);
     }
