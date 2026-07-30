@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { Plus, Code, TextT, StackSimple } from '@phosphor-icons/react';
+import { useCallback, useEffect, useMemo } from 'react';
+import { Plus, StackSimple } from '@phosphor-icons/react';
 import { Button } from '../ui/button';
 import { useUiStore } from '../../store/uiStore';
 import { useNotebookStore } from '../../store/notebookStore';
@@ -29,13 +29,47 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
   const setRuntime = useNotebookStore((s) => s.setRuntime);
   const setSecrets = useNotebookStore((s) => s.setSecrets);
   const addCell = useNotebookStore((s) => s.addCell);
-  const updateCellSource = useNotebookStore((s) => s.updateCellSource);
+  const updateCellNote = useNotebookStore((s) => s.updateCellNote);
+  const updateCellCode = useNotebookStore((s) => s.updateCellCode);
   const removeCell = useNotebookStore((s) => s.removeCell);
   const moveCell = useNotebookStore((s) => s.moveCell);
+  const toggleSection = useNotebookStore((s) => s.toggleSection);
+  const setAllSections = useNotebookStore((s) => s.setAllSections);
 
-  const { runAll, save } = useNotebookRun();
+  const { run, runAll, save } = useNotebookRun();
+
+  // Ctrl/Cmd+S saves from anywhere in the editor, not only from inside a cell.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        void save();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [save]);
+
+  const runAndAdvance = useCallback(
+    (cellId: string) => {
+      void run(cellId);
+      const currentSteps = useNotebookStore.getState().steps;
+      const at = currentSteps.findIndex((step) => step.id === cellId);
+      if (at >= 0 && at === currentSteps.length - 1) addCell(cellId);
+    },
+    [run, addCell]
+  );
 
   const staleCells = useMemo(() => computeStaleCells(steps, cellRuns), [steps, cellRuns]);
+  // "All collapsed" only counts cells that exist, so an empty notebook shows the
+  // toggles as open rather than as vacuously hidden.
+  const allCollapsed = useMemo(() => {
+    const isEvery = (section: 'note' | 'code' | 'output') =>
+      steps.length > 0 &&
+      steps.every((step) => step.kind === 'cell' && step.collapsed?.[section]);
+    return { note: isEvery('note'), code: isEvery('code'), output: isEvery('output') };
+  }, [steps]);
+
   const staleCount = useMemo(
     () => Object.entries(staleCells).filter(([cellId, isStale]) => isStale && cellRuns[cellId]?.ranSource !== undefined).length,
     [staleCells, cellRuns]
@@ -51,6 +85,8 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
         isSaving={isSaving}
         isRunning={isRunning}
         staleCount={staleCount}
+        allCollapsed={allCollapsed}
+        onToggleAllSections={setAllSections}
         onNameChange={setName}
         onRuntimeChange={setRuntime}
         onSecretsChange={setSecrets}
@@ -89,10 +125,17 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
                 isDarkMode={isDarkMode}
                 run={cellRuns[step.id]}
                 isStale={Boolean(staleCells[step.id])}
-                onChange={(source) => updateCellSource(step.id, source)}
+                isBusy={isRunning}
+                collapsed={step.collapsed ?? {}}
+                onToggleSection={(section) => toggleSection(step.id, section)}
+                onNoteChange={(note) => updateCellNote(step.id, note)}
+                onCodeChange={(code) => updateCellCode(step.id, code)}
                 onRemove={() => removeCell(step.id)}
                 onMove={(direction) => moveCell(step.id, direction)}
-                onAddBelow={(kind) => addCell(kind, step.id)}
+                onAddBelow={() => addCell(step.id)}
+                onRun={() => void run(step.id)}
+                onRunAndAdvance={() => runAndAdvance(step.id)}
+                onSave={() => void save()}
               />
             )
           )}
@@ -102,27 +145,20 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
               variant="ghost"
               size="sm"
               className="h-7 px-2.5 text-[11px] text-muted-foreground"
-              onClick={() => addCell('code')}
+              onClick={() => addCell()}
             >
-              <Plus size={11} className="mr-1" />
-              <Code size={11} className="mr-1.5" />
-              Code cell
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2.5 text-[11px] text-muted-foreground"
-              onClick={() => addCell('markdown')}
-            >
-              <Plus size={11} className="mr-1" />
-              <TextT size={11} className="mr-1.5" />
-              Markdown cell
+              <Plus size={11} className="mr-1.5" />
+              Add cell
             </Button>
           </div>
 
           <p className="text-center text-[10px] text-muted-foreground/50 pt-2">
             Cells share one scope. Publish with <code className="font-mono">return &#123; name: value &#125;</code>,
-            read with <code className="font-mono">inputs.name</code>. Running saves first.
+            read with <code className="font-mono">inputs.name</code>.
+            <br />
+            <span className="font-mono">Ctrl+Enter</span> run cell ·{' '}
+            <span className="font-mono">Shift+Enter</span> run and move on ·{' '}
+            <span className="font-mono">Ctrl+S</span> save. Run all saves first.
           </p>
         </div>
       </div>

@@ -1,9 +1,17 @@
-import { Play, Spinner, FloppyDisk, ArrowLeft, Warning } from '@phosphor-icons/react';
+import { Play, Spinner, FloppyDisk, ArrowLeft, Warning, Eye, EyeSlash } from '@phosphor-icons/react';
 import type { NotebookRuntime } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { NodeSecretsProperties } from '../panels/properties/NodeSecretsProperties';
+import { cn } from '../../lib/utils';
+import type { CellSection } from '../../store/notebookTypes';
+
+const SECTIONS: { id: CellSection; label: string }[] = [
+  { id: 'note', label: 'Notes' },
+  { id: 'code', label: 'Code' },
+  { id: 'output', label: 'Output' },
+];
 
 interface NotebookToolbarProps {
   name: string;
@@ -13,6 +21,9 @@ interface NotebookToolbarProps {
   isSaving: boolean;
   isRunning: boolean;
   staleCount: number;
+  /** Which sections are folded across every cell, for the all-or-nothing toggles. */
+  allCollapsed: Record<CellSection, boolean>;
+  onToggleAllSections: (section: CellSection, isCollapsed: boolean) => void;
   onNameChange: (name: string) => void;
   onRuntimeChange: (runtime: NotebookRuntime) => void;
   onSecretsChange: (secrets: string[]) => void;
@@ -29,6 +40,8 @@ export function NotebookToolbar({
   isSaving,
   isRunning,
   staleCount,
+  allCollapsed,
+  onToggleAllSections,
   onNameChange,
   onRuntimeChange,
   onSecretsChange,
@@ -70,6 +83,30 @@ export function NotebookToolbar({
       )}
 
       <div className="flex-1" />
+
+      {/* Folding every cell at once is what keeps a long notebook readable. */}
+      <div className="flex items-center gap-0.5 mr-1">
+        {SECTIONS.map((section) => (
+          <Button
+            key={section.id}
+            variant="ghost"
+            size="sm"
+            className={cn(
+              'h-6 px-1.5 text-[10px] font-semibold',
+              allCollapsed[section.id] ? 'text-muted-foreground/50' : 'text-muted-foreground'
+            )}
+            title={allCollapsed[section.id] ? `Show all ${section.label}` : `Hide all ${section.label}`}
+            onClick={() => onToggleAllSections(section.id, !allCollapsed[section.id])}
+          >
+            {allCollapsed[section.id] ? (
+              <EyeSlash size={11} className="mr-1" />
+            ) : (
+              <Eye size={11} className="mr-1" />
+            )}
+            {section.label}
+          </Button>
+        ))}
+      </div>
 
       <details className="relative">
         <summary className="list-none cursor-pointer text-[10px] font-semibold uppercase tracking-widest text-muted-foreground hover:text-foreground px-2 py-1 select-none">

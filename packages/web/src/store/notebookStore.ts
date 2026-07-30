@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import type { CodeCell, MarkdownCell, NotebookJson, NotebookStep } from '@zaa-tool/shared';
+import type { NotebookCell, NotebookJson, NotebookStep } from '@zaa-tool/shared';
 import type { CellRunState, NotebookState } from './notebookTypes.js';
 
 const NOTEBOOK_VERSION = '1.0';
@@ -29,7 +29,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   cellRuns: {},
 
   createNotebook: (runtime) => {
-    const firstCell: CodeCell = { id: uuidv4(), kind: 'code', source: '' };
+    const firstCell: NotebookCell = { id: uuidv4(), kind: 'cell', code: '' };
     set({
       id: uuidv4(),
       name: 'Untitled Notebook',
@@ -70,24 +70,31 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   setRuntime: (runtime) => set({ runtime, isDirty: true }),
   setSecrets: (secrets) => set({ secrets, isDirty: true }),
 
-  addCell: (kind, afterCellId) => {
+  addCell: (afterCellId) => {
     const steps = [...get().steps];
-    const cell: CodeCell | MarkdownCell =
-      kind === 'code'
-        ? { id: uuidv4(), kind: 'code', source: '' }
-        : { id: uuidv4(), kind: 'markdown', source: '' };
+    const cell: NotebookCell = { id: uuidv4(), kind: 'cell', code: '' };
 
     const at = afterCellId ? topLevelIndexOf(steps, afterCellId) : -1;
     if (at >= 0) steps.splice(at + 1, 0, cell);
     else steps.push(cell);
 
     set({ steps, isDirty: true });
+    return cell.id;
   },
 
-  updateCellSource: (cellId, source) => {
+  updateCellNote: (cellId, note) => {
     set({
       steps: get().steps.map((step) =>
-        step.id === cellId && step.kind !== 'parallel' ? { ...step, source } : step
+        step.id === cellId && step.kind === 'cell' ? { ...step, note } : step
+      ),
+      isDirty: true,
+    });
+  },
+
+  updateCellCode: (cellId, code) => {
+    set({
+      steps: get().steps.map((step) =>
+        step.id === cellId && step.kind === 'cell' ? { ...step, code } : step
       ),
       isDirty: true,
     });
@@ -96,7 +103,11 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   removeCell: (cellId) => {
     const cellRuns = { ...get().cellRuns };
     delete cellRuns[cellId];
-    set({ steps: get().steps.filter((step) => step.id !== cellId), cellRuns, isDirty: true });
+    set({
+      steps: get().steps.filter((step) => step.id !== cellId),
+      cellRuns,
+      isDirty: true,
+    });
   },
 
   moveCell: (cellId, direction) => {
@@ -108,21 +119,47 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
     set({ steps, isDirty: true });
   },
 
+  // Folding lives on the cell itself, so how a notebook is arranged survives
+  // being closed and reopened.
+  toggleSection: (cellId, section) => {
+    set({
+      steps: get().steps.map((step) =>
+        step.id === cellId && step.kind === 'cell'
+          ? { ...step, collapsed: { ...step.collapsed, [section]: !step.collapsed?.[section] } }
+          : step
+      ),
+      isDirty: true,
+    });
+  },
+
+  setAllSections: (section, isCollapsed) => {
+    set({
+      steps: get().steps.map((step) =>
+        step.kind === 'cell'
+          ? { ...step, collapsed: { ...step.collapsed, [section]: isCollapsed } }
+          : step
+      ),
+      isDirty: true,
+    });
+  },
+
   setSaving: (isSaving) => set({ isSaving }),
   markSaved: (id) => set({ id, isDirty: false, isSaving: false }),
 
-  startRun: (runId) => {
-    // Clear previous results so nothing on screen can be mistaken for this run.
+  startRun: (runId, onlyCellId) => {
+    // Clear results this run will replace, so nothing on screen can be mistaken
+    // for output of the run in progress. A single-cell run touches only its own.
+    const cleared = Object.fromEntries(
+      Object.entries(get().cellRuns)
+        .filter(([cellId]) => !onlyCellId || cellId === onlyCellId)
+        .map(([cellId, run]) => [cellId, { ...emptyRun(), ranSource: run.ranSource }])
+    );
+
     set({
       runId,
       isRunning: true,
       runError: null,
-      cellRuns: Object.fromEntries(
-        Object.entries(get().cellRuns).map(([cellId, run]) => [
-          cellId,
-          { ...emptyRun(), ranSource: run.ranSource },
-        ])
-      ),
+      cellRuns: onlyCellId ? { ...get().cellRuns, ...cleared } : cleared,
     });
   },
 
@@ -142,7 +179,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   markCellDone: (cellId, output, written, ms) => {
     const current = get().cellRuns[cellId] ?? emptyRun();
     const step = get().steps.find((s) => s.id === cellId);
-    const source = step && step.kind !== 'parallel' ? step.source : undefined;
+    const source = step && step.kind === 'cell' ? step.code : undefined;
     set({
       cellRuns: {
         ...get().cellRuns,

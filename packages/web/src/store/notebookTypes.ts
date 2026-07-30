@@ -16,11 +16,14 @@ export interface CellRunState {
   error?: string;
   ms?: number;
   /**
-   * The cell's source at the moment it last ran successfully. Comparing it with
-   * the current source is what makes staleness computable rather than guessed.
+   * The cell's code at the moment it last ran successfully. Comparing it with
+   * the current code is what makes staleness computable rather than guessed.
    */
   ranSource?: string;
 }
+
+/** The three parts of a cell that can be folded away independently. */
+export type CellSection = 'note' | 'code' | 'output';
 
 export interface NotebookState {
   id: string;
@@ -44,15 +47,20 @@ export interface NotebookState {
   setRuntime: (runtime: NotebookRuntime) => void;
   setSecrets: (secrets: string[]) => void;
 
-  addCell: (kind: 'code' | 'markdown', afterCellId?: string) => void;
-  updateCellSource: (cellId: string, source: string) => void;
+  addCell: (afterCellId?: string) => string;
+  updateCellNote: (cellId: string, note: string) => void;
+  updateCellCode: (cellId: string, code: string) => void;
   removeCell: (cellId: string) => void;
   moveCell: (cellId: string, direction: -1 | 1) => void;
+
+  toggleSection: (cellId: string, section: CellSection) => void;
+  setAllSections: (section: CellSection, isCollapsed: boolean) => void;
 
   setSaving: (isSaving: boolean) => void;
   markSaved: (id: string) => void;
 
-  startRun: (runId: string) => void;
+  /** `onlyCellId` limits the reset to that cell, so a single-cell run leaves other results intact. */
+  startRun: (runId: string, onlyCellId?: string) => void;
   markCellRunning: (cellId: string) => void;
   appendCellLog: (cellId: string, log: CellLog) => void;
   markCellDone: (cellId: string, output: Record<string, unknown>, written: string[], ms: number) => void;
