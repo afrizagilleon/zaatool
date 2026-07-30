@@ -1,17 +1,13 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import type { NotebookCell, NotebookJson, NotebookStep } from '@zaa-tool/shared';
+import type { NotebookJson } from '@zaa-tool/shared';
+import * as tree from '../lib/notebook-tree.js';
 import type { CellRunState, NotebookState } from './notebookTypes.js';
 
 const NOTEBOOK_VERSION = '1.0';
 
 function emptyRun(): CellRunState {
   return { status: 'idle', logs: [] };
-}
-
-/** Top-level cells are the editable surface; parallel groups arrive in M3. */
-function topLevelIndexOf(steps: NotebookStep[], cellId: string): number {
-  return steps.findIndex((step) => step.id === cellId);
 }
 
 export const useNotebookStore = create<NotebookState>((set, get) => ({
@@ -29,7 +25,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   cellRuns: {},
 
   createNotebook: (runtime) => {
-    const firstCell: NotebookCell = { id: uuidv4(), kind: 'cell', code: '' };
+    const firstCell = tree.newCell();
     set({
       id: uuidv4(),
       name: 'Untitled Notebook',
@@ -70,75 +66,77 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   setRuntime: (runtime) => set({ runtime, isDirty: true }),
   setSecrets: (secrets) => set({ secrets, isDirty: true }),
 
-  addCell: (afterCellId) => {
-    const steps = [...get().steps];
-    const cell: NotebookCell = { id: uuidv4(), kind: 'cell', code: '' };
+  addCell: (afterStepId) => {
+    const cell = tree.newCell();
+    const steps = get().steps;
+    set({
+      steps: afterStepId ? tree.insertAfter(steps, afterStepId, cell) : [...steps, cell],
+      isDirty: true,
+    });
+    return cell.id;
+  },
 
-    const at = afterCellId ? topLevelIndexOf(steps, afterCellId) : -1;
-    if (at >= 0) steps.splice(at + 1, 0, cell);
-    else steps.push(cell);
-
-    set({ steps, isDirty: true });
+  addCellToLane: (groupId, laneId) => {
+    const cell = tree.newCell();
+    set({ steps: tree.appendToLane(get().steps, groupId, laneId, cell), isDirty: true });
     return cell.id;
   },
 
   updateCellNote: (cellId, note) => {
-    set({
-      steps: get().steps.map((step) =>
-        step.id === cellId && step.kind === 'cell' ? { ...step, note } : step
-      ),
-      isDirty: true,
-    });
+    set({ steps: tree.mapCell(get().steps, cellId, (cell) => ({ ...cell, note })), isDirty: true });
   },
 
   updateCellCode: (cellId, code) => {
-    set({
-      steps: get().steps.map((step) =>
-        step.id === cellId && step.kind === 'cell' ? { ...step, code } : step
-      ),
-      isDirty: true,
-    });
+    set({ steps: tree.mapCell(get().steps, cellId, (cell) => ({ ...cell, code })), isDirty: true });
   },
 
   removeCell: (cellId) => {
     const cellRuns = { ...get().cellRuns };
     delete cellRuns[cellId];
+    set({ steps: tree.removeStep(get().steps, cellId), cellRuns, isDirty: true });
+  },
+
+  moveCell: (cellId, direction) => {
+    set({ steps: tree.moveStep(get().steps, cellId, direction), isDirty: true });
+  },
+
+  addParallelGroup: (afterStepId) => {
+    const group = tree.newParallelGroup();
+    const steps = get().steps;
     set({
-      steps: get().steps.filter((step) => step.id !== cellId),
-      cellRuns,
+      steps: afterStepId ? tree.insertAfter(steps, afterStepId, group) : [...steps, group],
       isDirty: true,
     });
   },
 
-  moveCell: (cellId, direction) => {
-    const steps = [...get().steps];
-    const from = topLevelIndexOf(steps, cellId);
-    const to = from + direction;
-    if (from < 0 || to < 0 || to >= steps.length) return;
-    [steps[from], steps[to]] = [steps[to], steps[from]];
-    set({ steps, isDirty: true });
-  },
+  addLane: (groupId) => set({ steps: tree.addLane(get().steps, groupId), isDirty: true }),
+
+  removeLane: (groupId, laneId) =>
+    set({ steps: tree.removeLane(get().steps, groupId, laneId), isDirty: true }),
+
+  setLaneLabel: (groupId, laneId, label) =>
+    set({ steps: tree.setLaneLabel(get().steps, groupId, laneId, label), isDirty: true }),
+
+  removeGroup: (groupId) => set({ steps: tree.removeStep(get().steps, groupId), isDirty: true }),
 
   // Folding lives on the cell itself, so how a notebook is arranged survives
   // being closed and reopened.
   toggleSection: (cellId, section) => {
     set({
-      steps: get().steps.map((step) =>
-        step.id === cellId && step.kind === 'cell'
-          ? { ...step, collapsed: { ...step.collapsed, [section]: !step.collapsed?.[section] } }
-          : step
-      ),
+      steps: tree.mapCell(get().steps, cellId, (cell) => ({
+        ...cell,
+        collapsed: { ...cell.collapsed, [section]: !cell.collapsed?.[section] },
+      })),
       isDirty: true,
     });
   },
 
   setAllSections: (section, isCollapsed) => {
     set({
-      steps: get().steps.map((step) =>
-        step.kind === 'cell'
-          ? { ...step, collapsed: { ...step.collapsed, [section]: isCollapsed } }
-          : step
-      ),
+      steps: tree.mapAllCells(get().steps, (cell) => ({
+        ...cell,
+        collapsed: { ...cell.collapsed, [section]: isCollapsed },
+      })),
       isDirty: true,
     });
   },
@@ -178,8 +176,10 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
 
   markCellDone: (cellId, output, written, ms) => {
     const current = get().cellRuns[cellId] ?? emptyRun();
-    const step = get().steps.find((s) => s.id === cellId);
-    const source = step && step.kind === 'cell' ? step.code : undefined;
+    // Must search the whole tree: a top-level-only lookup left cells inside lanes
+    // with no ranSource, which staleness reads as "never ran" — so every cell after
+    // a parallel group stayed stale no matter how often it ran.
+    const source = tree.findCell(get().steps, cellId)?.code;
     set({
       cellRuns: {
         ...get().cellRuns,

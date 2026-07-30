@@ -47,11 +47,18 @@ export interface NotebookState {
   setRuntime: (runtime: NotebookRuntime) => void;
   setSecrets: (secrets: string[]) => void;
 
-  addCell: (afterCellId?: string) => string;
+  addCell: (afterStepId?: string) => string;
+  addCellToLane: (groupId: string, laneId: string) => string;
   updateCellNote: (cellId: string, note: string) => void;
   updateCellCode: (cellId: string, code: string) => void;
   removeCell: (cellId: string) => void;
   moveCell: (cellId: string, direction: -1 | 1) => void;
+
+  addParallelGroup: (afterStepId?: string) => void;
+  addLane: (groupId: string) => void;
+  removeLane: (groupId: string, laneId: string) => void;
+  setLaneLabel: (groupId: string, laneId: string, label: string) => void;
+  removeGroup: (groupId: string) => void;
 
   toggleSection: (cellId: string, section: CellSection) => void;
   setAllSections: (section: CellSection, isCollapsed: boolean) => void;

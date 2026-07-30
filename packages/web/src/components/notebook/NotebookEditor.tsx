@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { Plus, StackSimple } from '@phosphor-icons/react';
+import type { NotebookStep } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { useUiStore } from '../../store/uiStore';
 import { useNotebookStore } from '../../store/notebookStore';
 import { useNotebookRun } from '../../hooks/useNotebookRun';
 import { computeStaleCells } from '../../lib/notebook-staleness';
+import * as tree from '../../lib/notebook-tree';
 import { NotebookToolbar } from './NotebookToolbar';
 import { NotebookCell } from './NotebookCell';
+import { ParallelGroup } from './ParallelGroup';
 
 interface NotebookEditorProps {
   onBack: () => void;
@@ -35,6 +38,12 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
   const moveCell = useNotebookStore((s) => s.moveCell);
   const toggleSection = useNotebookStore((s) => s.toggleSection);
   const setAllSections = useNotebookStore((s) => s.setAllSections);
+  const addCellToLane = useNotebookStore((s) => s.addCellToLane);
+  const addParallelGroup = useNotebookStore((s) => s.addParallelGroup);
+  const addLane = useNotebookStore((s) => s.addLane);
+  const removeLane = useNotebookStore((s) => s.removeLane);
+  const setLaneLabel = useNotebookStore((s) => s.setLaneLabel);
+  const removeGroup = useNotebookStore((s) => s.removeGroup);
 
   const { run, runAll, save } = useNotebookRun();
 
@@ -53,22 +62,88 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
   const runAndAdvance = useCallback(
     (cellId: string) => {
       void run(cellId);
+      // At the end of a list, carry on into a fresh cell — including at the end of
+      // a lane, where a top-level-only check would have found nothing.
       const currentSteps = useNotebookStore.getState().steps;
-      const at = currentSteps.findIndex((step) => step.id === cellId);
-      if (at >= 0 && at === currentSteps.length - 1) addCell(cellId);
+      if (tree.isLastInList(currentSteps, cellId)) addCell(cellId);
     },
     [run, addCell]
   );
 
   const staleCells = useMemo(() => computeStaleCells(steps, cellRuns), [steps, cellRuns]);
-  // "All collapsed" only counts cells that exist, so an empty notebook shows the
-  // toggles as open rather than as vacuously hidden.
+  // Counts every cell at every depth: a top-level-only check could never report
+  // "all collapsed" once the notebook contained a parallel group.
   const allCollapsed = useMemo(() => {
+    const cells = tree.allCells(steps);
     const isEvery = (section: 'note' | 'code' | 'output') =>
-      steps.length > 0 &&
-      steps.every((step) => step.kind === 'cell' && step.collapsed?.[section]);
+      cells.length > 0 && cells.every((cell) => cell.collapsed?.[section]);
     return { note: isEvery('note'), code: isEvery('code'), output: isEvery('output') };
   }, [steps]);
+
+  /**
+   * Cells and parallel groups nest, so rendering recurses. Numbering is local to
+   * each list — a cell inside a lane is "2" within that lane, not within the
+   * notebook, because that is the order it actually runs in.
+   */
+  const renderSteps = useCallback(
+    (list: NotebookStep[]): React.ReactNode =>
+      list.map((step, index) =>
+        step.kind === 'parallel' ? (
+          <ParallelGroup
+            key={step.id}
+            group={step}
+            onAddLane={() => addLane(step.id)}
+            onRemoveLane={(laneId) => removeLane(step.id, laneId)}
+            onRenameLane={(laneId, label) => setLaneLabel(step.id, laneId, label)}
+            onRemoveGroup={() => removeGroup(step.id)}
+            onAddCell={(laneId) => addCellToLane(step.id, laneId)}
+            renderLane={(lane) => <div className="space-y-2">{renderSteps(lane.steps)}</div>}
+          />
+        ) : (
+          <NotebookCell
+            key={step.id}
+            cell={step}
+            index={index}
+            runtime={runtime}
+            isDarkMode={isDarkMode}
+            run={cellRuns[step.id]}
+            isStale={Boolean(staleCells[step.id])}
+            isBusy={isRunning}
+            collapsed={step.collapsed ?? {}}
+            onToggleSection={(section) => toggleSection(step.id, section)}
+            onNoteChange={(note) => updateCellNote(step.id, note)}
+            onCodeChange={(code) => updateCellCode(step.id, code)}
+            onRemove={() => removeCell(step.id)}
+            onMove={(direction) => moveCell(step.id, direction)}
+            onAddBelow={() => addCell(step.id)}
+            onRun={() => void run(step.id)}
+            onRunAndAdvance={() => runAndAdvance(step.id)}
+            onSave={() => void save()}
+          />
+        )
+      ),
+    [
+      runtime,
+      isDarkMode,
+      cellRuns,
+      staleCells,
+      isRunning,
+      addCell,
+      addCellToLane,
+      addLane,
+      moveCell,
+      removeCell,
+      removeGroup,
+      removeLane,
+      run,
+      runAndAdvance,
+      save,
+      setLaneLabel,
+      toggleSection,
+      updateCellCode,
+      updateCellNote,
+    ]
+  );
 
   const staleCount = useMemo(
     () => Object.entries(staleCells).filter(([cellId, isStale]) => isStale && cellRuns[cellId]?.ranSource !== undefined).length,
@@ -103,42 +178,7 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
 
       <div className="flex-1 overflow-auto p-4">
         <div className="max-w-4xl mx-auto space-y-2">
-          {steps.map((step, index) =>
-            step.kind === 'parallel' ? (
-              <div key={step.id} className="border border-dashed border-border p-3 bg-muted/20">
-                <div className="flex items-center gap-2 mb-2">
-                  <StackSimple size={13} className="text-muted-foreground" />
-                  <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    Parallel · {step.lanes.length} lanes
-                  </span>
-                </div>
-                <p className="text-[10px] text-muted-foreground/70">
-                  This group runs and is preserved on save, but editing it lands in a later milestone.
-                </p>
-              </div>
-            ) : (
-              <NotebookCell
-                key={step.id}
-                cell={step}
-                index={index}
-                runtime={runtime}
-                isDarkMode={isDarkMode}
-                run={cellRuns[step.id]}
-                isStale={Boolean(staleCells[step.id])}
-                isBusy={isRunning}
-                collapsed={step.collapsed ?? {}}
-                onToggleSection={(section) => toggleSection(step.id, section)}
-                onNoteChange={(note) => updateCellNote(step.id, note)}
-                onCodeChange={(code) => updateCellCode(step.id, code)}
-                onRemove={() => removeCell(step.id)}
-                onMove={(direction) => moveCell(step.id, direction)}
-                onAddBelow={() => addCell(step.id)}
-                onRun={() => void run(step.id)}
-                onRunAndAdvance={() => runAndAdvance(step.id)}
-                onSave={() => void save()}
-              />
-            )
-          )}
+          {renderSteps(steps)}
 
           <div className="flex items-center justify-center gap-2 pt-2">
             <Button
@@ -149,6 +189,15 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
             >
               <Plus size={11} className="mr-1.5" />
               Add cell
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2.5 text-[11px] text-muted-foreground"
+              onClick={() => addParallelGroup()}
+            >
+              <StackSimple size={11} className="mr-1.5" />
+              Add parallel group
             </Button>
           </div>
 
