@@ -78,6 +78,35 @@ export function isLastInList(steps: NotebookStep[], stepId: string): boolean {
   );
 }
 
+/**
+ * Cells that depend on this one: the rest of its own list, then everything after
+ * the group that contains it, recursively outwards.
+ *
+ * Sibling lanes are excluded on purpose — lanes read the scope as it stood at the
+ * fork, so one lane's result cannot affect another's.
+ */
+export function cellsAfter(steps: NotebookStep[], cellId: string): string[] {
+  const search = (list: NotebookStep[]): { found: boolean; after: string[] } => {
+    for (let index = 0; index < list.length; index += 1) {
+      const step = list[index];
+      const rest = () => allCells(list.slice(index + 1)).map((cell) => cell.id);
+
+      if (step.kind === 'cell') {
+        if (step.id === cellId) return { found: true, after: rest() };
+        continue;
+      }
+
+      for (const lane of step.lanes) {
+        const inLane = search(lane.steps);
+        if (inLane.found) return { found: true, after: [...inLane.after, ...rest()] };
+      }
+    }
+    return { found: false, after: [] };
+  };
+
+  return search(steps).after;
+}
+
 export function findCell(steps: NotebookStep[], cellId: string): NotebookCell | null {
   for (const step of steps) {
     if (step.kind === 'cell') {
@@ -227,6 +256,37 @@ export function appendToLane(
       lane.id === laneId ? { ...lane, steps: [...lane.steps, toAppend] } : lane
     ),
   }));
+}
+
+/**
+ * A readable name for a step: "Cell 3", "Lane 2 · Cell 1", "Parallel group".
+ *
+ * Errors reference the id, but nobody can match a uuid to what they see on screen —
+ * this is what the id gets rendered as.
+ */
+export function stepLabel(steps: NotebookStep[], stepId: string): string | null {
+  const search = (list: NotebookStep[], prefix: string): string | null => {
+    let cellNumber = 0;
+
+    for (const step of list) {
+      if (step.kind === 'cell') {
+        cellNumber += 1;
+        if (step.id === stepId) return `${prefix}Cell ${cellNumber}`;
+        continue;
+      }
+
+      if (step.id === stepId) return `${prefix}Parallel group`;
+
+      for (const [index, lane] of step.lanes.entries()) {
+        const laneName = lane.label || `Lane ${index + 1}`;
+        const found = search(lane.steps, `${prefix}${laneName} · `);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  return search(steps, '');
 }
 
 export function findGroup(steps: NotebookStep[], groupId: string): ParallelStep | null {

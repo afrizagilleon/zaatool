@@ -67,6 +67,14 @@ export class NotebooksController {
     }
   };
 
+  clearRuns = async (req: Request, res: Response) => {
+    try {
+      res.json(await notebookRunsService.deleteByNotebook(String(req.params.id)));
+    } catch (err: unknown) {
+      respondWithError(res, err);
+    }
+  };
+
   /** `latest` resolves the most recent run, which is what the editor restores on open. */
   getRun = async (req: Request, res: Response) => {
     try {

@@ -37,6 +37,9 @@ export const notebooksApi = {
 
   listRuns: (id: string): Promise<NotebookRunSummary[]> => request(`/api/notebooks/${id}/runs`),
 
+  clearRuns: (id: string): Promise<{ deleted: number }> =>
+    request(`/api/notebooks/${id}/runs`, { method: 'DELETE' }),
+
   /** Pass `latest` to get the most recent run — what the editor restores on open. */
   getRun: (id: string, runId: string): Promise<NotebookRunDetail> =>
     request(`/api/notebooks/${id}/runs/${runId}`),

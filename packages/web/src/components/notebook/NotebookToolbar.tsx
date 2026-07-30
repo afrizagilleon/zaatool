@@ -4,7 +4,13 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { NodeSecretsProperties } from '../panels/properties/NodeSecretsProperties';
-import { cn } from '../../lib/utils';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '../ui/dropdown-menu';
 import type { CellSection } from '../../store/notebookTypes';
 
 const SECTIONS: { id: CellSection; label: string }[] = [
@@ -52,6 +58,8 @@ export function NotebookToolbar({
   onRun,
   onBack,
 }: NotebookToolbarProps) {
+  const hiddenCount = SECTIONS.filter((section) => allCollapsed[section.id]).length;
+
   return (
     <div className="flex items-center gap-2 px-3 h-11 border-b border-border shrink-0">
       <Button variant="ghost" size="icon" className="w-7 h-7" onClick={onBack} title="Back to notebooks">
@@ -87,29 +95,36 @@ export function NotebookToolbar({
 
       <div className="flex-1" />
 
-      {/* Folding every cell at once is what keeps a long notebook readable. */}
-      <div className="flex items-center gap-0.5 mr-1">
-        {SECTIONS.map((section) => (
+      {/* Folding every cell at once is what keeps a long notebook readable — one
+          menu rather than three buttons competing for the toolbar. */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
           <Button
-            key={section.id}
             variant="ghost"
             size="sm"
-            className={cn(
-              'h-6 px-1.5 text-[10px] font-semibold',
-              allCollapsed[section.id] ? 'text-muted-foreground/50' : 'text-muted-foreground'
-            )}
-            title={allCollapsed[section.id] ? `Show all ${section.label}` : `Hide all ${section.label}`}
-            onClick={() => onToggleAllSections(section.id, !allCollapsed[section.id])}
+            className="h-7 px-2 text-[10px] font-semibold text-muted-foreground hover:text-foreground mr-1"
           >
-            {allCollapsed[section.id] ? (
-              <EyeSlash size={11} className="mr-1" />
-            ) : (
-              <Eye size={11} className="mr-1" />
-            )}
-            {section.label}
+            {hiddenCount > 0 ? <EyeSlash size={12} className="mr-1" /> : <Eye size={12} className="mr-1" />}
+            View
+            {hiddenCount > 0 && <span className="ml-1 text-muted-foreground/60">{hiddenCount}</span>}
           </Button>
-        ))}
-      </div>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-40">
+          <DropdownMenuLabel className="text-[9px] font-semibold uppercase tracking-widest">
+            Show in every cell
+          </DropdownMenuLabel>
+          {SECTIONS.map((section) => (
+            <DropdownMenuCheckboxItem
+              key={section.id}
+              checked={!allCollapsed[section.id]}
+              onCheckedChange={(checked) => onToggleAllSections(section.id, !checked)}
+              className="text-xs"
+            >
+              {section.label}
+            </DropdownMenuCheckboxItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       {runHistory}
 

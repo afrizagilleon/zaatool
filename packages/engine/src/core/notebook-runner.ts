@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { NotebookScope } from "./notebook-scope.js";
 import { runJsNode } from "./js-runner.js";
 import { runPythonNode } from "./python-runner.js";
-import type { NotebookPlan, PlanCell, PlanParallel, PlanStep } from "./notebook-compiler.js";
+import type { NotebookPlan, PlanCell, PlanLane, PlanParallel, PlanStep } from "./notebook-compiler.js";
 
 export interface RunNotebookOptions {
   ee?: EventEmitter;
@@ -103,28 +103,32 @@ export async function runNotebook(
       .map((outcome, index) => ({ outcome, lane: step.lanes[index] }))
       .filter((entry) => entry.outcome.status === "rejected");
 
+    // Lanes are named for the reader's benefit, so failures are reported by label
+    // rather than by the ids only the machine cares about.
+    const nameOf = (lane: PlanLane) => lane.label || lane.laneId;
+
     if (failures.length > 0) {
       const messages = failures.map((entry) => {
         const reason = (entry.outcome as PromiseRejectedResult).reason;
         return reason instanceof CellFailure
-          ? `lane "${entry.lane.laneId}" cell "${reason.cellId}": ${reason.message}`
-          : `lane "${entry.lane.laneId}": ${(reason as Error).message}`;
+          ? `lane "${nameOf(entry.lane)}": ${reason.message}`
+          : `lane "${nameOf(entry.lane)}": ${(reason as Error).message}`;
       });
       throw new CellFailure(step.groupId, messages.join("; "));
     }
 
-    const writerOf = new Map<string, string>();
+    const writerOf = new Map<string, PlanLane>();
     for (const [index, lane] of step.lanes.entries()) {
       for (const [name, value] of laneScopes[index].localEntries()) {
         const previousWriter = writerOf.get(name);
         if (previousWriter !== undefined) {
           throw new CellFailure(
             step.groupId,
-            `lanes "${previousWriter}" and "${lane.laneId}" both wrote "${name}" — ` +
+            `lanes "${nameOf(previousWriter)}" and "${nameOf(lane)}" both wrote "${name}" — ` +
               `parallel lanes must not write the same name`
           );
         }
-        writerOf.set(name, lane.laneId);
+        writerOf.set(name, lane);
         scope.set(name, value);
       }
     }
@@ -147,11 +151,17 @@ export async function runNotebook(
     return { status: "success", errors: [], ms };
   } catch (err: unknown) {
     const ms = Date.now() - startedAt;
-    const message =
-      err instanceof CellFailure
-        ? `${err.cellId}: ${err.message}`
-        : (err as Error).message;
-    ee?.emit("run:error", { type: "run:error", error: message, ms });
+    const failure = err instanceof CellFailure ? err : null;
+    const message = failure ? failure.message : (err as Error).message;
+
+    // The id travels as its own field rather than being spliced into the message,
+    // so a client can link to the failing cell instead of printing a raw uuid.
+    ee?.emit("run:error", {
+      type: "run:error",
+      error: message,
+      ...(failure ? { cellId: failure.cellId } : {}),
+      ms,
+    });
     return { status: "failed", errors: [message], ms };
   }
 }

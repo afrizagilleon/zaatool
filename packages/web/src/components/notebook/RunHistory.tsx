@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ClockCounterClockwise, ArrowClockwise } from '@phosphor-icons/react';
+import { ClockCounterClockwise, ArrowClockwise, Trash } from '@phosphor-icons/react';
 import type { NotebookRunSummary } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
@@ -47,6 +47,15 @@ export function RunHistory({ notebookId, activeRunId, refreshKey, onOpenRun }: R
     }
   }, [notebookId]);
 
+  const clear = useCallback(async () => {
+    try {
+      await notebooksApi.clearRuns(notebookId);
+      await refresh();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }, [notebookId, refresh]);
+
   useEffect(() => {
     if (isOpen) void refresh();
   }, [isOpen, refresh, refreshKey]);
@@ -87,7 +96,24 @@ export function RunHistory({ notebookId, activeRunId, refreshKey, onOpenRun }: R
               >
                 <ArrowClockwise size={11} />
               </Button>
+              {runs.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="w-5 h-5 text-red-400 hover:text-red-300"
+                  title="Clear all history for this notebook"
+                  onClick={() => void clear()}
+                >
+                  <Trash size={11} />
+                </Button>
+              )}
             </div>
+
+            {/* Retention is bounded automatically, so clearing is a convenience
+                rather than something the notebook depends on. */}
+            <p className="px-2 py-1 text-[9px] text-muted-foreground/50 border-b border-border/40">
+              The 50 most recent runs are kept; older ones are dropped automatically.
+            </p>
 
             {error && <p className="px-2 py-2 text-[10px] text-status-error">{error}</p>}
 

@@ -11,6 +11,13 @@ import type {
 const MAX_LOGS_PER_CELL = 100;
 const MAX_LOG_LENGTH = 2_000;
 
+/**
+ * Runs kept per notebook. A cron firing every minute would otherwise add ~1,440 rows
+ * a day, so retention is bounded automatically rather than left to someone remembering
+ * to prune. Old runs are dropped when a new one starts.
+ */
+const MAX_RUNS_PER_NOTEBOOK = 50;
+
 const SUMMARY_COLUMNS =
   "id, notebook_id, status, trigger_source, cell_id, error, started_at, finished_at";
 
@@ -37,6 +44,29 @@ export class NotebookRunsService {
        VALUES ($1, $2, 'running', $3, $4)`,
       [run.runId, run.notebookId, run.triggerSource, run.cellId ?? null]
     );
+
+    await this.pruneOldRuns(run.notebookId);
+  }
+
+  private async pruneOldRuns(notebookId: string): Promise<void> {
+    await pool.query(
+      `DELETE FROM notebook_runs
+       WHERE notebook_id = $1
+         AND id NOT IN (
+           SELECT id FROM notebook_runs
+           WHERE notebook_id = $1
+           ORDER BY started_at DESC
+           LIMIT $2
+         )`,
+      [notebookId, MAX_RUNS_PER_NOTEBOOK]
+    );
+  }
+
+  async deleteByNotebook(notebookId: string): Promise<{ deleted: number }> {
+    const { rowCount } = await pool.query("DELETE FROM notebook_runs WHERE notebook_id = $1", [
+      notebookId,
+    ]);
+    return { deleted: rowCount ?? 0 };
   }
 
   /**
