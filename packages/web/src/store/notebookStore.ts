@@ -141,6 +141,31 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
     });
   },
 
+  /**
+   * Loads a recorded run's results back into the editor.
+   *
+   * `source` is what the run stored as the code it executed, and it becomes
+   * `ranSource` — so a restored run is checked against the notebook's current code
+   * and shows up amber where it no longer matches, rather than looking trustworthy.
+   */
+  restoreRun: (run) => {
+    const cellRuns: Record<string, CellRunState> = {};
+
+    for (const [cellId, result] of Object.entries(run.cell_results ?? {})) {
+      cellRuns[cellId] = {
+        status: result.error ? 'error' : 'done',
+        logs: result.logs ?? [],
+        output: result.output,
+        written: result.written,
+        error: result.error,
+        ms: result.ms,
+        ranSource: result.error ? undefined : result.source,
+      };
+    }
+
+    set({ cellRuns, runId: run.id, isRunning: false, runError: run.error ?? null });
+  },
+
   setSaving: (isSaving) => set({ isSaving }),
   markSaved: (id) => set({ id, isDirty: false, isSaving: false }),
 

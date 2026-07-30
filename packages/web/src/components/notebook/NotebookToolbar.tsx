@@ -21,6 +21,8 @@ interface NotebookToolbarProps {
   isSaving: boolean;
   isRunning: boolean;
   staleCount: number;
+  /** Rendered between the fold toggles and Save; owned by the editor. */
+  runHistory?: React.ReactNode;
   /** Which sections are folded across every cell, for the all-or-nothing toggles. */
   allCollapsed: Record<CellSection, boolean>;
   onToggleAllSections: (section: CellSection, isCollapsed: boolean) => void;
@@ -40,6 +42,7 @@ export function NotebookToolbar({
   isSaving,
   isRunning,
   staleCount,
+  runHistory,
   allCollapsed,
   onToggleAllSections,
   onNameChange,
@@ -107,6 +110,8 @@ export function NotebookToolbar({
           </Button>
         ))}
       </div>
+
+      {runHistory}
 
       <details className="relative">
         <summary className="list-none cursor-pointer text-[10px] font-semibold uppercase tracking-widest text-muted-foreground hover:text-foreground px-2 py-1 select-none">

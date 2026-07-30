@@ -37,12 +37,15 @@ export function computeStaleCells(
       if (code.length === 0) continue;
 
       const run = cellRuns[step.id];
-      const neverRan = !run || run.ranSource === undefined;
-      const edited = !neverRan && run.ranSource !== step.code;
-      const isStale = carried || edited;
+      // No recorded source means no way to check the result against the code that
+      // is there now — a restored run from an older record looks like this. Such a
+      // result is shown but never claimed to be current.
+      const unverifiable = !run || run.ranSource === undefined;
+      const edited = !unverifiable && run.ranSource !== step.code;
+      const isStale = carried || edited || unverifiable;
 
       stale[step.id] = isStale;
-      if (isStale || neverRan) carried = true;
+      if (isStale) carried = true;
     }
 
     return carried;

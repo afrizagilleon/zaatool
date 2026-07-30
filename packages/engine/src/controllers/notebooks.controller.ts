@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { notebooksService } from "../services/notebooks.service.js";
+import { notebookRunsService } from "../services/notebook-runs.service.js";
 import {
   notebookExecutionService,
   NotebookNotFoundError,
@@ -53,6 +54,30 @@ export class NotebooksController {
   remove = async (req: Request, res: Response) => {
     try {
       res.json(await notebooksService.delete(String(req.params.id)));
+    } catch (err: unknown) {
+      respondWithError(res, err);
+    }
+  };
+
+  listRuns = async (req: Request, res: Response) => {
+    try {
+      res.json(await notebookRunsService.listByNotebook(String(req.params.id)));
+    } catch (err: unknown) {
+      respondWithError(res, err);
+    }
+  };
+
+  /** `latest` resolves the most recent run, which is what the editor restores on open. */
+  getRun = async (req: Request, res: Response) => {
+    try {
+      const runId = String(req.params.runId);
+      const run =
+        runId === "latest"
+          ? await notebookRunsService.getLatestForNotebook(String(req.params.id))
+          : await notebookRunsService.getById(runId);
+
+      if (!run) return res.status(404).json({ error: "Run not found" });
+      res.json(run);
     } catch (err: unknown) {
       respondWithError(res, err);
     }

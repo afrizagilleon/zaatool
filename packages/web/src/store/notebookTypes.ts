@@ -63,6 +63,9 @@ export interface NotebookState {
   toggleSection: (cellId: string, section: CellSection) => void;
   setAllSections: (section: CellSection, isCollapsed: boolean) => void;
 
+  /** Rehydrates results from a recorded run, so opening a notebook is not blank. */
+  restoreRun: (run: import('@zaa-tool/shared').NotebookRunDetail) => void;
+
   setSaving: (isSaving: boolean) => void;
   markSaved: (id: string) => void;
 

@@ -137,11 +137,7 @@ export function NotebookCell({
       )}
     >
       <div className="flex items-center gap-2 px-2 h-7 border-b border-border/60 bg-muted/30">
-        <CellStatusDot
-          status={run?.status ?? 'idle'}
-          isStale={isStale}
-          hasRun={run?.ranSource !== undefined || run?.status === 'error'}
-        />
+        <CellStatusDot run={run} isStale={isStale} />
         <span className="text-[10px] font-mono text-muted-foreground/70 select-none">{index + 1}</span>
 
         {isStale && run?.ranSource !== undefined && (

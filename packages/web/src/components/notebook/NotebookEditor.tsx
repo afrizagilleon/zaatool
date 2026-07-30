@@ -10,6 +10,8 @@ import * as tree from '../../lib/notebook-tree';
 import { NotebookToolbar } from './NotebookToolbar';
 import { NotebookCell } from './NotebookCell';
 import { ParallelGroup } from './ParallelGroup';
+import { RunHistory } from './RunHistory';
+import { notebooksApi } from '../../lib/notebooks-api';
 
 interface NotebookEditorProps {
   onBack: () => void;
@@ -45,7 +47,19 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
   const setLaneLabel = useNotebookStore((s) => s.setLaneLabel);
   const removeGroup = useNotebookStore((s) => s.removeGroup);
 
+  const notebookId = useNotebookStore((s) => s.id);
+  const runId = useNotebookStore((s) => s.runId);
+  const restoreRun = useNotebookStore((s) => s.restoreRun);
+
   const { run, runAll, save } = useNotebookRun();
+
+  const openRun = useCallback(
+    async (id: string) => {
+      const detail = await notebooksApi.getRun(notebookId, id).catch(() => null);
+      if (detail) restoreRun(detail);
+    },
+    [notebookId, restoreRun]
+  );
 
   // Ctrl/Cmd+S saves from anywhere in the editor, not only from inside a cell.
   useEffect(() => {
@@ -160,6 +174,15 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
         isSaving={isSaving}
         isRunning={isRunning}
         staleCount={staleCount}
+        runHistory={
+          <RunHistory
+            notebookId={notebookId}
+            activeRunId={runId}
+            // A run that just finished should show up without reopening the panel.
+            refreshKey={isRunning}
+            onOpenRun={(id) => void openRun(id)}
+          />
+        }
         allCollapsed={allCollapsed}
         onToggleAllSections={setAllSections}
         onNameChange={setName}

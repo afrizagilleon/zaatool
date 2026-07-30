@@ -70,6 +70,28 @@ export async function initDb() {
       );
     `);
 
+    // Notebook run history. jsonb rather than the TEXT used by older tables so
+    // per-cell results can be written atomically with jsonb_set — parallel lanes
+    // finish concurrently within one run, and read-modify-write would lose results.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS notebook_runs (
+        id VARCHAR(255) PRIMARY KEY,
+        notebook_id VARCHAR(255) NOT NULL,
+        status VARCHAR(20) NOT NULL,
+        trigger_source VARCHAR(50) NOT NULL DEFAULT 'manual',
+        cell_id VARCHAR(255),
+        error TEXT,
+        cell_results JSONB NOT NULL DEFAULT '{}'::jsonb,
+        started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        finished_at TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS notebook_runs_notebook_started_idx
+      ON notebook_runs (notebook_id, started_at DESC);
+    `);
+
     // Users table
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (

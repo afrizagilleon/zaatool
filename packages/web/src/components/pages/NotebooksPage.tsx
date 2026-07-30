@@ -11,12 +11,18 @@ export function NotebooksPage() {
 
   const createNotebook = useNotebookStore((s) => s.createNotebook);
   const loadNotebook = useNotebookStore((s) => s.loadNotebook);
+  const restoreRun = useNotebookStore((s) => s.restoreRun);
 
   const open = async (id: string) => {
     try {
       loadNotebook(await notebooksApi.getById(id));
       setError(null);
       setIsEditing(true);
+
+      // Results come from the last recorded run, never from the document. A
+      // notebook that has never run simply opens without output.
+      const latest = await notebooksApi.getRun(id, 'latest').catch(() => null);
+      if (latest) restoreRun(latest);
     } catch (err) {
       setError((err as Error).message);
     }

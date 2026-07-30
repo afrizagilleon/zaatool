@@ -1,5 +1,11 @@
 import { API_BASE_URL } from "./api.js";
-import type { NotebookJson, NotebookSummary, RunStartedResponse } from "@zaa-tool/shared";
+import type {
+  NotebookJson,
+  NotebookRunDetail,
+  NotebookRunSummary,
+  NotebookSummary,
+  RunStartedResponse,
+} from "@zaa-tool/shared";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const { headers: initHeaders, ...restInit } = init ?? {};
@@ -28,6 +34,12 @@ export const notebooksApi = {
 
   delete: (id: string): Promise<{ success: boolean }> =>
     request(`/api/notebooks/${id}`, { method: "DELETE" }),
+
+  listRuns: (id: string): Promise<NotebookRunSummary[]> => request(`/api/notebooks/${id}/runs`),
+
+  /** Pass `latest` to get the most recent run — what the editor restores on open. */
+  getRun: (id: string, runId: string): Promise<NotebookRunDetail> =>
+    request(`/api/notebooks/${id}/runs/${runId}`),
 
   /** Omit `cellId` to run the whole notebook; supply it with the scope that cell needs as `input`. */
   run: (
