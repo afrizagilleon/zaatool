@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { Plus, Trash } from '@phosphor-icons/react';
+import { MagnifyingGlass, Plus, Trash } from '@phosphor-icons/react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 
 interface Secret {
@@ -22,6 +22,14 @@ interface SecretsTabProps {
 export function SecretsTab({ secrets, onAdd, onDelete }: SecretsTabProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [form, setForm] = useState({ key: '', value: '', is_secret: true });
+  const [query, setQuery] = useState('');
+
+  // Matching on the key only — searching values would put secrets in the DOM as you type.
+  const matches = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return secrets;
+    return secrets.filter((secret) => secret.key.toLowerCase().includes(needle));
+  }, [secrets, query]);
 
   const handleSave = async () => {
     const success = await onAdd(form);
@@ -33,11 +41,25 @@ export function SecretsTab({ secrets, onAdd, onDelete }: SecretsTabProps) {
 
   return (
     <div className="py-6">
-      <div className="flex justify-between items-center mb-4">
-        <p className="text-sm text-muted-foreground">Manage your API keys and environment variables securely.</p>
-        <Button onClick={() => setIsOpen(true)} size="sm">
-          <Plus className="mr-2" size={14} /> Add Secret
-        </Button>
+      <div className="flex justify-between items-center gap-3 mb-4">
+        <p className="text-sm text-muted-foreground shrink-0">Manage your API keys and environment variables securely.</p>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <MagnifyingGlass
+              size={13}
+              className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
+            />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search by name…"
+              className="h-8 w-52 pl-7 text-xs"
+            />
+          </div>
+          <Button onClick={() => setIsOpen(true)} size="sm">
+            <Plus className="mr-2" size={14} /> Add Secret
+          </Button>
+        </div>
       </div>
 
       <div className="border border-border/80">
@@ -50,7 +72,7 @@ export function SecretsTab({ secrets, onAdd, onDelete }: SecretsTabProps) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {secrets.map((secret) => (
+            {matches.map((secret) => (
               <TableRow key={secret.id}>
                 <TableCell className="font-mono text-xs font-semibold">{secret.key}</TableCell>
                 <TableCell className="font-mono text-xs text-muted-foreground">{secret.value}</TableCell>
@@ -66,10 +88,12 @@ export function SecretsTab({ secrets, onAdd, onDelete }: SecretsTabProps) {
                 </TableCell>
               </TableRow>
             ))}
-            {secrets.length === 0 && (
+            {matches.length === 0 && (
               <TableRow>
                 <TableCell colSpan={3} className="text-center py-8 text-xs text-muted-foreground">
-                  No secrets added yet.
+                  {secrets.length === 0
+                    ? 'No secrets added yet.'
+                    : `No secret matches “${query}”.`}
                 </TableCell>
               </TableRow>
             )}
