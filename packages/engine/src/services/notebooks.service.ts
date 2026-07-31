@@ -1,5 +1,6 @@
 import { pool } from "../db/connection.js";
 import { v4 as uuidv4 } from "uuid";
+import { notebookTriggersService } from "./notebook-triggers.service.js";
 import type { NotebookJson, NotebookRuntime, NotebookSummary } from "@zaa-tool/shared";
 
 export interface NotebookRecord {
@@ -41,10 +42,14 @@ export class NotebooksService {
       [id, name, runtime, JSON.stringify(stored)]
     );
 
+    // The document is the source of truth; the trigger index follows it.
+    await notebookTriggersService.syncForNotebook(id, stored.triggers ?? []);
+
     return { id, name };
   }
 
   async delete(id: string): Promise<{ success: boolean }> {
+    await notebookTriggersService.deleteByNotebook(id);
     await pool.query("DELETE FROM notebooks WHERE id = $1", [id]);
     return { success: true };
   }

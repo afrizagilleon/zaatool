@@ -70,6 +70,26 @@ export async function initDb() {
       );
     `);
 
+    // Notebook triggers, indexed rather than discovered by scanning documents —
+    // the scheduler queries this table instead of parsing every notebook each minute.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS notebook_triggers (
+        id VARCHAR(255) PRIMARY KEY,
+        notebook_id VARCHAR(255) NOT NULL,
+        kind VARCHAR(20) NOT NULL,
+        cron VARCHAR(255),
+        slug VARCHAR(255) UNIQUE,
+        secret_key VARCHAR(255),
+        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS notebook_triggers_notebook_idx
+      ON notebook_triggers (notebook_id);
+    `);
+
     // Notebook run history. jsonb rather than the TEXT used by older tables so
     // per-cell results can be written atomically with jsonb_set — parallel lanes
     // finish concurrently within one run, and read-modify-write would lose results.

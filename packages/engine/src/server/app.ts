@@ -11,6 +11,7 @@ import { storageRouter } from "../routes/storage.route.js";
 import { STORAGE_DIR } from "../services/storage.service.js";
 import { flowsRouter } from "../routes/flows.route.js";
 import { createNotebooksRouter } from "../routes/notebooks.route.js";
+import { createHooksRouter } from "../routes/hooks.route.js";
 import { aiRouter } from "../routes/ai.route.js";
 import { authRouter } from "../routes/auth.route.js";
 import { triggersRouter } from "../routes/triggers.route.js";
@@ -39,6 +40,10 @@ export function createApp(publishRunEvent: RunEventSink) {
   const app = express();
   app.use(cors());
   app.use(express.json({ limit: "50mb" }));
+
+  // Mounted before the auth guard: a webhook's slug is its credential, so these
+  // are reachable without a session. They live outside /api for that reason.
+  app.use("/hooks", createHooksRouter(publishRunEvent));
 
   app.use("/api", authMiddleware);
 

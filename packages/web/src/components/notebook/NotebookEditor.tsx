@@ -12,6 +12,7 @@ import { NotebookCell } from './NotebookCell';
 import { ParallelGroup } from './ParallelGroup';
 import { RunHistory } from './RunHistory';
 import { RunErrorBanner } from './RunErrorBanner';
+import { TriggerPanel } from './TriggerPanel';
 import { notebooksApi } from '../../lib/notebooks-api';
 
 interface NotebookEditorProps {
@@ -24,6 +25,10 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
   const name = useNotebookStore((s) => s.name);
   const runtime = useNotebookStore((s) => s.runtime);
   const secrets = useNotebookStore((s) => s.secrets);
+  const triggers = useNotebookStore((s) => s.triggers);
+  const addTrigger = useNotebookStore((s) => s.addTrigger);
+  const updateTrigger = useNotebookStore((s) => s.updateTrigger);
+  const removeTrigger = useNotebookStore((s) => s.removeTrigger);
   const steps = useNotebookStore((s) => s.steps);
   const cellRuns = useNotebookStore((s) => s.cellRuns);
   const isDirty = useNotebookStore((s) => s.isDirty);
@@ -205,6 +210,16 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
             // A run that just finished should show up without reopening the panel.
             refreshKey={isRunning}
             onOpenRun={(id) => void openRun(id)}
+          />
+        }
+        triggerCount={triggers.length}
+        triggerPanel={
+          <TriggerPanel
+            triggers={triggers}
+            isSaved={!isDirty}
+            onAdd={addTrigger}
+            onUpdate={updateTrigger}
+            onRemove={removeTrigger}
           />
         }
         allCollapsed={allCollapsed}

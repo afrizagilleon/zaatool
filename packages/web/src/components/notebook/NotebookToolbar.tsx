@@ -29,6 +29,9 @@ interface NotebookToolbarProps {
   staleCount: number;
   /** Rendered between the fold toggles and Save; owned by the editor. */
   runHistory?: React.ReactNode;
+  /** Trigger editor, shown in a popover next to Secrets. */
+  triggerPanel?: React.ReactNode;
+  triggerCount: number;
   /** Which sections are folded across every cell, for the all-or-nothing toggles. */
   allCollapsed: Record<CellSection, boolean>;
   onToggleAllSections: (section: CellSection, isCollapsed: boolean) => void;
@@ -49,6 +52,8 @@ export function NotebookToolbar({
   isRunning,
   staleCount,
   runHistory,
+  triggerPanel,
+  triggerCount,
   allCollapsed,
   onToggleAllSections,
   onNameChange,
@@ -127,6 +132,15 @@ export function NotebookToolbar({
       </DropdownMenu>
 
       {runHistory}
+
+      <details className="relative">
+        <summary className="list-none cursor-pointer text-[10px] font-semibold uppercase tracking-widest text-muted-foreground hover:text-foreground px-2 py-1 select-none">
+          Triggers{triggerCount > 0 ? ` (${triggerCount})` : ''}
+        </summary>
+        <div className="absolute right-0 top-full mt-1 bg-card border border-border shadow-lg z-50">
+          {triggerPanel}
+        </div>
+      </details>
 
       <details className="relative">
         <summary className="list-none cursor-pointer text-[10px] font-semibold uppercase tracking-widest text-muted-foreground hover:text-foreground px-2 py-1 select-none">

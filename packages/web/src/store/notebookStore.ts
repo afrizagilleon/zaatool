@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import type { NotebookJson } from '@zaa-tool/shared';
+import type { NotebookJson, NotebookTrigger } from '@zaa-tool/shared';
 import * as tree from '../lib/notebook-tree.js';
 import type { CellRunState, NotebookState } from './notebookTypes.js';
 
@@ -15,6 +15,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   name: 'Untitled Notebook',
   runtime: 'node',
   secrets: [],
+  triggers: [],
   steps: [],
 
   isDirty: false,
@@ -34,6 +35,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
       name: 'Untitled Notebook',
       runtime,
       secrets: [],
+      triggers: [],
       steps: [firstCell],
       isDirty: true,
       isRunning: false,
@@ -52,6 +54,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
       name: document.name,
       runtime: document.runtime,
       secrets: document.secrets ?? [],
+      triggers: document.triggers ?? [],
       steps: document.steps ?? [],
       isDirty: false,
       isRunning: false,
@@ -67,8 +70,31 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   },
 
   getDocument: (): NotebookJson => {
-    const { id, name, runtime, secrets, steps } = get();
-    return { version: NOTEBOOK_VERSION, id, name, runtime, secrets, steps };
+    const { id, name, runtime, secrets, triggers, steps } = get();
+    return { version: NOTEBOOK_VERSION, id, name, runtime, secrets, triggers, steps };
+  },
+
+  addTrigger: (kind) => {
+    // The slug is the credential for a webhook, so it is generated rather than named.
+    const trigger: NotebookTrigger =
+      kind === 'cron'
+        ? { id: uuidv4(), kind: 'cron', cron: '0 * * * *', enabled: true }
+        : { id: uuidv4(), kind: 'webhook', slug: uuidv4(), enabled: true };
+
+    set({ triggers: [...get().triggers, trigger], isDirty: true });
+  },
+
+  updateTrigger: (triggerId, patch) => {
+    set({
+      triggers: get().triggers.map((trigger) =>
+        trigger.id === triggerId ? ({ ...trigger, ...patch } as NotebookTrigger) : trigger
+      ),
+      isDirty: true,
+    });
+  },
+
+  removeTrigger: (triggerId) => {
+    set({ triggers: get().triggers.filter((trigger) => trigger.id !== triggerId), isDirty: true });
   },
 
   setName: (name) => set({ name, isDirty: true }),

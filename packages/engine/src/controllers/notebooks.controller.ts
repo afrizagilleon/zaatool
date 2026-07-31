@@ -5,6 +5,7 @@ import {
   notebookExecutionService,
   NotebookNotFoundError,
   CellNotFoundError,
+  TooManyRunsError,
 } from "../services/notebook-execution.service.js";
 import { NotebookCompileError } from "../core/notebook-compiler.js";
 import type { RunEventSink } from "../core/run-emitter.js";
@@ -15,6 +16,9 @@ function respondWithError(res: Response, err: unknown) {
   }
   if (err instanceof NotebookCompileError) {
     return res.status(400).json({ error: err.message, issues: err.issues });
+  }
+  if (err instanceof TooManyRunsError) {
+    return res.status(429).json({ error: err.message });
   }
   return res.status(500).json({ error: (err as Error).message });
 }

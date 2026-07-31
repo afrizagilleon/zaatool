@@ -1,6 +1,8 @@
 import { pool } from "../db/connection.js";
 import { runFlow } from "../core/flow-runner.js";
 import { createRunEmitter, type RunEventSink } from "../core/run-emitter.js";
+import { notebookTriggersService } from "./notebook-triggers.service.js";
+import { notebookExecutionService } from "./notebook-execution.service.js";
 import { randomUUID } from "node:crypto";
 import type { GraphJson } from "@zaa-tool/shared";
 
@@ -102,7 +104,11 @@ export class SchedulerService {
         }
       }
 
-      // 2. Visual cron nodes check inside all flows
+      // 2. Notebook cron triggers. Read from the trigger index rather than by parsing
+      // every notebook, which is the mistake the visual cron nodes below force.
+      await this.tickNotebookCrons(now);
+
+      // 3. Visual cron nodes check inside all flows
       const { rows: flows } = await pool.query("SELECT id, name, graph_json FROM flows");
       for (const flow of flows) {
         if (!flow.graph_json) continue;
@@ -122,6 +128,31 @@ export class SchedulerService {
       }
     } catch (err) {
       console.error("Scheduler tick error:", err);
+    }
+  }
+
+  private async tickNotebookCrons(now: Date) {
+    const publish = this.publishRunEvent;
+    if (!publish) return;
+
+    const triggers = await notebookTriggersService.listEnabledCron();
+
+    for (const trigger of triggers) {
+      if (!trigger.cron || !matchCron(trigger.cron, now)) continue;
+
+      try {
+        const { runId } = await notebookExecutionService.start(trigger.notebook_id, publish, {
+          triggerSource: "cron",
+          input: { trigger: { kind: "cron", cron: trigger.cron, firedAt: now.toISOString() } },
+        });
+        console.log(`⏰ Notebook ${trigger.notebook_id} started run ${runId} ('${trigger.cron}')`);
+      } catch (err: unknown) {
+        // One misbehaving notebook must not stop the others from firing this minute.
+        console.error(
+          `Failed to start notebook ${trigger.notebook_id} from cron '${trigger.cron}':`,
+          (err as Error).message
+        );
+      }
     }
   }
 

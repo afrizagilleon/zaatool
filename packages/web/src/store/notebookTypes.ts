@@ -51,6 +51,15 @@ export interface NotebookState {
   loadNotebook: (document: NotebookJson) => void;
   getDocument: () => NotebookJson;
 
+  triggers: import('@zaa-tool/shared').NotebookTrigger[];
+
+  addTrigger: (kind: 'cron' | 'webhook') => void;
+  updateTrigger: (
+    triggerId: string,
+    patch: Partial<import('@zaa-tool/shared').NotebookTrigger>
+  ) => void;
+  removeTrigger: (triggerId: string) => void;
+
   setName: (name: string) => void;
   setRuntime: (runtime: NotebookRuntime) => void;
   setSecrets: (secrets: string[]) => void;

@@ -63,6 +63,38 @@ export interface ParallelStep {
 
 export type NotebookStep = NotebookCell | ParallelStep;
 
+/**
+ * Triggers belong to the notebook, not to a cell.
+ *
+ * A trigger is the reason a run starts, not a step of the computation. Modelling it
+ * as a cell made the first cell a special case everywhere — the canvas did that with
+ * `trigger:cron` nodes, which forced the scheduler to scan every graph's contents once
+ * a minute. As notebook metadata they are indexed and simply queried.
+ */
+export interface CronTrigger {
+  id: string;
+  kind: "cron";
+  /** Five-field expression: minute hour day-of-month month day-of-week. */
+  cron: string;
+  enabled?: boolean;
+}
+
+export interface WebhookTrigger {
+  id: string;
+  kind: "webhook";
+  /** Path segment of the public URL. Unguessable by default. */
+  slug: string;
+  /**
+   * Name of a row in the secrets store whose value must be sent as
+   * `X-Webhook-Secret`. Referenced rather than inlined so no credential is
+   * stored in the notebook document.
+   */
+  secretKey?: string;
+  enabled?: boolean;
+}
+
+export type NotebookTrigger = CronTrigger | WebhookTrigger;
+
 export interface NotebookJson {
   version: string;
   id: string;
@@ -70,6 +102,7 @@ export interface NotebookJson {
   runtime: NotebookRuntime;
   /** Secret keys this notebook may read; undeclared means none. */
   secrets?: string[];
+  triggers?: NotebookTrigger[];
   steps: NotebookStep[];
 }
 
