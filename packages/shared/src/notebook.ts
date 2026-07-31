@@ -95,6 +95,29 @@ export interface WebhookTrigger {
 
 export type NotebookTrigger = CronTrigger | WebhookTrigger;
 
+/**
+ * The reuse boundary.
+ *
+ * Inside a notebook, dependencies stay implicit through shared scope — that is what
+ * makes it readable top to bottom. The moment another notebook calls this one, that
+ * scope becomes an interface, and an interface nobody wrote down is one nobody can
+ * change safely. So a contract is explicit, and only here.
+ *
+ * Both halves are optional: a notebook with no declared inputs takes no arguments,
+ * and one with no declared outputs returns nothing to a caller. Neither prevents it
+ * from being run on its own.
+ */
+export type NotebookParamType = "string" | "number" | "boolean" | "json";
+
+export interface NotebookParam {
+  name: string;
+  type: NotebookParamType;
+  /** Without a default, a missing required value is an error before anything runs. */
+  required?: boolean;
+  description?: string;
+  default?: unknown;
+}
+
 export interface NotebookJson {
   version: string;
   id: string;
@@ -103,6 +126,10 @@ export interface NotebookJson {
   /** Secret keys this notebook may read; undeclared means none. */
   secrets?: string[];
   triggers?: NotebookTrigger[];
+  /** Values a caller supplies, seeded into scope before the first cell. */
+  inputs?: NotebookParam[];
+  /** Names lifted from the final scope and handed back to the caller. */
+  outputs?: string[];
   steps: NotebookStep[];
 }
 

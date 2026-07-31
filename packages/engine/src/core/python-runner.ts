@@ -1,5 +1,6 @@
 import { spawn } from "child_process";
 import { buildSandboxEnv } from "./sandbox-env.js";
+import { PY_RPC_PREFIX, type NotebookCaller } from "./notebook-call.js";
 
 export function runPythonNode(
   code: string,
@@ -7,7 +8,8 @@ export function runPythonNode(
   timeoutMs = 5000,
   onLog?: (level: string, msg: string) => void,
   secrets: Record<string, string> = {},
-  inputsSchema: any[] = []
+  inputsSchema: any[] = [],
+  onCall?: NotebookCaller
 ): Promise<{ output?: Record<string, unknown>; logs: any[]; error?: string; ms: number }> {
   return new Promise((resolve) => {
     const startTime = Date.now();
@@ -24,7 +26,7 @@ export function runPythonNode(
     }
 
     const wrapper = `
-import json, sys, os, base64
+import json, sys, os, base64, traceback
 
 class Table:
     def __init__(self, rows):
@@ -103,10 +105,48 @@ class CustomEncoder(json.JSONEncoder):
             return obj.to_json()
         return super().default(obj)
 
-# Read inputs and inputsSchema from stdin
-payload = json.loads(sys.stdin.read())
+# Every protocol frame carries this prefix, so an unmarked line is user output and
+# is reported as a log rather than corrupting this cell's result.
+_ZAA = ${JSON.stringify(PY_RPC_PREFIX)}
+
+def _zaa_send(frame):
+    sys.stdout.write(_ZAA + json.dumps(frame, cls=CustomEncoder) + "\\n")
+    sys.stdout.flush()
+
+def _zaa_receive():
+    line = sys.stdin.readline()
+    if not line:
+        raise RuntimeError("the engine closed the connection")
+    text = line.strip()
+    if not text:
+        return _zaa_receive()
+    return json.loads(text)
+
+class _Notebooks:
+    def __init__(self):
+        self._enabled = False
+        self._last_id = 0
+    def run(self, notebook, input=None):
+        if not self._enabled:
+            raise RuntimeError("Calling another notebook is not available here")
+        if not isinstance(notebook, str) or not notebook.strip():
+            raise RuntimeError("notebooks.run needs a notebook id or name")
+        self._last_id += 1
+        call_id = self._last_id
+        _zaa_send({"type": "call", "id": call_id, "notebook": notebook, "input": input or {}})
+        while True:
+            frame = _zaa_receive()
+            if frame.get("type") == "call:result" and frame.get("id") == call_id:
+                if frame.get("ok"):
+                    return frame.get("value")
+                raise RuntimeError(frame.get("error") or "the call failed")
+
+notebooks = _Notebooks()
+
+payload = _zaa_receive()
 inputs = payload.get("inputs", {})
 inputs_schema = payload.get("inputsSchema", [])
+notebooks._enabled = bool(payload.get("canCall"))
 
 # Wrap inputs based on schema
 wrapped_inputs = {}
@@ -127,8 +167,11 @@ for field in inputs_schema:
 
 ${finalCode}
 
-result = main(wrapped_inputs)
-print(json.dumps(result, cls=CustomEncoder))
+try:
+    result = main(wrapped_inputs)
+    _zaa_send({"type": "done", "output": result})
+except Exception as err:
+    _zaa_send({"type": "error", "error": "".join(traceback.format_exception_only(type(err), err)).strip()})
 `;
 
     const pythonCmd = process.platform === "win32" ? "python" : "python3";
@@ -136,14 +179,89 @@ print(json.dumps(result, cls=CustomEncoder))
       env: { PYTHONIOENCODING: "utf-8", ...buildSandboxEnv(secrets) },
     });
 
-    // send inputs via stdin
-    proc.stdin.write(JSON.stringify({ inputs, inputsSchema }));
-    proc.stdin.end();
-
-    let stdout = "";
     let stderr = "";
+    let settled = false;
+    let finalOutput: Record<string, unknown> | undefined;
+    let finalError: string | undefined;
 
-    proc.stdout.on("data", (d) => (stdout += d.toString()));
+    const finish = (result: { output?: Record<string, unknown>; error?: string }): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ ...result, logs, ms: Date.now() - startTime });
+    };
+
+    // Paused while a nested notebook runs — see the note in js-runner.
+    let timer: NodeJS.Timeout | undefined;
+    const startTimer = (): void => {
+      timer = setTimeout(() => {
+        proc.kill("SIGKILL");
+        finish({ error: `Timeout after ${timeoutMs}ms` });
+      }, timeoutMs);
+    };
+    const pauseTimer = (): void => clearTimeout(timer);
+    startTimer();
+
+    const send = (frame: unknown): void => {
+      if (proc.stdin.writable) proc.stdin.write(JSON.stringify(frame) + "\n");
+    };
+
+    const handleFrame = (frame: any): void => {
+      if (frame?.type === "done") {
+        finalOutput = frame.output ?? undefined;
+        return;
+      }
+      if (frame?.type === "error") {
+        finalError = frame.error || "Python raised an error";
+        return;
+      }
+      if (frame?.type === "call") {
+        if (!onCall) {
+          send({
+            type: "call:result",
+            id: frame.id,
+            ok: false,
+            error: "Calling another notebook is not available here",
+          });
+          return;
+        }
+        pauseTimer();
+        void onCall({ notebook: frame.notebook, input: frame.input })
+          .then((value) => ({ ok: true as const, value }))
+          .catch((err: unknown) => ({
+            ok: false as const,
+            error: err instanceof Error ? err.message : String(err),
+          }))
+          .then((outcome) => {
+            if (settled) return;
+            startTimer();
+            send({ type: "call:result", id: frame.id, ...outcome });
+          });
+      }
+    };
+
+    let stdoutBuffer = "";
+    proc.stdout.on("data", (chunk) => {
+      stdoutBuffer += chunk.toString();
+      let newline = stdoutBuffer.indexOf("\n");
+      while (newline !== -1) {
+        const line = stdoutBuffer.slice(0, newline).replace(/\r$/, "");
+        stdoutBuffer = stdoutBuffer.slice(newline + 1);
+        newline = stdoutBuffer.indexOf("\n");
+
+        if (line.startsWith(PY_RPC_PREFIX)) {
+          try {
+            handleFrame(JSON.parse(line.slice(PY_RPC_PREFIX.length)));
+          } catch {
+            finalError = `Malformed frame from Python: ${line}`;
+          }
+        } else if (line.trim() !== "") {
+          logs.push({ level: "info", msg: line });
+          onLog?.("info", line);
+        }
+      }
+    });
+
     proc.stderr.on("data", (d) => {
       const msg = d.toString().trim();
       stderr += d.toString();
@@ -151,23 +269,17 @@ print(json.dumps(result, cls=CustomEncoder))
       onLog?.("error", msg);
     });
 
-    const timer = setTimeout(() => {
-      proc.kill("SIGKILL");
-      resolve({ error: `Timeout after ${timeoutMs}ms`, logs, ms: Date.now() - startTime });
-    }, timeoutMs);
+    // The child reads this as its first line and keeps stdin open for call replies.
+    send({ inputs, inputsSchema, canCall: Boolean(onCall) });
+
+    proc.on("error", (err) => finish({ error: err.message }));
 
     proc.on("close", (code) => {
-      clearTimeout(timer);
-      if (code !== 0) {
-        resolve({ error: stderr || "Python process failed", logs, ms: Date.now() - startTime });
-      } else {
-        try {
-          const output = JSON.parse(stdout.trim());
-          resolve({ output, logs, ms: Date.now() - startTime });
-        } catch {
-          resolve({ error: `Output is not valid JSON: ${stdout}`, logs, ms: Date.now() - startTime });
-        }
-      }
+      if (finalError) return finish({ error: finalError });
+      if (finalOutput !== undefined) return finish({ output: finalOutput });
+      if (code !== 0) return finish({ error: stderr.trim() || "Python process failed" });
+      // Exited cleanly without a result frame: main returned nothing at all.
+      finish({ output: undefined });
     });
   });
 }

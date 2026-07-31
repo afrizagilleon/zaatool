@@ -8,11 +8,16 @@ import {
   TooManyRunsError,
 } from "../services/notebook-execution.service.js";
 import { NotebookCompileError } from "../core/notebook-compiler.js";
+import { ContractError } from "../core/notebook-contract.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 
 function respondWithError(res: Response, err: unknown) {
   if (err instanceof NotebookNotFoundError || err instanceof CellNotFoundError) {
     return res.status(404).json({ error: err.message });
+  }
+  // The arguments were wrong, not the notebook — the caller can fix this one.
+  if (err instanceof ContractError) {
+    return res.status(400).json({ error: err.message, issues: err.issues });
   }
   if (err instanceof NotebookCompileError) {
     return res.status(400).json({ error: err.message, issues: err.issues });
@@ -100,7 +105,7 @@ export class NotebooksController {
       const { runId } = await notebookExecutionService.start(
         String(req.params.id),
         this.publishRunEvent,
-        { input: req.body?.input, cellId: req.body?.cellId }
+        { input: req.body?.input, args: req.body?.args, cellId: req.body?.cellId }
       );
       res.status(200).json({ status: "started", runId });
     } catch (err: unknown) {

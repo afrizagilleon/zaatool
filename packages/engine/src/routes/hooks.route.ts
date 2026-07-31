@@ -6,6 +6,7 @@ import {
   TooManyRunsError,
 } from "../services/notebook-execution.service.js";
 import { NotebookCompileError } from "../core/notebook-compiler.js";
+import { ContractError } from "../core/notebook-contract.js";
 import { secretsService } from "../services/secrets.service.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 
@@ -62,6 +63,9 @@ export function createHooksRouter(publishRunEvent: RunEventSink): Router {
 
       const { runId } = await notebookExecutionService.start(trigger.notebook_id, publishRunEvent, {
         triggerSource: "webhook",
+        // A notebook that declares inputs is called by this request, not merely
+        // triggered by it: the body binds to the contract and a mismatch is a 400.
+        args: typeof req.body === "object" && req.body !== null ? req.body : undefined,
         input: {
           trigger: {
             kind: "webhook",
@@ -83,6 +87,9 @@ export function createHooksRouter(publishRunEvent: RunEventSink): Router {
         return res.status(404).json({ error: err.message });
       }
       if (err instanceof NotebookCompileError) {
+        return res.status(400).json({ error: err.message, issues: err.issues });
+      }
+      if (err instanceof ContractError) {
         return res.status(400).json({ error: err.message, issues: err.issues });
       }
       res.status(500).json({ error: (err as Error).message });

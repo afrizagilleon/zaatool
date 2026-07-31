@@ -1,12 +1,15 @@
 import type {
   NotebookJson,
   NotebookLane,
+  NotebookParam,
+  NotebookParamType,
   NotebookRuntime,
   NotebookStep,
 } from "@zaa-tool/shared";
 
 const DEFAULT_CELL_TIMEOUT_MS = 30_000;
 const VALID_RUNTIMES: NotebookRuntime[] = ["node", "python"];
+const VALID_PARAM_TYPES: NotebookParamType[] = ["string", "number", "boolean", "json"];
 
 export interface PlanCell {
   kind: "code";
@@ -33,6 +36,9 @@ export interface NotebookPlan {
   notebookId: string;
   runtime: NotebookRuntime;
   secrets: string[];
+  /** The reuse contract, validated here so a bad one never reaches a run. */
+  inputs: NotebookParam[];
+  outputs: string[];
   steps: PlanStep[];
 }
 
@@ -162,6 +168,55 @@ export function compileNotebook(notebook: NotebookJson): NotebookPlan {
     return { kind: "parallel", groupId, lanes: planLanes };
   };
 
+  /**
+   * The contract is validated with the document, not at call time, so a notebook
+   * whose interface is malformed is caught by its own author rather than by whoever
+   * calls it months later.
+   */
+  const compileInputs = (): NotebookParam[] => {
+    if (!Array.isArray(notebook.inputs)) return [];
+
+    const claimed = new Set<string>();
+    const params: NotebookParam[] = [];
+
+    for (const param of notebook.inputs) {
+      const name = typeof param?.name === "string" ? param.name.trim() : "";
+      if (!name) {
+        issues.push("An input is missing a name");
+        continue;
+      }
+      if (claimed.has(name)) {
+        issues.push(`Duplicate input "${name}"`);
+        continue;
+      }
+      if (!VALID_PARAM_TYPES.includes(param.type)) {
+        issues.push(`Input "${name}" has unknown type "${param.type}"`);
+        continue;
+      }
+      claimed.add(name);
+      params.push({ ...param, name });
+    }
+
+    return params;
+  };
+
+  const compileOutputs = (): string[] => {
+    if (!Array.isArray(notebook.outputs)) return [];
+
+    const names: string[] = [];
+    for (const output of notebook.outputs) {
+      const name = typeof output === "string" ? output.trim() : "";
+      if (!name) {
+        issues.push("An output is missing a name");
+        continue;
+      }
+      if (!names.includes(name)) names.push(name);
+    }
+    return names;
+  };
+
+  const inputs = compileInputs();
+  const outputs = compileOutputs();
   const steps = compileSteps(notebook.steps, "notebook");
 
   if (issues.length > 0) {
@@ -174,6 +229,8 @@ export function compileNotebook(notebook: NotebookJson): NotebookPlan {
     secrets: Array.isArray(notebook.secrets)
       ? [...new Set(notebook.secrets.filter((k): k is string => typeof k === "string" && k.length > 0))]
       : [],
+    inputs,
+    outputs,
     steps,
   };
 }

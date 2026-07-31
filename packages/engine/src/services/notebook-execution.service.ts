@@ -1,12 +1,15 @@
+import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import { compileNotebook, selectPlanCell } from "../core/notebook-compiler.js";
 import { RunGate } from "../core/run-gate.js";
 import { runNotebook } from "../core/notebook-runner.js";
+import { bindInputs } from "../core/notebook-contract.js";
 import { createRunEmitter, type RunEventSink } from "../core/run-emitter.js";
 import { notebooksService } from "./notebooks.service.js";
 import { notebookRunsService } from "./notebook-runs.service.js";
 import { NotebookRunRecorder } from "./notebook-run-recorder.js";
 import { secretsService } from "./secrets.service.js";
+import type { NotebookCallRequest, NotebookCaller } from "../core/notebook-call.js";
 import type { NotebookPlan } from "../core/notebook-compiler.js";
 import type { NotebookRunTrigger } from "@zaa-tool/shared";
 
@@ -36,9 +39,23 @@ const MAX_CONCURRENT_RUNS = 4;
 const MAX_QUEUED_RUNS = 20;
 const runGate = new RunGate(MAX_CONCURRENT_RUNS, MAX_QUEUED_RUNS);
 
+/**
+ * How deep `notebooks.run` may nest.
+ *
+ * A cycle is caught exactly by the call stack, so this is not the cycle guard — it
+ * bounds legitimate-looking chains that are really a design gone wrong, and keeps a
+ * runaway from holding a worker per level.
+ */
+const MAX_CALL_DEPTH = 5;
+
 export interface StartRunOptions {
   /** Values seeded into scope before the first cell runs. */
   input?: Record<string, unknown>;
+  /**
+   * Arguments for the notebook's declared inputs. Validated and coerced against the
+   * contract, unlike `input`, which seeds scope verbatim.
+   */
+  args?: Record<string, unknown>;
   /** Run only this cell; the caller supplies the scope it needs via `input`. */
   cellId?: string;
   /** Recorded on the run so a failure can be traced to what set it off. */
@@ -66,6 +83,87 @@ function sourcesOf(plan: NotebookPlan): Record<string, string> {
  * dies immediately. Execution itself is detached — progress arrives as events.
  */
 export class NotebookExecutionService {
+  /**
+   * Runs a notebook on behalf of a cell in another notebook.
+   *
+   * Deliberately does *not* take a gate slot. The caller already holds one and is
+   * blocked waiting for this, so charging the callee too would let four nested runs
+   * fill the gate and wait on themselves forever. The bound stays on how many runs
+   * start from outside; depth is bounded separately.
+   *
+   * The callee gets its own secrets, never the caller's — reuse must not become a way
+   * to borrow credentials a notebook never declared.
+   */
+  private async callNotebook(
+    request: NotebookCallRequest,
+    context: { stack: string[]; names: string[]; log: (level: string, msg: string) => void }
+  ): Promise<Record<string, unknown>> {
+    const reference = String(request.notebook ?? "").trim();
+    const found = await notebooksService.findByIdOrName(reference);
+
+    if (found === null) throw new NotebookNotFoundError(reference);
+    if (found === "ambiguous") {
+      throw new Error(
+        `More than one notebook is named "${reference}" — call it by id instead`
+      );
+    }
+
+    const document = notebooksService.parseDocument(found);
+    const chain = [...context.names, document.name];
+
+    if (context.stack.includes(found.id)) {
+      throw new Error(`Notebook call cycle: ${chain.join(" → ")}`);
+    }
+    if (context.stack.length >= MAX_CALL_DEPTH) {
+      throw new Error(
+        `Notebook calls nested more than ${MAX_CALL_DEPTH} deep: ${chain.join(" → ")}`
+      );
+    }
+
+    const plan = compileNotebook(document);
+    // A contract failure names the callee, because from the caller's seat the error
+    // is about the call it just made, not about a notebook it cannot see.
+    const input = bindInputs(plan.inputs, request.input);
+    const secrets = await secretsService.getByKeys(plan.secrets);
+
+    const nested = {
+      stack: [...context.stack, found.id],
+      names: chain,
+      log: context.log,
+    };
+
+    // The callee's cells are not the caller's cells, so its progress events are not
+    // forwarded — only its logs, labelled, so a failure deep in a chain is traceable
+    // from the calling cell's output.
+    const ee = new EventEmitter();
+    ee.on("cell:log", (event: { level: string; payload: string }) => {
+      context.log(event.level, `[${document.name}] ${event.payload}`);
+    });
+
+    const result = await runNotebook(plan, {
+      ee,
+      secrets,
+      input,
+      call: (nestedRequest) => this.callNotebook(nestedRequest, nested),
+    });
+
+    if (result.status === "failed") {
+      throw new Error(`${document.name}: ${result.errors[0] ?? "run failed"}`);
+    }
+
+    return result.outputs;
+  }
+
+  /** The bridge handed to a run's cells, rooted at the notebook that started it. */
+  private callerFor(notebookId: string, name: string): NotebookCaller {
+    return (request, log) =>
+      this.callNotebook(request, {
+        stack: [notebookId],
+        names: [name],
+        log: log ?? (() => {}),
+      });
+  }
+
   async start(
     notebookId: string,
     publish: RunEventSink,
@@ -74,7 +172,12 @@ export class NotebookExecutionService {
     const record = await notebooksService.getById(notebookId);
     if (!record) throw new NotebookNotFoundError(notebookId);
 
-    const fullPlan = compileNotebook(notebooksService.parseDocument(record));
+    const document = notebooksService.parseDocument(record);
+    const fullPlan = compileNotebook(document);
+
+    // Bound before the run id exists, so bad arguments are a rejected request rather
+    // than a run that fails on its first cell.
+    const boundInputs = bindInputs(fullPlan.inputs, options.args);
 
     let plan = fullPlan;
     if (options.cellId) {
@@ -110,7 +213,14 @@ export class NotebookExecutionService {
     void (async () => {
       const release = await runGate.acquire();
       try {
-        await runNotebook(plan, { ee, secrets, input: options.input });
+        await runNotebook(plan, {
+          ee,
+          secrets,
+          // Declared arguments first, so a trigger payload seeded under `input`
+          // cannot quietly shadow a value the contract promised.
+          input: { ...options.input, ...boundInputs },
+          call: this.callerFor(notebookId, document.name),
+        });
       } finally {
         release();
       }

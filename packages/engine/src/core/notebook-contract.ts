@@ -1,0 +1,119 @@
+import type { NotebookParam } from "@zaa-tool/shared";
+
+/**
+ * Enforcement of the reuse boundary: what a caller must supply, and what it gets back.
+ *
+ * Kept apart from the compiler because it runs per *call*, not per document — the same
+ * compiled plan is bound to different arguments on every invocation.
+ */
+
+export class ContractError extends Error {
+  constructor(readonly issues: string[]) {
+    super(issues.join("; "));
+    this.name = "ContractError";
+  }
+}
+
+/**
+ * Values arrive from HTTP bodies and query strings as often as from another notebook,
+ * so "3" where a number was declared is a caller using the web, not a caller making a
+ * mistake. Coercion is deliberately narrow: only unambiguous conversions, never
+ * truthiness, and never a silent `NaN`.
+ */
+function coerce(param: NotebookParam, value: unknown): { ok: true; value: unknown } | { ok: false; reason: string } {
+  switch (param.type) {
+    case "json":
+      return { ok: true, value };
+
+    case "string":
+      if (typeof value === "string") return { ok: true, value };
+      if (typeof value === "number" || typeof value === "boolean") {
+        return { ok: true, value: String(value) };
+      }
+      return { ok: false, reason: `expected a string, got ${describe(value)}` };
+
+    case "number": {
+      if (typeof value === "number" && Number.isFinite(value)) return { ok: true, value };
+      if (typeof value === "string" && value.trim() !== "") {
+        const parsed = Number(value);
+        if (Number.isFinite(parsed)) return { ok: true, value: parsed };
+      }
+      return { ok: false, reason: `expected a number, got ${describe(value)}` };
+    }
+
+    case "boolean": {
+      if (typeof value === "boolean") return { ok: true, value };
+      if (value === "true") return { ok: true, value: true };
+      if (value === "false") return { ok: true, value: false };
+      return { ok: false, reason: `expected a boolean, got ${describe(value)}` };
+    }
+  }
+}
+
+function describe(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "an array";
+  return `a ${typeof value}`;
+}
+
+/**
+ * Binds supplied arguments to declared inputs.
+ *
+ * Undeclared arguments are dropped rather than merged into scope: the contract is the
+ * whole interface, so a caller cannot reach past it and set an internal name.
+ */
+export function bindInputs(
+  params: NotebookParam[] | undefined,
+  supplied: Record<string, unknown> | undefined
+): Record<string, unknown> {
+  if (!Array.isArray(params) || params.length === 0) return {};
+
+  const args = supplied ?? {};
+  const bound: Record<string, unknown> = {};
+  const issues: string[] = [];
+
+  for (const param of params) {
+    if (!param?.name) continue;
+
+    const given = Object.prototype.hasOwnProperty.call(args, param.name)
+      ? args[param.name]
+      : undefined;
+
+    if (given === undefined || given === null) {
+      if (param.default !== undefined) {
+        bound[param.name] = param.default;
+      } else if (param.required) {
+        issues.push(`"${param.name}" is required`);
+      }
+      continue;
+    }
+
+    const result = coerce(param, given);
+    if (result.ok) bound[param.name] = result.value;
+    else issues.push(`"${param.name}": ${result.reason}`);
+  }
+
+  if (issues.length > 0) throw new ContractError(issues);
+  return bound;
+}
+
+/**
+ * Lifts the declared outputs out of the final scope.
+ *
+ * A name that was declared but never written comes back as `null` rather than being
+ * left out, so a caller destructuring the result gets a value it can test instead of
+ * a property that silently does not exist.
+ */
+export function selectOutputs(
+  names: string[] | undefined,
+  scope: Record<string, unknown>
+): Record<string, unknown> {
+  if (!Array.isArray(names) || names.length === 0) return {};
+
+  const selected: Record<string, unknown> = {};
+  for (const name of names) {
+    if (typeof name !== "string" || name.length === 0) continue;
+    selected[name] = Object.prototype.hasOwnProperty.call(scope, name) ? scope[name] : null;
+  }
+  return selected;
+}

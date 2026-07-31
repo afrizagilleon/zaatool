@@ -25,6 +25,27 @@ export class NotebooksService {
     return rows[0] ?? null;
   }
 
+  /**
+   * How `notebooks.run("...")` resolves its argument.
+   *
+   * An id is stable but unreadable, and a name is readable but not unique, so both
+   * are accepted and the id wins. An ambiguous name is refused rather than resolved
+   * by recency: silently calling whichever copy was edited last is the kind of bug
+   * that only shows up in production.
+   */
+  async findByIdOrName(reference: string): Promise<NotebookRecord | "ambiguous" | null> {
+    const { rows } = await pool.query(
+      `SELECT * FROM notebooks WHERE id::text = $1
+       UNION ALL
+       SELECT * FROM notebooks WHERE name = $1 AND id::text <> $1`,
+      [reference]
+    );
+
+    if (rows.length === 0) return null;
+    if (rows.length > 1) return "ambiguous";
+    return rows[0];
+  }
+
   async save(document: NotebookJson): Promise<{ id: string; name: string }> {
     const id = document.id || uuidv4();
     const name = document.name || "Untitled Notebook";

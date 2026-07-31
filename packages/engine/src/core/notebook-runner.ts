@@ -2,6 +2,8 @@ import { EventEmitter } from "node:events";
 import { NotebookScope } from "./notebook-scope.js";
 import { runJsNode } from "./js-runner.js";
 import { runPythonNode } from "./python-runner.js";
+import { selectOutputs } from "./notebook-contract.js";
+import type { NotebookCaller } from "./notebook-call.js";
 import type { NotebookPlan, PlanCell, PlanLane, PlanParallel, PlanStep } from "./notebook-compiler.js";
 
 export interface RunNotebookOptions {
@@ -10,12 +12,19 @@ export interface RunNotebookOptions {
   secrets?: Record<string, string>;
   /** Values seeded into scope before the first cell — a trigger payload, for instance. */
   input?: Record<string, unknown>;
+  /**
+   * How a cell reaches another notebook. Absent means cells cannot call out, which
+   * is what a caller wants when there is nothing sensible to call into.
+   */
+  call?: NotebookCaller;
 }
 
 export interface NotebookRunResult {
   status: "success" | "failed";
   errors: string[];
   ms: number;
+  /** The plan's declared outputs, lifted from the final scope. */
+  outputs: Record<string, unknown>;
 }
 
 /** Thrown internally to unwind a lane or the notebook; never escapes runNotebook. */
@@ -44,7 +53,7 @@ export async function runNotebook(
   plan: NotebookPlan,
   options: RunNotebookOptions = {}
 ): Promise<NotebookRunResult> {
-  const { ee, secrets = {}, input } = options;
+  const { ee, secrets = {}, input, call } = options;
   const startedAt = Date.now();
   const runCell = runnerFor(plan);
   const rootScope = new NotebookScope();
@@ -55,6 +64,16 @@ export async function runNotebook(
     ee?.emit("cell:start", { type: "cell:start", cellId: step.cellId });
     const cellStartedAt = Date.now();
 
+    // A called notebook's logs belong to the cell that is waiting on it, which only
+    // this loop knows — so the sink is attached here rather than by whoever built
+    // the caller.
+    const callFromCell: NotebookCaller | undefined = call
+      ? (request) =>
+          call(request, (level, msg) => {
+            ee?.emit("cell:log", { type: "cell:log", cellId: step.cellId, level, payload: msg });
+          })
+      : undefined;
+
     const result = await runCell(
       step.source,
       scope.snapshot(),
@@ -63,7 +82,8 @@ export async function runNotebook(
         ee?.emit("cell:log", { type: "cell:log", cellId: step.cellId, level, payload: msg });
       },
       secrets,
-      []
+      [],
+      callFromCell
     );
 
     if (result.error) {
@@ -147,8 +167,9 @@ export async function runNotebook(
   try {
     await executeSteps(plan.steps, rootScope);
     const ms = Date.now() - startedAt;
+    const outputs = selectOutputs(plan.outputs, rootScope.snapshot());
     ee?.emit("run:done", { type: "run:done", status: "success", ms });
-    return { status: "success", errors: [], ms };
+    return { status: "success", errors: [], ms, outputs };
   } catch (err: unknown) {
     const ms = Date.now() - startedAt;
     const failure = err instanceof CellFailure ? err : null;
@@ -162,6 +183,6 @@ export async function runNotebook(
       ...(failure ? { cellId: failure.cellId } : {}),
       ms,
     });
-    return { status: "failed", errors: [message], ms };
+    return { status: "failed", errors: [message], ms, outputs: {} };
   }
 }
