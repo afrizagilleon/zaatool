@@ -15,6 +15,7 @@ import { DashboardBuilder } from './components/layout/DashboardBuilder.js';
 import { CodeEditorDialog } from './components/panels/CodeEditorDialog.js';
 import { useUiStore } from './store/uiStore.js';
 import { useAuthStore } from './store/authStore.js';
+import { useAppLocation } from './hooks/useAppLocation.js';
 
 function App() {
   const isNodePaletteOpen = useUiStore((s) => s.isNodePaletteOpen);
@@ -22,6 +23,9 @@ function App() {
   const isConsolePanelOpen = useUiStore((s) => s.isConsolePanelOpen);
   const isAiPanelOpen = useUiStore((s) => s.isAiPanelOpen);
   const activeTab = useUiStore((s) => s.activeTab);
+
+  // The URL owns which section is showing and which notebook is open.
+  const { notebookId, openNotebook, closeNotebook } = useAppLocation();
 
   const isCodeEditorOpen = useUiStore((s) => s.isCodeEditorOpen);
   const codeEditorNodeId = useUiStore((s) => s.codeEditorNodeId);
@@ -79,7 +83,13 @@ function App() {
           </ReactFlowProvider>
         )}
 
-        {activeTab === 'notebooks' && <NotebooksPage />}
+        {activeTab === 'notebooks' && (
+          <NotebooksPage
+            notebookId={notebookId}
+            onOpenNotebook={openNotebook}
+            onCloseNotebook={closeNotebook}
+          />
+        )}
         {activeTab === 'resources' && <ResourcesPage />}
         {activeTab === 'workflows' && <WorkflowsPage />}
         {activeTab === 'deploys' && <DashboardBuilder />}

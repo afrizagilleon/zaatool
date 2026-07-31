@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { fromUiTab, parseLocation } from '../lib/app-location.js';
 
 interface UiState {
   activeTab: 'editor' | 'notebooks' | 'resources' | 'deploys' | 'workflows';
@@ -14,7 +15,10 @@ interface UiState {
   isCodeEditorOpen: boolean;
   codeEditorNodeId: string | null;
 
+  /** Switches section and puts it in the URL, so the change is linkable and goes in history. */
   setActiveTab: (tab: UiState['activeTab']) => void;
+  /** Applies a section that came *from* the URL; does not write back. */
+  applyTabFromUrl: (tab: UiState['activeTab']) => void;
   toggleDarkMode: () => void;
   toggleNodePalette: () => void;
   toggleCodePanel: () => void;
@@ -39,7 +43,17 @@ export const useUiStore = create<UiState>()(
       isCodeEditorOpen: false,
       codeEditorNodeId: null,
 
-      setActiveTab: (tab) => set({ activeTab: tab }),
+      // The hash write is what actually navigates; `hashchange` applies it back here.
+      // Setting state too keeps the switch instant rather than waiting for the event.
+      setActiveTab: (tab) => {
+        set({ activeTab: tab });
+        const wanted = fromUiTab(tab);
+        if (parseLocation(window.location.hash).tab !== wanted) {
+          window.location.hash = `#/${wanted}`;
+        }
+      },
+
+      applyTabFromUrl: (tab) => set({ activeTab: tab }),
 
       toggleDarkMode: () =>
         set((state) => {
