@@ -1,4 +1,9 @@
-import type { NotebookJson, NotebookRuntime, NotebookStep } from '@zaa-tool/shared';
+import type {
+  NotebookJson,
+  NotebookParam,
+  NotebookRuntime,
+  NotebookStep,
+} from '@zaa-tool/shared';
 
 export type CellStatus = 'idle' | 'running' | 'done' | 'error';
 
@@ -52,6 +57,25 @@ export interface NotebookState {
   getDocument: () => NotebookJson;
 
   triggers: import('@zaa-tool/shared').NotebookTrigger[];
+
+  /** The reuse contract: what a caller supplies, and what it gets back. */
+  inputs: NotebookParam[];
+  outputs: string[];
+  /**
+   * Values for a test run from the editor. Never saved: they are how the author
+   * exercises the contract, not part of what the notebook is.
+   */
+  testArgs: Record<string, string>;
+
+  /**
+   * Addressed by position, not by name: the name is the field being edited, so using
+   * it as the identity makes every keystroke of a rename look like a different input.
+   */
+  addInput: () => void;
+  updateInput: (index: number, patch: Partial<NotebookParam>) => void;
+  removeInput: (index: number) => void;
+  setOutputs: (outputs: string[]) => void;
+  setTestArg: (name: string, value: string) => void;
 
   addTrigger: (kind: 'cron' | 'webhook') => void;
   updateTrigger: (

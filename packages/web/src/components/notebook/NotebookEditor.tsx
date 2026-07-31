@@ -13,6 +13,7 @@ import { ParallelGroup } from './ParallelGroup';
 import { RunHistory } from './RunHistory';
 import { RunErrorBanner } from './RunErrorBanner';
 import { TriggerPanel } from './TriggerPanel';
+import { ContractPanel } from './ContractPanel';
 import { notebooksApi } from '../../lib/notebooks-api';
 
 interface NotebookEditorProps {
@@ -38,6 +39,15 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
   const runErrorCellId = useNotebookStore((s) => s.runErrorCellId);
   const latestRunId = useNotebookStore((s) => s.latestRunId);
   const viewedRunStartedAt = useNotebookStore((s) => s.viewedRunStartedAt);
+
+  const inputs = useNotebookStore((s) => s.inputs);
+  const outputs = useNotebookStore((s) => s.outputs);
+  const testArgs = useNotebookStore((s) => s.testArgs);
+  const addInput = useNotebookStore((s) => s.addInput);
+  const updateInput = useNotebookStore((s) => s.updateInput);
+  const removeInput = useNotebookStore((s) => s.removeInput);
+  const setOutputs = useNotebookStore((s) => s.setOutputs);
+  const setTestArg = useNotebookStore((s) => s.setTestArg);
 
   const setName = useNotebookStore((s) => s.setName);
   const setRuntime = useNotebookStore((s) => s.setRuntime);
@@ -220,6 +230,21 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
             onAdd={addTrigger}
             onUpdate={updateTrigger}
             onRemove={removeTrigger}
+          />
+        }
+        contractShape={{ inputs: inputs.length, outputs: outputs.length }}
+        contractPanel={
+          <ContractPanel
+            name={name}
+            runtime={runtime}
+            inputs={inputs}
+            outputs={outputs}
+            testArgs={testArgs}
+            onAddInput={addInput}
+            onUpdateInput={updateInput}
+            onRemoveInput={removeInput}
+            onOutputsChange={setOutputs}
+            onTestArgChange={setTestArg}
           />
         }
         allCollapsed={allCollapsed}

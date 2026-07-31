@@ -136,6 +136,9 @@ export function useNotebookRun() {
           // Running one cell replays the scope the cells above produced, so no
           // live kernel is needed to pick up mid-notebook.
           input: cellId ? scopeBefore(current.steps, current.cellRuns, cellId) : undefined,
+          // Declared inputs are bound by the engine, so the editor sends what the
+          // author typed and lets the contract judge it — same path a caller takes.
+          args: current.inputs.length > 0 ? current.testArgs : undefined,
         });
         runIdRef.current = runId;
         useNotebookStore.getState().startRun(runId, cellId);

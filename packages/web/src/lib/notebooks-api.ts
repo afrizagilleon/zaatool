@@ -44,10 +44,18 @@ export const notebooksApi = {
   getRun: (id: string, runId: string): Promise<NotebookRunDetail> =>
     request(`/api/notebooks/${id}/runs/${runId}`),
 
-  /** Omit `cellId` to run the whole notebook; supply it with the scope that cell needs as `input`. */
+  /**
+   * Omit `cellId` to run the whole notebook; supply it with the scope that cell needs
+   * as `input`. `args` is different in kind: it is bound to the notebook's declared
+   * inputs and rejected if it does not fit, where `input` seeds scope verbatim.
+   */
   run: (
     id: string,
-    options: { input?: Record<string, unknown>; cellId?: string } = {}
+    options: {
+      input?: Record<string, unknown>;
+      args?: Record<string, unknown>;
+      cellId?: string;
+    } = {}
   ): Promise<RunStartedResponse> =>
     request(`/api/notebooks/${id}/run`, {
       method: "POST",

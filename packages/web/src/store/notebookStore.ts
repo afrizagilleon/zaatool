@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import type { NotebookJson, NotebookTrigger } from '@zaa-tool/shared';
+import type { NotebookJson, NotebookParam, NotebookTrigger } from '@zaa-tool/shared';
 import * as tree from '../lib/notebook-tree.js';
 import type { CellRunState, NotebookState } from './notebookTypes.js';
 
@@ -16,6 +16,9 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   runtime: 'node',
   secrets: [],
   triggers: [],
+  inputs: [],
+  outputs: [],
+  testArgs: {},
   steps: [],
 
   isDirty: false,
@@ -36,6 +39,9 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
       runtime,
       secrets: [],
       triggers: [],
+      inputs: [],
+      outputs: [],
+      testArgs: {},
       steps: [firstCell],
       isDirty: true,
       isRunning: false,
@@ -55,6 +61,9 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
       runtime: document.runtime,
       secrets: document.secrets ?? [],
       triggers: document.triggers ?? [],
+      inputs: document.inputs ?? [],
+      outputs: document.outputs ?? [],
+      testArgs: {},
       steps: document.steps ?? [],
       isDirty: false,
       isRunning: false,
@@ -70,9 +79,39 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   },
 
   getDocument: (): NotebookJson => {
-    const { id, name, runtime, secrets, triggers, steps } = get();
-    return { version: NOTEBOOK_VERSION, id, name, runtime, secrets, triggers, steps };
+    const { id, name, runtime, secrets, triggers, inputs, outputs, steps } = get();
+    return { version: NOTEBOOK_VERSION, id, name, runtime, secrets, triggers, inputs, outputs, steps };
   },
+
+  /**
+   * A new input is unnamed, and the name is its identity everywhere else — so the
+   * placeholder is a real name the author then edits, not an empty string that
+   * would collide with the next unnamed one.
+   */
+  addInput: () => {
+    const { inputs } = get();
+    const taken = new Set(inputs.map((input) => input.name));
+    let name = 'input';
+    for (let index = 2; taken.has(name); index += 1) name = `input${index}`;
+
+    set({ inputs: [...inputs, { name, type: 'string' }], isDirty: true });
+  },
+
+  updateInput: (index, patch) => {
+    set({
+      inputs: get().inputs.map((input, at) => (at === index ? { ...input, ...patch } : input)),
+      isDirty: true,
+    });
+  },
+
+  removeInput: (index) => {
+    set({ inputs: get().inputs.filter((_, at) => at !== index), isDirty: true });
+  },
+
+  setOutputs: (outputs) => set({ outputs, isDirty: true }),
+
+  // Test values are authoring scratch, not document state — no dirty flag.
+  setTestArg: (name, value) => set({ testArgs: { ...get().testArgs, [name]: value } }),
 
   addTrigger: (kind) => {
     // The slug is the credential for a webhook, so it is generated rather than named.
