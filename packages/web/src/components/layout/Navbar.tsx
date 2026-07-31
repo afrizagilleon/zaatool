@@ -6,6 +6,7 @@ import {
   FloppyDisk,
   RocketLaunch,
   SignOut,
+  List,
   User as UserIcon,
 } from '@phosphor-icons/react';
 import { useUiStore } from '../../store/uiStore.js';
@@ -17,6 +18,13 @@ import { useEffect, useState } from 'react';
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs.js';
 import { useNavbarActions } from '../../hooks/useNavbarActions.js';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog.js';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '../ui/dropdown-menu.js';
 
 const navTabs = [
   { id: 'workflows' as const, label: 'Workflows', disabled: false },
@@ -25,6 +33,8 @@ const navTabs = [
   { id: 'resources' as const, label: 'Resources', disabled: false },
   { id: 'deploys' as const, label: 'Dashboard', disabled: false },
 ] as const;
+
+type UiTab = (typeof navTabs)[number]['id'];
 
 export function Navbar() {
   const isDarkMode = useUiStore((s) => s.isDarkMode);
@@ -47,6 +57,8 @@ export function Navbar() {
     }
     setIsEditingName(false);
   };
+
+  const activeLabel = navTabs.find((tab) => tab.id === activeTab)?.label ?? 'Menu';
 
   const { isSaving, save, load } = useNavbarActions();
   const user = useAuthStore((s) => s.user);
@@ -77,8 +89,9 @@ export function Navbar() {
       {/* Divider */}
       <div className="w-px h-5 bg-border mr-1" />
 
-      {/* Current Workflow Label */}
-      <div className="flex flex-col justify-center px-2 mr-2 max-w-[180px]">
+      {/* Current Workflow Label — first to go when space is tight; the canvas shows
+          the name too, and the section switcher matters more. */}
+      <div className="hidden lg:flex flex-col justify-center px-2 mr-2 max-w-[180px]">
         <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground leading-none mb-0.5 select-none">
           Workflow
         </span>
@@ -109,11 +122,39 @@ export function Navbar() {
         )}
       </div>
 
-      {/* Center: Tabs */}
+      {/* Center: section switcher. Five tabs need ~460px, which a narrow window does
+          not have — there it collapses to a menu rather than overlapping the actions
+          on the right. Same list, same state, one source. */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="xl:hidden h-7 px-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+            title="Go to section"
+          >
+            <List size={15} className="mr-1.5" />
+            {activeLabel}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-40">
+          <DropdownMenuRadioGroup
+            value={activeTab}
+            onValueChange={(val: string) => setActiveTab(val as UiTab)}
+          >
+            {navTabs.map((tab) => (
+              <DropdownMenuRadioItem key={tab.id} value={tab.id} disabled={tab.disabled}>
+                {tab.label}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
       <Tabs
         value={activeTab}
-        onValueChange={(val: string) => setActiveTab(val as any)}
-        className="w-[460px]"
+        onValueChange={(val: string) => setActiveTab(val as UiTab)}
+        className="hidden xl:block w-[460px]"
       >
         <TabsList className="grid w-full grid-cols-5 h-7 p-0.5">
           {navTabs.map((tab) => (
@@ -143,12 +184,12 @@ export function Navbar() {
           Save
         </Button>
 
-        <div className="h-4 w-px bg-border mx-1" />
+        <div className="hidden lg:block h-4 w-px bg-border mx-1" />
 
         <Button
           variant="ghost"
           size="sm"
-          className="h-7 px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground relative group"
+          className="hidden lg:inline-flex h-7 px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground relative group"
           disabled
         >
           <RocketLaunch size={16} className="mr-1.5" />
