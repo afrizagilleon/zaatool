@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { skillsService } from "../services/skills.service.js";
+import { renderFormatReference } from "./notebook-format.js";
 
 /**
  * The house rules, offered to whoever is writing.
@@ -23,27 +24,30 @@ interface SkillRow {
 }
 
 function render(skills: SkillRow[]): string {
-  if (skills.length === 0) {
-    return [
-      "# House rules",
-      "",
-      "None written yet. Add them under Resources → Skills in zaatool and they appear here.",
-    ].join("\n");
-  }
+  const houseRules =
+    skills.length === 0
+      ? [
+          "# House rules",
+          "",
+          "None written yet. Add them under Resources → Skills in zaatool and they appear here.",
+        ].join("\n")
+      : [
+          "# House rules",
+          "",
+          "Conventions for notebooks in this workspace. Follow them unless told otherwise.",
+          "",
+          ...skills.map((skill) => {
+            const heading = `## ${skill.name}`;
+            const summary = skill.description?.trim() ? `\n_${skill.description.trim()}_\n` : "";
+            return `${heading}\n${summary}\n${skill.content?.trim() ?? ""}`.trimEnd();
+          }),
+        ].join("\n\n");
 
-  const sections = skills.map((skill) => {
-    const heading = `## ${skill.name}`;
-    const summary = skill.description?.trim() ? `\n_${skill.description.trim()}_\n` : "";
-    return `${heading}\n${summary}\n${skill.content?.trim() ?? ""}`.trimEnd();
-  });
-
-  return [
-    "# House rules",
-    "",
-    "Conventions for notebooks in this workspace. Follow them unless told otherwise.",
-    "",
-    ...sections,
-  ].join("\n\n");
+  // The format first, the workspace's own rules after. An agent reading this is usually
+  // about to write a notebook and needs to know what the file may contain before it
+  // needs to know how this workspace likes them written — and an empty Skills list must
+  // never leave a reader believing there is nothing to know.
+  return [renderFormatReference(), "---", houseRules].join("\n\n");
 }
 
 export function registerConventions(server: McpServer): void {
@@ -51,9 +55,9 @@ export function registerConventions(server: McpServer): void {
     "conventions",
     CONVENTIONS_URI,
     {
-      title: "House rules",
+      title: "Notebook format and house rules",
       description:
-        "How notebooks are written in this workspace. Read this before writing or changing one.",
+        "The notebook file format — front matter, cells, inputs, and how an output is rendered as a table, chart, markdown or image — followed by this workspace's own conventions. Read this before writing or changing a notebook.",
       mimeType: "text/markdown",
     },
     async () => {

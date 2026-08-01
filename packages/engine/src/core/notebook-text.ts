@@ -57,7 +57,7 @@ export class NotebookTextError extends Error {
 }
 
 const DEFAULT_VERSION = "1.0";
-const PARAM_TYPES: readonly NotebookParamType[] = ["string", "number", "boolean", "json"];
+export const PARAM_TYPES: readonly NotebookParamType[] = ["string", "number", "boolean", "json"];
 const FENCE_LANGUAGE: Record<NotebookRuntime, string> = { node: "js", python: "python" };
 
 // ── writing ───────────────────────────────────────────────────────────────────
