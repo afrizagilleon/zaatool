@@ -19,10 +19,9 @@ import type { UiInputField, UiInputSchema } from '@zaa-tool/shared';
 import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../ui/select';
-import { Plus, Trash, Robot, DotsSixVertical, CaretRight, CaretDown } from '@phosphor-icons/react';
+import { Plus, Trash, DotsSixVertical, CaretRight, CaretDown } from '@phosphor-icons/react';
 import { Switch } from '../../ui/switch';
 import { Label } from '../../ui/label';
-import { AiFormBuilderDialog } from '../AiFormBuilderDialog';
 import { cn } from '../../../lib/utils';
 
 // Generate a slug ID from a label string
@@ -215,7 +214,6 @@ function SortableField({
 export function UiInputProperties({ nodeId }: { nodeId: string }) {
   const nodes = useFlowStore(s => s.nodes);
   const updateNodeData = useFlowStore(s => s.updateNodeData);
-  const [isAiDialogOpen, setIsAiDialogOpen] = useState(false);
   // Set of field IDs whose ID has been manually edited (decoupled from label auto-sync)
   const [touchedIds, setTouchedIds] = useState<Set<string>>(new Set());
   // Set of field IDs that are collapsed
@@ -319,25 +317,9 @@ export function UiInputProperties({ nodeId }: { nodeId: string }) {
 
   return (
     <div className="space-y-6">
-      <AiFormBuilderDialog
-        open={isAiDialogOpen}
-        onOpenChange={setIsAiDialogOpen}
-        nodeId={nodeId}
-        onApplySchema={updateSchema}
-        initialSchema={uiSchema}
-      />
-
       <div className="flex items-center justify-between">
         <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Form Fields</span>
         <div className="flex gap-1">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setIsAiDialogOpen(true)}
-            className="h-6 px-2 text-[10px] bg-primary/10 text-primary border-primary/20 hover:bg-primary/20"
-          >
-            <Robot size={12} className="mr-1" /> AI
-          </Button>
           <Button variant="ghost" size="sm" onClick={addField} className="h-6 px-2 text-[10px]">
             <Plus size={10} className="mr-1" /> Add
           </Button>

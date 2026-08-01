@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import Editor, { DiffEditor } from '@monaco-editor/react';
+import Editor from '@monaco-editor/react';
 import {
   Dialog,
   DialogContent,
@@ -8,12 +8,15 @@ import {
   DialogTitle,
 } from '../ui/dialog';
 import { Button } from '../ui/button';
-import { Sparkle, TerminalWindow, Check, X } from '@phosphor-icons/react';
+import { TerminalWindow } from '@phosphor-icons/react';
 import { useFlowStore } from '../../store/flowStore';
 import { useUiStore } from '../../store/uiStore';
-import { useAiGeneration, type FormNodeContext } from '../../hooks/useAiGeneration';
-import { AiGeneratorPanel } from './AiGeneratorPanel';
 import type { UiInputField } from '@zaa-tool/shared';
+
+interface FormNodeContext {
+  label: string;
+  fields: { id: string; type: string; label: string }[];
+}
 
 interface CodeEditorDialogProps {
   open: boolean;
@@ -23,7 +26,6 @@ interface CodeEditorDialogProps {
 
 export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialogProps) {
   const nodes = useFlowStore((s) => s.nodes);
-  const edges = useFlowStore((s) => s.edges);
   const updateNodeData = useFlowStore((s) => s.updateNodeData);
   const isDarkMode = useUiStore((s) => s.isDarkMode);
   const node = nodes.find((n) => n.id === nodeId);
@@ -32,24 +34,14 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
 
   const [code, setCode] = useState(node?.data.code || '');
   const [runCondition, setRunCondition] = useState(node?.data.runCondition || '');
-  const [isAiPanelOpen, setIsAiPanelOpen] = useState(true);
   const [isReferenceOpen, setIsReferenceOpen] = useState(false);
   const editorRef = useRef<any>(null);
 
-  // Compute upstream nodes (via edges)
-  const upstreamEdges = edges.filter((e) => e.target === nodeId);
-  const upstreamNodes = upstreamEdges
-    .map((e) => {
-      const sourceNode = nodes.find((n) => n.id === e.source);
-      if (!sourceNode) return null;
-      return {
-        label: sourceNode.data.label || sourceNode.id,
-        outputsSchema: sourceNode.data.inferredOutputsSchema || sourceNode.data.outputsSchema || [],
-      };
-    })
-    .filter((n): n is { label: string; outputsSchema: any[] } => n !== null);
+  const runtime = node?.data.runtime ?? 'node';
+  const inputsSchema = node?.data.inputsSchema || [];
+  const outputsSchema = node?.data.outputsSchema || [];
 
-  // Compute form context: all ui:input nodes in the flow, available as inputs.form
+  // Every ui:input node in the flow, which the API guide lists as `inputs.form`.
   const formNodes: FormNodeContext[] = nodes
     .filter((n) => n.type === 'ui:input')
     .map((n) => ({
@@ -61,42 +53,12 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
       })),
     }));
 
-  const runtime = node?.data.runtime ?? 'node';
-  const inputsSchema = node?.data.inputsSchema || [];
-  const outputsSchema = node?.data.outputsSchema || [];
-
-  // Initialize custom hook
-  const {
-    provider,
-    setProvider,
-    model,
-    setModel,
-    prompt,
-    setPrompt,
-    selectedSkills,
-    setSelectedSkills,
-    skills,
-    isGenerating,
-    generatedContent,
-    setGeneratedContent,
-    generate,
-  } = useAiGeneration({
-    runtime,
-    nodeId,
-    inputsSchema,
-    outputsSchema,
-    upstreamNodes,
-    formNodes,
-  });
-
   useEffect(() => {
     if (open && node) {
       setCode(node.data.code || '');
       setRunCondition(node.data.runCondition || '');
-      setGeneratedContent(null);
-      setPrompt('');
     }
-  }, [open, node, setGeneratedContent, setPrompt]);
+  }, [open, node]);
 
   if (!node) return null;
 
@@ -110,17 +72,6 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
   const handleSave = () => {
     updateNodeData(nodeId, { code, runCondition: runCondition.trim() || undefined });
     onOpenChange(false);
-  };
-
-  const acceptGeneratedCode = () => {
-    if (generatedContent) {
-      setCode(generatedContent);
-      setGeneratedContent(null);
-    }
-  };
-
-  const rejectGeneratedCode = () => {
-    setGeneratedContent(null);
   };
 
   return (
@@ -162,19 +113,6 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
             >
               <TerminalWindow size={14} className="mr-1.5" weight="fill" />
               API Guide
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsAiPanelOpen(!isAiPanelOpen)}
-              className={
-                isAiPanelOpen
-                  ? 'bg-primary/10 text-primary border-primary/30 hover:bg-primary/20 shadow-inner'
-                  : 'hover:bg-accent/50'
-              }
-            >
-              <Sparkle size={14} className="mr-1.5" weight="fill" />
-              AI Assistant
             </Button>
             <Button size="sm" onClick={handleSave} className="font-bold px-5 shadow-md">
               Save & Close
@@ -350,94 +288,29 @@ export function CodeEditorDialog({ open, onOpenChange, nodeId }: CodeEditorDialo
             onKeyDown={(e) => e.stopPropagation()}
             onKeyUp={(e) => e.stopPropagation()}
           >
-            {generatedContent !== null ? (
-              <>
-                {/* Diff accept/reject bar */}
-                <div className="shrink-0 flex items-center justify-between px-4 py-2 border-b border-emerald-500/30 bg-emerald-500/5">
-                  <span className="text-[11px] font-bold text-emerald-500 uppercase tracking-widest">
-                    AI Suggestion — Review Changes
-                  </span>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      className="h-7 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-sm"
-                      onClick={acceptGeneratedCode}
-                    >
-                      <Check size={13} className="mr-1.5" weight="bold" /> Accept All
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 px-3 text-xs hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 font-bold"
-                      onClick={rejectGeneratedCode}
-                    >
-                      <X size={13} className="mr-1.5" weight="bold" /> Discard
-                    </Button>
-                  </div>
-                </div>
-                <DiffEditor
-                  height="100%"
-                  language={language}
-                  theme={monacoTheme}
-                  original={code}
-                  modified={generatedContent}
-                  options={{
-                    renderSideBySide: false,
-                    minimap: { enabled: false },
-                    fontSize: 14,
-                    fontFamily: 'JetBrains Mono, Consolas, monospace',
-                    padding: { top: 16, bottom: 16 },
-                    scrollBeyondLastLine: false,
-                    readOnly: false,
-                  }}
-                />
-              </>
-            ) : (
-              <Editor
-                height="100%"
-                language={language}
-                theme={monacoTheme}
-                value={code}
-                onChange={handleEditorChange}
-                onMount={(editor) => {
-                  editorRef.current = editor;
-                }}
-                options={{
-                  minimap: { enabled: false },
-                  fontSize: 14,
-                  fontFamily: 'JetBrains Mono, Consolas, monospace',
-                  padding: { top: 24, bottom: 24 },
-                  scrollBeyondLastLine: false,
-                  lineNumbers: 'on',
-                  renderLineHighlight: 'all',
-                  bracketPairColorization: { enabled: true },
-                  guides: { indentation: true },
-                }}
-              />
-            )}
+            <Editor
+              height="100%"
+              language={language}
+              theme={monacoTheme}
+              value={code}
+              onChange={handleEditorChange}
+              onMount={(editor) => {
+                editorRef.current = editor;
+              }}
+              options={{
+                minimap: { enabled: false },
+                fontSize: 14,
+                fontFamily: 'JetBrains Mono, Consolas, monospace',
+                padding: { top: 24, bottom: 24 },
+                scrollBeyondLastLine: false,
+                lineNumbers: 'on',
+                renderLineHighlight: 'all',
+                bracketPairColorization: { enabled: true },
+                guides: { indentation: true },
+              }}
+            />
           </div>
 
-          {/* AI Panel — generatedContent always null here; diff shows in main area */}
-          {isAiPanelOpen && (
-            <AiGeneratorPanel
-              runtime={runtime}
-              provider={provider}
-              setProvider={setProvider}
-              model={model}
-              setModel={setModel}
-              prompt={prompt}
-              setPrompt={setPrompt}
-              selectedSkills={selectedSkills}
-              setSelectedSkills={setSelectedSkills}
-              skills={skills}
-              isGenerating={isGenerating}
-              generatedContent={null}
-              onGenerate={() => generate(code)}
-              onAccept={acceptGeneratedCode}
-              onReject={rejectGeneratedCode}
-              isDarkMode={isDarkMode}
-            />
-          )}
         </div>
       </DialogContent>
     </Dialog>

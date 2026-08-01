@@ -10,10 +10,8 @@ import {
 } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { Sparkle, BookOpen } from '@phosphor-icons/react';
+import { BookOpen } from '@phosphor-icons/react';
 import { useUiStore } from '../../store/uiStore';
-import { useAiGeneration } from '../../hooks/useAiGeneration';
-import { AiGeneratorPanel } from './AiGeneratorPanel';
 
 export interface Skill {
   id: string;
@@ -36,28 +34,8 @@ export function SkillEditorDialog({ open, onOpenChange, skill, onSave }: SkillEd
   const [description, setDescription] = useState('');
   const [content, setContent] = useState('');
   const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
-  const [isAiPanelOpen, setIsAiPanelOpen] = useState(true);
 
   const editorRef = useRef<any>(null);
-
-  // Initialize Custom Hook for AI Generation
-  const {
-    provider,
-    setProvider,
-    model,
-    setModel,
-    prompt,
-    setPrompt,
-    selectedSkills,
-    setSelectedSkills,
-    skills,
-    isGenerating,
-    generatedContent,
-    setGeneratedContent,
-    generate,
-  } = useAiGeneration({
-    runtime: 'text', // Generates text content
-  });
 
   useEffect(() => {
     if (open) {
@@ -70,11 +48,9 @@ export function SkillEditorDialog({ open, onOpenChange, skill, onSave }: SkillEd
         setDescription('');
         setContent('');
       }
-      setGeneratedContent(null);
-      setPrompt('');
       setViewMode('edit');
     }
-  }, [open, skill, setGeneratedContent, setPrompt]);
+  }, [open, skill]);
 
   const monacoTheme = isDarkMode ? 'vs-dark' : 'light';
 
@@ -89,17 +65,6 @@ export function SkillEditorDialog({ open, onOpenChange, skill, onSave }: SkillEd
       description,
       content,
     });
-  };
-
-  const acceptGeneratedContent = () => {
-    if (generatedContent) {
-      setContent(generatedContent);
-      setGeneratedContent(null);
-    }
-  };
-
-  const rejectGeneratedContent = () => {
-    setGeneratedContent(null);
   };
 
   return (
@@ -121,25 +86,13 @@ export function SkillEditorDialog({ open, onOpenChange, skill, onSave }: SkillEd
                   {skill ? 'Edit Skill' : 'Create Skill'}
                 </DialogTitle>
                 <DialogDescription className="text-[11px] text-muted-foreground/80 mt-0.5">
-                  Define reusable instructions, personas, or context for your nodes.
+                  House rules an agent reads before it writes. Served over MCP as
+                  zaa://conventions.
                 </DialogDescription>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsAiPanelOpen(!isAiPanelOpen)}
-                className={
-                  isAiPanelOpen
-                    ? 'bg-primary/10 text-primary border-primary/30 hover:bg-primary/20 shadow-inner'
-                    : 'hover:bg-accent/50'
-                }
-              >
-                <Sparkle size={14} className="mr-1.5" weight="fill" />
-                AI Assistant
-              </Button>
               <Button
                 size="sm"
                 onClick={handleSave}
@@ -239,27 +192,6 @@ export function SkillEditorDialog({ open, onOpenChange, skill, onSave }: SkillEd
             </div>
           </div>
 
-          {/* AI Panel */}
-          {isAiPanelOpen && (
-            <AiGeneratorPanel
-              runtime="text"
-              provider={provider}
-              setProvider={setProvider}
-              model={model}
-              setModel={setModel}
-              prompt={prompt}
-              setPrompt={setPrompt}
-              selectedSkills={selectedSkills}
-              setSelectedSkills={setSelectedSkills}
-              skills={skills}
-              isGenerating={isGenerating}
-              generatedContent={generatedContent}
-              onGenerate={generate}
-              onAccept={acceptGeneratedContent}
-              onReject={rejectGeneratedContent}
-              isDarkMode={isDarkMode}
-            />
-          )}
         </div>
       </DialogContent>
     </Dialog>

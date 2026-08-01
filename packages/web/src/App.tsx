@@ -4,7 +4,6 @@ import { Navbar } from './components/layout/Navbar.js';
 import { NodePalette } from './components/layout/NodePalette.js';
 import { FlowCanvas } from './components/canvas/FlowCanvas.js';
 import { PropertiesPanel } from './components/panels/PropertiesPanel.js';
-import { AiPanel } from './components/panels/AiPanel.js';
 import { RunConsole } from './components/panels/RunConsole.js';
 import { ResourcesPage } from './components/pages/ResourcesPage.js';
 import { WorkflowsPage } from './components/pages/WorkflowsPage.js';
@@ -21,7 +20,6 @@ function App() {
   const isNodePaletteOpen = useUiStore((s) => s.isNodePaletteOpen);
   const isCodePanelOpen = useUiStore((s) => s.isCodePanelOpen);
   const isConsolePanelOpen = useUiStore((s) => s.isConsolePanelOpen);
-  const isAiPanelOpen = useUiStore((s) => s.isAiPanelOpen);
   const activeTab = useUiStore((s) => s.activeTab);
 
   // The URL owns which section is showing and which notebook is open.
@@ -93,9 +91,6 @@ function App() {
         {activeTab === 'resources' && <ResourcesPage />}
         {activeTab === 'workflows' && <WorkflowsPage />}
         {activeTab === 'deploys' && <DashboardBuilder />}
-
-        {/* Far Right: AI Assistant */}
-        {isAiPanelOpen && <AiPanel />}
       </main>
     </div>
   );

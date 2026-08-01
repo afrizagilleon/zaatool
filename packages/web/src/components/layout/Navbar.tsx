@@ -2,7 +2,6 @@ import {
   Sun,
   Moon,
   Spinner,
-  Sparkle,
   FloppyDisk,
   RocketLaunch,
   SignOut,
@@ -12,7 +11,6 @@ import {
 import { useUiStore } from '../../store/uiStore.js';
 import { useFlowStore } from '../../store/flowStore.js';
 import { useAuthStore } from '../../store/authStore.js';
-import { cn } from '../../lib/utils.js';
 import { Button } from '../ui/button.js';
 import { useEffect, useState } from 'react';
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs.js';
@@ -41,8 +39,6 @@ export function Navbar() {
   const toggleDarkMode = useUiStore((s) => s.toggleDarkMode);
   const activeTab = useUiStore((s) => s.activeTab);
   const setActiveTab = useUiStore((s) => s.setActiveTab);
-  const isAiPanelOpen = useUiStore((s) => s.isAiPanelOpen);
-  const toggleAiPanel = useUiStore((s) => s.toggleAiPanel);
 
   const flowName = useFlowStore((s) => s.name);
   const setFlowName = useFlowStore((s) => s.setFlowName);
@@ -202,20 +198,6 @@ export function Navbar() {
         <div className="h-4 w-px bg-border mx-1" />
       </div>
 
-      {/* AI Assistant toggle */}
-      <Button
-        id="navbar-toggle-ai"
-        onClick={toggleAiPanel}
-        variant="ghost"
-        size="icon"
-        className={cn(
-          'w-7 h-7 mr-1',
-          isAiPanelOpen ? 'bg-primary/20 text-primary' : 'text-muted-foreground'
-        )}
-        title="Toggle AI Assistant"
-      >
-        <Sparkle size={15} weight="duotone" />
-      </Button>
 
       {/* Dark mode toggle */}
       <Button

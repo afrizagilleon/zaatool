@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import type { NotebookJson, NotebookParam, NotebookTrigger } from '@zaa-tool/shared';
+import type { NotebookJson, NotebookTrigger } from '@zaa-tool/shared';
 import * as tree from '../lib/notebook-tree.js';
 import type { CellRunState, NotebookState } from './notebookTypes.js';
 

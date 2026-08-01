@@ -8,7 +8,6 @@ interface UiState {
   isNodePaletteOpen: boolean;
   isCodePanelOpen: boolean;
   isConsolePanelOpen: boolean;
-  isAiPanelOpen: boolean;
 
   layoutDirection: 'LR' | 'TB';
 
@@ -23,7 +22,6 @@ interface UiState {
   toggleNodePalette: () => void;
   toggleCodePanel: () => void;
   toggleConsolePanel: () => void;
-  toggleAiPanel: () => void;
   setCodePanelOpen: (open: boolean) => void;
   setLayoutDirection: (dir: 'LR' | 'TB') => void;
   openCodeEditor: (nodeId: string) => void;
@@ -38,7 +36,6 @@ export const useUiStore = create<UiState>()(
       isNodePaletteOpen: true,
       isCodePanelOpen: true,
       isConsolePanelOpen: true,
-      isAiPanelOpen: false,
       layoutDirection: 'LR',
       isCodeEditorOpen: false,
       codeEditorNodeId: null,
@@ -74,9 +71,6 @@ export const useUiStore = create<UiState>()(
 
       toggleConsolePanel: () =>
         set((state) => ({ isConsolePanelOpen: !state.isConsolePanelOpen })),
-
-      toggleAiPanel: () =>
-        set((state) => ({ isAiPanelOpen: !state.isAiPanelOpen })),
 
       setCodePanelOpen: (open) => set({ isCodePanelOpen: open }),
 
