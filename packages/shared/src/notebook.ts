@@ -133,6 +133,19 @@ export interface NotebookJson {
   steps: NotebookStep[];
 }
 
+/**
+ * What production is running for a notebook, and whether the draft has moved on.
+ *
+ * `hasUndeployedChanges` compares the documents rather than timestamps, so saving
+ * without changing anything does not make a notebook look like it needs deploying.
+ */
+export interface NotebookDeployState {
+  isDeployed: boolean;
+  deployedAt: string | null;
+  deployedBy: string | null;
+  hasUndeployedChanges: boolean;
+}
+
 export interface NotebookSummary {
   id: string;
   name: string;

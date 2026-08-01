@@ -11,6 +11,7 @@ import { NotebookToolbar } from './NotebookToolbar';
 import { NotebookCell } from './NotebookCell';
 import { ParallelGroup } from './ParallelGroup';
 import { RunHistory } from './RunHistory';
+import { DeployButton } from './DeployButton';
 import { RunErrorBanner } from './RunErrorBanner';
 import { TriggerPanel } from './TriggerPanel';
 import { ContractPanel } from './ContractPanel';
@@ -213,6 +214,17 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
         isSaving={isSaving}
         isRunning={isRunning}
         staleCount={staleCount}
+        deployButton={
+          notebookId ? (
+            <DeployButton
+              notebookId={notebookId}
+              // A save may have moved the draft on, so re-ask after every one.
+              refreshKey={`${isDirty}-${isSaving}`}
+              hasTriggers={triggers.some((trigger) => trigger.enabled !== false)}
+              isDirty={isDirty}
+            />
+          ) : null
+        }
         runHistory={
           <RunHistory
             notebookId={notebookId}

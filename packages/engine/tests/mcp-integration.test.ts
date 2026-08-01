@@ -391,14 +391,10 @@ const withCron = (name: string) =>
     "```",
   ].join("\n");
 
-await check("a client that cannot ask must say so explicitly before adding a live cron", async () => {
-  const refused = await call(author, "notebook_write", { text: withCron("zz-mcp-cron") });
-  assert.ok(refused.isError, "a live cron was added with nobody asked");
-  assert.match(textOf(refused), /adds a live cron/);
-  assert.equal(await notebooksService.findByIdOrName("zz-mcp-cron"), null);
-
-  const allowed = await write(withCron("zz-mcp-cron"), { approveOutwardChange: true });
-  assert.ok(!allowed.isError, textOf(allowed));
+await check("adding a trigger no longer needs approval, because it is not live", async () => {
+  const result = await write(withCron("zz-mcp-cron"));
+  assert.ok(!result.isError, textOf(result));
+  assert.match(textOf(result), /Not deployed/);
 });
 
 await check("saving without touching triggers needs no approval", async () => {
@@ -406,36 +402,6 @@ await check("saving without touching triggers needs no approval", async () => {
     ["---", "name: zz-mcp-plain", "runtime: node", "---", "", "```js", "return { ok: 1 };", "```"].join("\n")
   );
   assert.ok(!plain.isError, textOf(plain));
-});
-
-await check("a client that can ask is asked, and a decline means nothing is saved", async () => {
-  const declining = await connectAnswering("decline");
-  const result = await call(declining, "notebook_write", { text: withCron("zz-mcp-declined") });
-
-  assert.ok(result.isError, "the write went through after a decline");
-  assert.match(textOf(result), /Not saved/);
-  assert.equal(await notebooksService.findByIdOrName("zz-mcp-declined"), null);
-  await declining.close();
-});
-
-await check("an approval lets it through without any confirmation argument", async () => {
-  const approving = await connectAnswering(true);
-  const result = await call(approving, "notebook_write", { text: withCron("zz-mcp-approved") });
-
-  assert.ok(!result.isError, textOf(result));
-  const found = await notebooksService.findByIdOrName("zz-mcp-approved");
-  assert.ok(found && found !== "ambiguous", "it was not saved");
-  created.push(found.id);
-  await approving.close();
-});
-
-await check("editing a notebook that is already live is itself worth asking about", async () => {
-  const result = await call(author, "notebook_write", {
-    text: withCron("zz-mcp-cron").replace("return { ok: 1 };", "return { ok: 2 };"),
-    notebook: "zz-mcp-cron",
-  });
-  assert.ok(result.isError, "a live notebook was quietly rewritten");
-  assert.match(textOf(result), /already live/);
 });
 
 await check("deleting asks too, and a decline leaves the notebook alone", async () => {

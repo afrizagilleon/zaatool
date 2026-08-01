@@ -6,6 +6,7 @@ import {
   notebookExecutionService,
   NotebookNotFoundError,
   CellNotFoundError,
+  NotebookNotDeployedError,
   TooManyRunsError,
 } from "../services/notebook-execution.service.js";
 import { NotebookCompileError } from "../core/notebook-compiler.js";
@@ -25,6 +26,11 @@ function respondWithError(res: Response, err: unknown) {
   }
   if (err instanceof TooManyRunsError) {
     return res.status(429).json({ error: err.message });
+  }
+  // Not a bad request and not a missing one: the notebook exists, but nobody has said
+  // this version may run unattended.
+  if (err instanceof NotebookNotDeployedError) {
+    return res.status(409).json({ error: err.message });
   }
   return res.status(500).json({ error: (err as Error).message });
 }
@@ -65,6 +71,33 @@ export class NotebooksController {
         return res.status(400).json({ error: "Invalid notebook: missing steps" });
       }
       res.json(await notebooksService.save(req.body));
+    } catch (err: unknown) {
+      respondWithError(res, err);
+    }
+  };
+
+  /** What production is running, and whether the draft has moved on since. */
+  deployState = async (req: Request, res: Response) => {
+    try {
+      const state = await notebooksService.getDeployState(String(req.params.id));
+      if (!state) return res.status(404).json({ error: "Notebook not found" });
+      res.json(state);
+    } catch (err: unknown) {
+      respondWithError(res, err);
+    }
+  };
+
+  deploy = async (req: Request, res: Response) => {
+    try {
+      // Named on the version, because "who decided this may run unattended" is the
+      // question a deploy record exists to answer.
+      const user = (req as Request & { user?: { username?: string } }).user;
+      const result = await notebooksService.deploy(
+        String(req.params.id),
+        user?.username ?? "unknown"
+      );
+      if (!result) return res.status(404).json({ error: "Notebook not found" });
+      res.json(result);
     } catch (err: unknown) {
       respondWithError(res, err);
     }

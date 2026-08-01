@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { notebookTriggersService } from "../services/notebook-triggers.service.js";
 import {
   notebookExecutionService,
+  NotebookNotDeployedError,
   NotebookNotFoundError,
   TooManyRunsError,
 } from "../services/notebook-execution.service.js";
@@ -85,6 +86,12 @@ export function createHooksRouter(publishRunEvent: RunEventSink): Router {
       }
       if (err instanceof NotebookNotFoundError) {
         return res.status(404).json({ error: err.message });
+      }
+      // The hook exists but its notebook was never deployed. Told plainly to the
+      // caller *and* the log, because from outside this looks like the hook is broken.
+      if (err instanceof NotebookNotDeployedError) {
+        console.error(`Webhook "${String(req.params.slug)}": ${err.message}`);
+        return res.status(409).json({ error: err.message });
       }
       if (err instanceof NotebookCompileError) {
         return res.status(400).json({ error: err.message, issues: err.issues });

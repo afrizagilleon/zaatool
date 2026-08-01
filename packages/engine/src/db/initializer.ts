@@ -70,6 +70,45 @@ export async function initDb() {
       );
     `);
 
+    // Deployed snapshots. A notebook's row holds the draft you edit; a version holds
+    // what production runs, so editing at 2pm no longer changes what the webhook does
+    // at 2:01. Kept as a table rather than a column so a deploy can be rolled back to.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS notebook_versions (
+        id VARCHAR(255) PRIMARY KEY,
+        notebook_id VARCHAR(255) NOT NULL,
+        document TEXT NOT NULL,
+        deployed_by VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS notebook_versions_notebook_idx
+      ON notebook_versions (notebook_id, created_at DESC);
+    `);
+
+    // Adding the column and backfilling in one block, so the backfill happens exactly
+    // once: every notebook that existed before deploys came along keeps running what it
+    // was already running. Notebooks made afterwards must be deployed deliberately.
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE notebooks ADD COLUMN deployed_version_id VARCHAR(255);
+
+        INSERT INTO notebook_versions (id, notebook_id, document, deployed_by)
+        SELECT md5(random()::text || clock_timestamp()::text), id, document, 'migration'
+        FROM notebooks;
+
+        UPDATE notebooks n
+        SET deployed_version_id = v.id
+        FROM notebook_versions v
+        WHERE v.notebook_id = n.id;
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
+
     // Notebook triggers, indexed rather than discovered by scanning documents —
     // the scheduler queries this table instead of parsing every notebook each minute.
     await client.query(`

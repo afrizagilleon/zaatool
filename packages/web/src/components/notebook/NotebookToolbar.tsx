@@ -29,6 +29,8 @@ interface NotebookToolbarProps {
   staleCount: number;
   /** Rendered between the fold toggles and Save; owned by the editor. */
   runHistory?: React.ReactNode;
+  /** The deploy gate, owned by the editor because it needs the saved notebook's id. */
+  deployButton?: React.ReactNode;
   /** Trigger editor, shown in a popover next to Secrets. */
   triggerPanel?: React.ReactNode;
   triggerCount: number;
@@ -56,6 +58,7 @@ export function NotebookToolbar({
   isRunning,
   staleCount,
   runHistory,
+  deployButton,
   triggerPanel,
   triggerCount,
   contractPanel,
@@ -181,6 +184,8 @@ export function NotebookToolbar({
         {isSaving ? <Spinner size={13} className="animate-spin mr-1.5" /> : <FloppyDisk size={13} className="mr-1.5" />}
         Save
       </Button>
+
+      {deployButton}
 
       <Button size="sm" className="h-7 px-3 text-xs" onClick={onRun} disabled={isRunning}>
         {isRunning ? <Spinner size={13} className="animate-spin mr-1.5" /> : <Play size={13} weight="fill" className="mr-1.5" />}

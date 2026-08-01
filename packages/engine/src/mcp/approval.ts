@@ -1,12 +1,12 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { NotebookJson, NotebookTrigger } from "@zaa-tool/shared";
 
 /**
  * Asking before doing something that reaches past the workspace.
  *
- * Most of what an agent does here is safe by construction: a draft nobody triggers is
- * just text, and running a cell is what it is for. Two things are not — deleting work,
- * and changing a notebook the outside world can already reach. Those get a question.
+ * Almost nothing an agent does here needs asking about, and that is the deploy gate's
+ * doing: writing changes a draft, and triggers run the deployed version, so an agent
+ * cannot reach production by writing at all. What is left is destroying work, which no
+ * gate protects you from.
  *
  * MCP's `elicitation/create` is what carries it. Hermes routes form elicitations to its
  * approval surface, so in practice this is a pair of buttons in Telegram; a client
@@ -74,50 +74,3 @@ export async function requestApproval(
   return { approved: true };
 }
 
-function describeTrigger(trigger: NotebookTrigger): string {
-  return trigger.kind === "cron"
-    ? `cron \`${trigger.cron}\``
-    : `webhook POST /hooks/${trigger.slug}`;
-}
-
-const isLive = (trigger: NotebookTrigger): boolean => trigger.enabled !== false;
-
-/**
- * What a save would change about the world outside the editor.
- *
- * Everything else — prose, code, contracts — is between you and the document. These are
- * the changes that alter what runs unattended, which today happens the moment a
- * notebook is saved, since there is no deployed version to sit behind. When that gate
- * exists this list gets shorter, not longer.
- */
-export function outwardChanges(before: NotebookJson | null, after: NotebookJson): string[] {
-  const changes: string[] = [];
-  const previous = new Map((before?.triggers ?? []).map((trigger) => [trigger.id, trigger]));
-  const next = new Map((after.triggers ?? []).map((trigger) => [trigger.id, trigger]));
-
-  for (const [id, trigger] of next) {
-    const was = previous.get(id);
-    if (!was && isLive(trigger)) {
-      changes.push(`adds a live ${describeTrigger(trigger)}`);
-    } else if (was && !isLive(was) && isLive(trigger)) {
-      changes.push(`enables ${describeTrigger(trigger)}`);
-    } else if (was && was.kind === "cron" && trigger.kind === "cron" && was.cron !== trigger.cron && isLive(trigger)) {
-      changes.push(`reschedules ${describeTrigger(was)} to \`${trigger.cron}\``);
-    }
-  }
-
-  for (const [id, trigger] of previous) {
-    if (!next.has(id) && isLive(trigger)) {
-      changes.push(`removes the live ${describeTrigger(trigger)}`);
-    }
-  }
-
-  // Changing the code of something already running unattended is the quiet one: no
-  // trigger changed, but what fires at 9am tomorrow just became different.
-  if (changes.length === 0 && (before?.triggers ?? []).some(isLive)) {
-    const running = (before?.triggers ?? []).filter(isLive).map(describeTrigger).join(", ");
-    changes.push(`changes a notebook that is already live (${running})`);
-  }
-
-  return changes;
-}

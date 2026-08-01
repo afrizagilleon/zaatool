@@ -12,7 +12,7 @@ import {
 import { compileNotebook, NotebookCompileError } from "../core/notebook-compiler.js";
 import { ContractError } from "../core/notebook-contract.js";
 import { fromMarkdown, toMarkdown, NotebookTextError } from "../core/notebook-text.js";
-import { outwardChanges, requestApproval } from "./approval.js";
+import { requestApproval } from "./approval.js";
 import { buildNotebookMap, renderNotebookMap } from "../core/notebook-map.js";
 import type { NotebookPlan } from "../core/notebook-compiler.js";
 import type { RunEventSink } from "../core/run-emitter.js";
@@ -420,6 +420,7 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
           "To reuse another notebook, call `await notebooks.run('its-name', { arg: 1 })` from a cell; you get back only that notebook's declared outputs.",
           "",
           "Read first and keep the ids you were given: run history and freshness are keyed by cell id, so dropping them starts the record over.",
+          "Saving changes the draft. Triggers run the version a person deployed, so nothing you write here reaches production on its own.",
         ].join("\n"),
       inputSchema: {
         text: z.string().describe("The whole notebook in its text form."),
@@ -427,15 +428,9 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
           .string()
           .optional()
           .describe("Name or id of an existing notebook to update, when the text has no `id`."),
-        approveOutwardChange: z
-          .boolean()
-          .optional()
-          .describe(
-            "Set only when the person you are working for has agreed to a change that alters what runs unattended — a new or changed cron or webhook, or edits to a notebook that is already live."
-          ),
       },
     },
-    async ({ text, notebook, approveOutwardChange }) => {
+    async ({ text, notebook }) => {
       let fallbackId: string | undefined;
       if (notebook) {
         const resolved = await resolveNotebook(notebook);
@@ -456,22 +451,6 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
       const before = existing ? notebooksService.parseDocument(existing) : null;
       if (before) document = fromMarkdown(text, { id: fallbackId, previous: before });
 
-      // Until a notebook can be deployed, saving *is* publishing: whatever is stored is
-      // what the next webhook call and the next cron tick will run. So a change that
-      // reaches outside the editor is put to a person before it lands.
-      const outward = outwardChanges(before, document);
-      if (outward.length > 0) {
-        const approval = await requestApproval(server, {
-          summary: `Save "${document.name}"?`,
-          consequence: `This ${outward.join(", and ")}.`,
-          fallbackGiven: approveOutwardChange === true,
-          fallbackHint: "Ask the person you are working for, then call again with approveOutwardChange: true.",
-        });
-        if (!approval.approved) {
-          return refuse(`Not saved. ${approval.reason}`);
-        }
-      }
-
       const saved = await notebooksService.save(document);
 
       const lines = [
@@ -479,6 +458,20 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
         `Contract: ${contractLine(document)}`,
       ];
       for (const trigger of triggerLines(document)) lines.push(`Trigger: ${trigger}`);
+
+      // What an agent most needs to know after writing: this is not live. Triggers run
+      // the deployed version, and deploying is a person's decision.
+      const deployState = await notebooksService.getDeployState(saved.id);
+      if (deployState?.isDeployed) {
+        lines.push(
+          `Deployed: ${deployState.deployedAt} by ${deployState.deployedBy}` +
+            (deployState.hasUndeployedChanges
+              ? " — your change is in the draft and is NOT what triggers run yet."
+              : "")
+        );
+      } else {
+        lines.push("Not deployed — its triggers will not fire until someone deploys it.");
+      }
 
       // Saved either way, then compiled — a half-written notebook is a normal state to
       // be in mid-task, but the agent should learn what is wrong now rather than at the

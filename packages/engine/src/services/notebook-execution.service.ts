@@ -26,6 +26,16 @@ export class CellNotFoundError extends Error {
   }
 }
 
+export class NotebookNotDeployedError extends Error {
+  constructor(name: string) {
+    super(
+      `Notebook "${name}" has not been deployed. Triggers run the deployed version, ` +
+        `so nothing fires until someone deploys it.`
+    );
+    this.name = "NotebookNotDeployedError";
+  }
+}
+
 export class TooManyRunsError extends Error {
   constructor() {
     super("Too many runs in progress. Try again shortly.");
@@ -112,6 +122,15 @@ export class NotebookExecutionService {
       publish: RunEventSink;
       /** The run that asked for this one, so the callee's history explains itself. */
       parentRunId: string;
+      /**
+       * Whether this whole run is production.
+       *
+       * Decided once, by what started it, and carried down the chain: a run is either
+       * the deployed system or your drafts, never a mixture. Testing a caller by hand
+       * exercises the callee you are editing; the 3am cron exercises the one you
+       * deployed.
+       */
+      useDeployed: boolean;
     }
   ): Promise<Record<string, unknown>> {
     const reference = String(request.notebook ?? "").trim();
@@ -124,7 +143,11 @@ export class NotebookExecutionService {
       );
     }
 
-    const document = notebooksService.parseDocument(found);
+    const document = context.useDeployed
+      ? await notebooksService.getDeployedDocument(found.id)
+      : notebooksService.parseDocument(found);
+    if (!document) throw new NotebookNotDeployedError(found.name);
+
     const chain = [...context.names, document.name];
 
     if (context.stack.includes(found.id)) {
@@ -159,6 +182,7 @@ export class NotebookExecutionService {
       log: context.log,
       publish: context.publish,
       parentRunId: runId,
+      useDeployed: context.useDeployed,
     };
 
     const recorder = new NotebookRunRecorder(runId, sourcesOf(plan));
@@ -196,7 +220,8 @@ export class NotebookExecutionService {
     notebookId: string,
     name: string,
     publish: RunEventSink,
-    runId: string
+    runId: string,
+    useDeployed: boolean
   ): NotebookCaller {
     return (request, log) =>
       this.callNotebook(request, {
@@ -205,6 +230,7 @@ export class NotebookExecutionService {
         log: log ?? (() => {}),
         publish,
         parentRunId: runId,
+        useDeployed,
       });
   }
 
@@ -216,7 +242,15 @@ export class NotebookExecutionService {
     const record = await notebooksService.getById(notebookId);
     if (!record) throw new NotebookNotFoundError(notebookId);
 
-    const document = notebooksService.parseDocument(record);
+    // What started the run decides which copy of the notebook it runs. A trigger is the
+    // outside world arriving, and the outside world gets the version someone deployed.
+    const useDeployed =
+      options.triggerSource === "cron" || options.triggerSource === "webhook";
+    const document = useDeployed
+      ? await notebooksService.getDeployedDocument(notebookId)
+      : notebooksService.parseDocument(record);
+    if (!document) throw new NotebookNotDeployedError(record.name);
+
     const fullPlan = compileNotebook(document);
 
     // Bound before the run id exists, so bad arguments are a rejected request rather
@@ -271,7 +305,7 @@ export class NotebookExecutionService {
           // Declared arguments first, so a trigger payload seeded under `input`
           // cannot quietly shadow a value the contract promised.
           input: { ...options.input, ...boundInputs },
-          call: this.callerFor(notebookId, document.name, publish, runId),
+          call: this.callerFor(notebookId, document.name, publish, runId, useDeployed),
         });
         // Waiting for the recorder means a caller that reads the run the moment this
         // resolves sees every cell, not whichever writes happened to land first.

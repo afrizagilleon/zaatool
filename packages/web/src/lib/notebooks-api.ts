@@ -1,5 +1,6 @@
 import { API_BASE_URL } from "./api.js";
 import type {
+  NotebookDeployState,
   NotebookJson,
   NotebookMap,
   NotebookRunDetail,
@@ -38,6 +39,13 @@ export const notebooksApi = {
 
   delete: (id: string): Promise<{ success: boolean }> =>
     request(`/api/notebooks/${id}`, { method: "DELETE" }),
+
+  /** What production runs, and whether the draft has moved on since. */
+  deployState: (id: string): Promise<NotebookDeployState> => request(`/api/notebooks/${id}/deploy`),
+
+  /** Pins the current draft as what triggers run. */
+  deploy: (id: string): Promise<{ versionId: string }> =>
+    request(`/api/notebooks/${id}/deploy`, { method: "POST" }),
 
   listRuns: (id: string): Promise<NotebookRunSummary[]> => request(`/api/notebooks/${id}/runs`),
 

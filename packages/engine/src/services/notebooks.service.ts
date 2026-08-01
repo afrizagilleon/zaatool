@@ -80,7 +80,84 @@ export class NotebooksService {
     return { id, name };
   }
 
+  /**
+   * Pins the current draft as what production runs.
+   *
+   * The gate this whole thing exists for. Before it, saving was publishing: editing a
+   * notebook at 2pm changed what its webhook did at 2:01, which was survivable while
+   * only you could edit and became indefensible once an agent could.
+   */
+  async deploy(id: string, deployedBy: string): Promise<{ versionId: string } | null> {
+    const record = await this.getById(id);
+    if (!record) return null;
+
+    const versionId = uuidv4();
+    await pool.query(
+      `INSERT INTO notebook_versions (id, notebook_id, document, deployed_by)
+       VALUES ($1, $2, $3, $4)`,
+      [versionId, id, JSON.stringify(this.parseDocument(record)), deployedBy]
+    );
+    await pool.query("UPDATE notebooks SET deployed_version_id = $1 WHERE id = $2", [
+      versionId,
+      id,
+    ]);
+
+    return { versionId };
+  }
+
+  /** What a trigger should run, or null when nothing has been deployed yet. */
+  async getDeployedDocument(id: string): Promise<NotebookJson | null> {
+    const { rows } = await pool.query(
+      `SELECT v.document
+       FROM notebooks n
+       JOIN notebook_versions v ON v.id = n.deployed_version_id
+       WHERE n.id = $1`,
+      [id]
+    );
+    if (rows.length === 0) return null;
+    return typeof rows[0].document === "string"
+      ? (JSON.parse(rows[0].document) as NotebookJson)
+      : (rows[0].document as NotebookJson);
+  }
+
+  /**
+   * Whether a notebook is deployed, and whether the draft has moved on since.
+   *
+   * The comparison is on the document itself rather than a timestamp: saving without
+   * changing anything should not make a notebook look like it needs deploying.
+   */
+  async getDeployState(id: string): Promise<{
+    isDeployed: boolean;
+    deployedAt: string | null;
+    deployedBy: string | null;
+    hasUndeployedChanges: boolean;
+  } | null> {
+    const record = await this.getById(id);
+    if (!record) return null;
+
+    const { rows } = await pool.query(
+      `SELECT v.document, v.created_at, v.deployed_by
+       FROM notebooks n
+       JOIN notebook_versions v ON v.id = n.deployed_version_id
+       WHERE n.id = $1`,
+      [id]
+    );
+
+    if (rows.length === 0) {
+      return { isDeployed: false, deployedAt: null, deployedBy: null, hasUndeployedChanges: true };
+    }
+
+    const deployed = typeof rows[0].document === "string" ? rows[0].document : JSON.stringify(rows[0].document);
+    return {
+      isDeployed: true,
+      deployedAt: new Date(rows[0].created_at).toISOString(),
+      deployedBy: rows[0].deployed_by ?? null,
+      hasUndeployedChanges: deployed !== JSON.stringify(this.parseDocument(record)),
+    };
+  }
+
   async delete(id: string): Promise<{ success: boolean }> {
+    await pool.query("DELETE FROM notebook_versions WHERE notebook_id = $1", [id]);
     await notebookTriggersService.deleteByNotebook(id);
     await pool.query("DELETE FROM notebooks WHERE id = $1", [id]);
     return { success: true };
