@@ -242,10 +242,13 @@ export class NotebookExecutionService {
     const record = await notebooksService.getById(notebookId);
     if (!record) throw new NotebookNotFoundError(notebookId);
 
-    // What started the run decides which copy of the notebook it runs. A trigger is the
-    // outside world arriving, and the outside world gets the version someone deployed.
+    // What started the run decides which copy of the notebook it runs. A trigger, or an
+    // agent calling the notebook as a tool, is the outside world arriving — and the
+    // outside world gets the version someone deployed.
     const useDeployed =
-      options.triggerSource === "cron" || options.triggerSource === "webhook";
+      options.triggerSource === "cron" ||
+      options.triggerSource === "webhook" ||
+      options.triggerSource === "tool";
     const document = useDeployed
       ? await notebooksService.getDeployedDocument(notebookId)
       : notebooksService.parseDocument(record);

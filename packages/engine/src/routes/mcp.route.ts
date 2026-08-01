@@ -6,6 +6,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { agentTokensService, type AgentScope } from "../services/agent-tokens.service.js";
 import { registerNotebookTools } from "../mcp/notebook-tools.js";
 import { registerConventions } from "../mcp/conventions.js";
+import { catalogChanges, registerDeployedNotebooks } from "../mcp/notebook-catalog.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 
 /**
@@ -110,13 +111,28 @@ export function createMcpRouter(publishRunEvent: RunEventSink): Router {
         },
       });
 
-      transport.onclose = () => {
-        if (transport.sessionId) sessions.delete(transport.sessionId);
-      };
-
       const server = new McpServer({ name: "zaatool", version: "1.0.0" });
       registerNotebookTools(server, { publishRunEvent, writer }, scope);
       registerConventions(server);
+      await registerDeployedNotebooks(server, { publishRunEvent });
+
+      // Deploying a notebook adds a capability, and a session opened this morning
+      // should learn about it without reconnecting. The server only announces that the
+      // list changed; the client re-reads it when it cares.
+      const onCatalogChange = () => {
+        try {
+          server.server.sendToolListChanged();
+        } catch {
+          // A client that closed mid-notification is not an error worth logging.
+        }
+      };
+      catalogChanges.on("changed", onCatalogChange);
+
+      transport.onclose = () => {
+        catalogChanges.off("changed", onCatalogChange);
+        if (transport.sessionId) sessions.delete(transport.sessionId);
+      };
+
       await server.connect(transport);
 
       await transport.handleRequest(req, res, req.body);

@@ -8,8 +8,11 @@
 
 export type NotebookRunStatus = "running" | "success" | "failed";
 
-/** `call` is a run another notebook asked for, through `notebooks.run`. */
-export type NotebookRunTrigger = "manual" | "cell" | "cron" | "webhook" | "call";
+/**
+ * `call` is a run another notebook asked for, through `notebooks.run`.
+ * `tool` is a run an agent asked for by using the notebook as an MCP tool.
+ */
+export type NotebookRunTrigger = "manual" | "cell" | "cron" | "webhook" | "call" | "tool";
 
 export interface CellLogEntry {
   level: string;

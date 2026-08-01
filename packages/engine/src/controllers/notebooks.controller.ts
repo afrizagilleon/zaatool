@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { notebooksService } from "../services/notebooks.service.js";
 import { buildNotebookMap } from "../core/notebook-map.js";
+import { notifyCatalogChanged } from "../mcp/notebook-catalog.js";
 import { notebookRunsService } from "../services/notebook-runs.service.js";
 import {
   notebookExecutionService,
@@ -109,6 +110,10 @@ export class NotebooksController {
         user?.username ?? "unknown"
       );
       if (!result) return res.status(404).json({ error: "Notebook not found" });
+
+      // Deploying may have added or changed a tool, and an agent connected an hour ago
+      // should not have to reconnect to find out.
+      notifyCatalogChanged();
       res.json(result);
     } catch (err: unknown) {
       respondWithError(res, err);
@@ -117,7 +122,9 @@ export class NotebooksController {
 
   remove = async (req: Request, res: Response) => {
     try {
-      res.json(await notebooksService.delete(String(req.params.id)));
+      const result = await notebooksService.delete(String(req.params.id));
+      notifyCatalogChanged();
+      res.json(result);
     } catch (err: unknown) {
       respondWithError(res, err);
     }
