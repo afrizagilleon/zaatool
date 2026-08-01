@@ -11,9 +11,9 @@
  */
 
 /** What the URL calls each section. `deploys` is a legacy id; the URL says dashboard. */
-export type LocationTab = 'workflows' | 'editor' | 'notebooks' | 'resources' | 'dashboard';
+export type LocationTab = 'workflows' | 'map' | 'editor' | 'notebooks' | 'resources' | 'dashboard';
 
-export type UiTab = 'workflows' | 'editor' | 'notebooks' | 'resources' | 'deploys';
+export type UiTab = 'workflows' | 'map' | 'editor' | 'notebooks' | 'resources' | 'deploys';
 
 export interface AppLocation {
   tab: LocationTab;
@@ -21,7 +21,13 @@ export interface AppLocation {
   notebookId?: string;
 }
 
-const TABS: LocationTab[] = ['workflows', 'editor', 'notebooks', 'resources', 'dashboard'];
+const TABS: LocationTab[] = ['workflows', 'map', 'editor', 'notebooks', 'resources', 'dashboard'];
+
+/**
+ * The canvas has no navbar tab any more — the Map took its place. It stays reachable by
+ * opening a saved workflow, so old flows can still be read until notebooks cover their
+ * ground and they are deleted for good.
+ */
 
 export const DEFAULT_LOCATION: AppLocation = { tab: 'workflows' };
 

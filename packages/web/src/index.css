@@ -243,6 +243,29 @@
     stroke-dasharray: 6 3;
 }
 
+/* The map's edges say what kind of relationship they are, since it has three. */
+.map-edge-trigger .react-flow__edge-path {
+    stroke: var(--primary);
+    opacity: 0.7;
+}
+.map-edge-disabled .react-flow__edge-path {
+    stroke-dasharray: 4 4;
+    opacity: 0.35;
+}
+.map-edge-call .react-flow__edge-path {
+    stroke: var(--foreground);
+    opacity: 0.45;
+}
+.map-edge-unresolved .react-flow__edge-path {
+    stroke: var(--status-error);
+    stroke-dasharray: 5 4;
+    opacity: 0.7;
+}
+.react-flow__edge-text {
+    font-size: 9px;
+    fill: var(--muted-foreground);
+}
+
 .react-flow__handle {
     border-radius: 0 !important;
     transition: box-shadow 0.15s ease;

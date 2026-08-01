@@ -1,6 +1,7 @@
 import { API_BASE_URL } from "./api.js";
 import type {
   NotebookJson,
+  NotebookMap,
   NotebookRunDetail,
   NotebookRunSummary,
   NotebookSummary,
@@ -26,6 +27,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const notebooksApi = {
   list: (): Promise<NotebookSummary[]> => request("/api/notebooks"),
+
+  /** The derived system map: notebooks, their triggers, and who calls whom. */
+  map: (): Promise<NotebookMap> => request("/api/notebooks/map"),
 
   getById: (id: string): Promise<NotebookJson> => request(`/api/notebooks/${id}`),
 

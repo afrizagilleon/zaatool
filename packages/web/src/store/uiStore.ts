@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware';
 import { fromUiTab, parseLocation } from '../lib/app-location.js';
 
 interface UiState {
-  activeTab: 'editor' | 'notebooks' | 'resources' | 'deploys' | 'workflows';
+  activeTab: 'map' | 'editor' | 'notebooks' | 'resources' | 'deploys' | 'workflows';
   isDarkMode: boolean;
   isNodePaletteOpen: boolean;
   isCodePanelOpen: boolean;
