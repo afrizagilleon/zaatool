@@ -13,6 +13,21 @@ import {
 import { NotebookCompileError } from "../core/notebook-compiler.js";
 import { ContractError } from "../core/notebook-contract.js";
 import type { RunEventSink } from "../core/run-emitter.js";
+import type { NotebookJson, NotebookPage } from "@zaa-tool/shared";
+
+/** A notebook's own first sentence, which is the best description anyone will write. */
+function firstNoteOf(document: NotebookJson): string {
+  for (const step of document.steps ?? []) {
+    if (step.kind === "cell" && step.note?.trim()) {
+      const line = step.note
+        .split("\n")
+        .map((text) => text.replace(/^#+\s*/, "").trim())
+        .find((text) => text.length > 0);
+      if (line) return line;
+    }
+  }
+  return "";
+}
 
 function respondWithError(res: Response, err: unknown) {
   if (err instanceof NotebookNotFoundError || err instanceof CellNotFoundError) {
@@ -51,6 +66,37 @@ export class NotebooksController {
   map = async (_req: Request, res: Response) => {
     try {
       res.json(buildNotebookMap(await notebooksService.getAllDocuments()));
+    } catch (err: unknown) {
+      respondWithError(res, err);
+    }
+  };
+
+  /**
+   * Every deployed notebook that has a contract, as a page.
+   *
+   * The same rule as the agent catalogue: no contract, nothing to render. A notebook
+   * that takes nothing and returns nothing is not a page, it is a button — and there is
+   * already a Run button in the editor.
+   */
+  pages = async (_req: Request, res: Response) => {
+    try {
+      const pages: NotebookPage[] = [];
+
+      for (const summary of await notebooksService.getSummary()) {
+        const document = await notebooksService.getDeployedDocument(summary.id);
+        if (!document) continue;
+        if ((document.inputs?.length ?? 0) === 0 && (document.outputs?.length ?? 0) === 0) continue;
+
+        pages.push({
+          id: summary.id,
+          name: document.name,
+          description: firstNoteOf(document),
+          inputs: document.inputs ?? [],
+          outputs: document.outputs ?? [],
+        });
+      }
+
+      res.json(pages);
     } catch (err: unknown) {
       respondWithError(res, err);
     }
@@ -164,12 +210,41 @@ export class NotebooksController {
 
   run = async (req: Request, res: Response) => {
     try {
-      const { runId } = await notebookExecutionService.start(
+      // The editor runs the draft and follows along over the socket. A page is someone
+      // *using* the notebook, so it runs the deployed version and waits for the answer —
+      // there is nothing for a page to show while it polls.
+      const isPage = req.body?.mode === "deployed";
+
+      const started = await notebookExecutionService.start(
         String(req.params.id),
         this.publishRunEvent,
-        { input: req.body?.input, args: req.body?.args, cellId: req.body?.cellId }
+        {
+          input: req.body?.input,
+          args: req.body?.args,
+          cellId: req.body?.cellId,
+          ...(isPage ? { triggerSource: "page" as const } : {}),
+        }
       );
-      res.status(200).json({ status: "started", runId });
+
+      if (!isPage) {
+        return res.status(200).json({ status: "started", runId: started.runId });
+      }
+
+      const outcome = await started.completed;
+      if (outcome.status === "failed") {
+        return res.status(200).json({
+          status: "failed",
+          runId: started.runId,
+          error: outcome.errors[0] ?? "Run failed",
+        });
+      }
+
+      res.status(200).json({
+        status: "success",
+        runId: started.runId,
+        ms: outcome.ms,
+        outputs: outcome.outputs,
+      });
     } catch (err: unknown) {
       respondWithError(res, err);
     }

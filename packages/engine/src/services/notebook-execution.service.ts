@@ -256,7 +256,8 @@ export class NotebookExecutionService {
     const useDeployed =
       options.triggerSource === "cron" ||
       options.triggerSource === "webhook" ||
-      options.triggerSource === "tool";
+      options.triggerSource === "tool" ||
+      options.triggerSource === "page";
     const document = useDeployed
       ? await notebooksService.getDeployedDocument(notebookId)
       : notebooksService.parseDocument(record);

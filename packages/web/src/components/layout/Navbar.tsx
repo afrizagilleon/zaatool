@@ -28,7 +28,7 @@ const navTabs = [
   { id: 'map' as const, label: 'Map', disabled: false },
   { id: 'notebooks' as const, label: 'Notebooks', disabled: false },
   { id: 'resources' as const, label: 'Resources', disabled: false },
-  { id: 'deploys' as const, label: 'Dashboard', disabled: false },
+  { id: 'deploys' as const, label: 'Apps', disabled: false },
 ] as const;
 
 type UiTab = (typeof navTabs)[number]['id'];

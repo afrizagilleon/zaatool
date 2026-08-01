@@ -3,6 +3,7 @@ import type {
   NotebookDeployState,
   NotebookJson,
   NotebookMap,
+  NotebookPage,
   NotebookRunDetail,
   NotebookRunSummary,
   NotebookSummary,
@@ -39,6 +40,24 @@ export const notebooksApi = {
 
   delete: (id: string): Promise<{ success: boolean }> =>
     request(`/api/notebooks/${id}`, { method: "DELETE" }),
+
+  /** Every deployed notebook with a contract, described well enough to render. */
+  pages: (): Promise<NotebookPage[]> => request("/api/notebooks/pages"),
+
+  /**
+   * Runs the deployed version and waits for the answer.
+   *
+   * Unlike the editor's run, there is nothing to watch while it works — a page has one
+   * question and wants one answer.
+   */
+  runDeployed: (
+    id: string,
+    args: Record<string, unknown>
+  ): Promise<{ status: string; runId: string; outputs?: Record<string, unknown>; error?: string }> =>
+    request(`/api/notebooks/${id}/run`, {
+      method: "POST",
+      body: JSON.stringify({ mode: "deployed", args }),
+    }),
 
   /** What production runs, and whether the draft has moved on since. */
   deployState: (id: string): Promise<NotebookDeployState> => request(`/api/notebooks/${id}/deploy`),

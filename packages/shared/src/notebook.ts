@@ -160,6 +160,20 @@ export interface NotebookDeployState {
   hasUndeployedChanges: boolean;
 }
 
+/**
+ * A deployed notebook, described well enough to render a page for it.
+ *
+ * There is no layout here and no widgets, because the contract already says everything
+ * a page needs: what to ask for, and what to show.
+ */
+export interface NotebookPage {
+  id: string;
+  name: string;
+  description: string;
+  inputs: NotebookParam[];
+  outputs: string[];
+}
+
 export interface NotebookSummary {
   id: string;
   name: string;

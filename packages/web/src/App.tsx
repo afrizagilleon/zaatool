@@ -11,7 +11,7 @@ import { WorkflowsPage } from './components/pages/WorkflowsPage.js';
 import { NotebooksPage } from './components/pages/NotebooksPage.js';
 import { Login } from './components/pages/Login.js';
 import { PublishedDashboard } from './components/pages/PublishedDashboard.js';
-import { DashboardBuilder } from './components/layout/DashboardBuilder.js';
+import { AppsPage } from './components/pages/AppsPage.js';
 import { CodeEditorDialog } from './components/panels/CodeEditorDialog.js';
 import { useUiStore } from './store/uiStore.js';
 import { useAuthStore } from './store/authStore.js';
@@ -94,7 +94,7 @@ function App() {
         )}
         {activeTab === 'resources' && <ResourcesPage />}
         {activeTab === 'workflows' && <WorkflowsPage />}
-        {activeTab === 'deploys' && <DashboardBuilder />}
+        {activeTab === 'deploys' && <AppsPage />}
       </main>
     </div>
   );
