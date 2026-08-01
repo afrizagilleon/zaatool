@@ -6,6 +6,7 @@ import { notebookExecutionService } from "../services/notebook-execution.service
 import { ContractError } from "../core/notebook-contract.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 import type { NotebookJson, NotebookParam } from "@zaa-tool/shared";
+import { optionValues } from "../core/notebook-contract.js";
 
 /**
  * Deployed notebooks, offered to an agent as tools it can simply call.
@@ -51,8 +52,23 @@ export function toolNameFor(notebookName: string): string {
 }
 
 function schemaFor(param: NotebookParam): z.ZodTypeAny {
-  const base =
-    param.type === "number"
+  const permitted = optionValues(param);
+
+  // A declared set of values belongs in the schema, not only in the prose. An agent
+  // choosing between "usd_to_idr" and something it invented is the failure this
+  // prevents, and it prevents it before a run starts rather than after.
+  const base = permitted.length
+    ? // `z.union` needs two members, and a one-value list is a fixed value, not a choice.
+      permitted.length === 1
+      ? z.literal(permitted[0])
+      : z.union(
+          permitted.map((value: string | number) => z.literal(value)) as unknown as [
+            z.ZodTypeAny,
+            z.ZodTypeAny,
+            ...z.ZodTypeAny[],
+          ]
+        )
+    : param.type === "number"
       ? z.number()
       : param.type === "boolean"
         ? z.boolean()
@@ -60,7 +76,8 @@ function schemaFor(param: NotebookParam): z.ZodTypeAny {
           ? z.unknown()
           : z.string();
 
-  const described = param.description ? base.describe(param.description) : base;
+  const shaped = param.multiple && permitted.length ? z.array(base) : base;
+  const described = param.description ? shaped.describe(param.description) : shaped;
   return param.required && param.default === undefined ? described : described.optional();
 }
 
@@ -85,7 +102,16 @@ function describe(document: NotebookJson): string {
   })();
 
   const outputs = (document.outputs ?? []).join(", ");
-  const inputs = (document.inputs ?? []).map((input) => input.name);
+
+  // Spelling the permitted values out here as well as in the schema is deliberate: a
+  // model shortlists tools by reading descriptions, and a tool whose one argument is a
+  // fixed choice is only obviously the right tool once you can see the choices.
+  const inputs = (document.inputs ?? []).map((input) => {
+    const permitted = optionValues(input);
+    if (permitted.length === 0) return input.name;
+    const list = permitted.map((value) => JSON.stringify(value)).join(" | ");
+    return `${input.name} (${input.multiple ? `list of ${list}` : list})`;
+  });
 
   // The arguments are in the schema, but a model choosing between tools reads the
   // sentence first — and "takes no arguments" is the fact that decides whether this

@@ -123,6 +123,18 @@ export type NotebookTrigger = CronTrigger | WebhookTrigger;
  */
 export type NotebookParamType = "string" | "number" | "boolean" | "json";
 
+/**
+ * One permitted value, optionally with a label to show a person instead.
+ *
+ * A bare string is the same thing with the label left off, which is what most choices
+ * are — `"usd_to_idr"` needs no translation for the machine and a label only when a
+ * human has to pick it out of a list.
+ */
+export interface NotebookParamOption {
+  value: string | number;
+  label?: string;
+}
+
 export interface NotebookParam {
   name: string;
   type: NotebookParamType;
@@ -130,6 +142,19 @@ export interface NotebookParam {
   required?: boolean;
   description?: string;
   default?: unknown;
+  /**
+   * The values this input accepts, when there is a fixed set of them.
+   *
+   * Declared rather than described in prose, because the same list has four readers: the
+   * page renders a select, the agent's tool schema becomes an enum, and the contract
+   * refuses anything else before a webhook or a caller starts a run. A sentence saying
+   * "either 'a' or 'b'" only reaches the one reader who reads sentences.
+   *
+   * Only meaningful for `string` and `number`.
+   */
+  options?: Array<string | number | NotebookParamOption>;
+  /** With `options`, accepts a list of them rather than one. The value becomes an array. */
+  multiple?: boolean;
 }
 
 export interface NotebookJson {

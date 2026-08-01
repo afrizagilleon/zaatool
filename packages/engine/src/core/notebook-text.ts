@@ -275,6 +275,47 @@ function readStringList(value: unknown, field: string, issues: string[]): string
   return list;
 }
 
+/**
+ * Reads the permitted values for an input.
+ *
+ * Accepts both a bare value and `{ value, label }`, and keeps whichever form was
+ * written — round-tripping a document must not quietly rewrite how its author chose to
+ * express a list.
+ */
+function readOptions(
+  paramName: string,
+  value: unknown,
+  issues: string[]
+): NotebookParam["options"] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value)) {
+    issues.push(`input "${paramName}" has \`options\` that is not a list`);
+    return undefined;
+  }
+
+  const options: NonNullable<NotebookParam["options"]> = [];
+  for (const entry of value) {
+    if (typeof entry === "string" || typeof entry === "number") {
+      options.push(entry);
+      continue;
+    }
+    if (typeof entry === "object" && entry !== null && !Array.isArray(entry)) {
+      const raw = entry as Record<string, unknown>;
+      if (typeof raw.value === "string" || typeof raw.value === "number") {
+        options.push(
+          typeof raw.label === "string" && raw.label
+            ? { value: raw.value, label: raw.label }
+            : { value: raw.value }
+        );
+        continue;
+      }
+    }
+    issues.push(`input "${paramName}" has an option that is not a value: ${JSON.stringify(entry)}`);
+  }
+
+  return options.length > 0 ? options : undefined;
+}
+
 function readInputs(value: unknown, issues: string[]): NotebookParam[] {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value)) {
@@ -305,6 +346,17 @@ function readInputs(value: unknown, issues: string[]): NotebookParam[] {
     if (raw.required === true) param.required = true;
     if (typeof raw.description === "string" && raw.description) param.description = raw.description;
     if (raw.default !== undefined) param.default = raw.default;
+
+    const options = readOptions(paramName, raw.options, issues);
+    if (options) {
+      param.options = options;
+      if (raw.multiple === true) param.multiple = true;
+    } else if (raw.multiple === true) {
+      // Without a fixed set there is nothing to pick several of, and silently keeping the
+      // flag would let a page render a chooser with no choices in it.
+      issues.push(`input "${paramName}" is \`multiple\` but declares no \`options\``);
+    }
+
     params.push(param);
   }
   return params;

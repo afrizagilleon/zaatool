@@ -56,6 +56,42 @@ function describe(value: unknown): string {
   return `a ${typeof value}`;
 }
 
+/** The permitted values, with any labels stripped — labels are for people, not matching. */
+export function optionValues(param: NotebookParam): Array<string | number> {
+  if (!Array.isArray(param.options)) return [];
+  const values: Array<string | number> = [];
+  for (const option of param.options) {
+    if (typeof option === "string" || typeof option === "number") values.push(option);
+    else if (option && (typeof option.value === "string" || typeof option.value === "number")) {
+      values.push(option.value);
+    }
+  }
+  return values;
+}
+
+/**
+ * Coerces one value and, where the input declares a fixed set, checks it is in it.
+ *
+ * Membership is tested *after* coercion so `?direction=usd_to_idr` from a query string
+ * and `{ direction: "usd_to_idr" }` from a caller are judged the same way.
+ */
+function coerceOne(
+  param: NotebookParam,
+  permitted: Array<string | number>,
+  value: unknown
+): { ok: true; value: unknown } | { ok: false; reason: string } {
+  const result = coerce(param, value);
+  if (!result.ok || permitted.length === 0) return result;
+
+  if (!permitted.includes(result.value as string | number)) {
+    return {
+      ok: false,
+      reason: `expected one of ${permitted.map((one) => JSON.stringify(one)).join(", ")}, got ${JSON.stringify(result.value)}`,
+    };
+  }
+  return result;
+}
+
 /**
  * Binds supplied arguments to declared inputs.
  *
@@ -88,7 +124,29 @@ export function bindInputs(
       continue;
     }
 
-    const result = coerce(param, given);
+    const permitted = optionValues(param);
+
+    // A multiple-choice input always hands the notebook a list, even of one — code that
+    // loops over a selection should not need a special case for "they only picked one".
+    if (param.multiple) {
+      const items = Array.isArray(given) ? given : [given];
+      const chosen: unknown[] = [];
+      let failed = false;
+
+      for (const item of items) {
+        const result = coerceOne(param, permitted, item);
+        if (result.ok) chosen.push(result.value);
+        else {
+          issues.push(`"${param.name}": ${result.reason}`);
+          failed = true;
+        }
+      }
+
+      if (!failed) bound[param.name] = chosen;
+      continue;
+    }
+
+    const result = coerceOne(param, permitted, given);
     if (result.ok) bound[param.name] = result.value;
     else issues.push(`"${param.name}": ${result.reason}`);
   }

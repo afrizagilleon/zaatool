@@ -5,8 +5,106 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Switch } from '../ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { choicesOf } from '../../lib/notebook-options';
 
 const TYPES: NotebookParamType[] = ['string', 'number', 'boolean', 'json'];
+
+/**
+ * The values an input accepts, when there is a fixed set of them.
+ *
+ * Adds and removes whole options rather than editing them in place, which is what lets
+ * a label written elsewhere survive: this panel never rewrites an option it did not
+ * create. Typing a value adds it bare; the label, if any, is only displayed.
+ */
+function OptionsEditor({
+  param,
+  onChange,
+}: {
+  param: NotebookParam;
+  onChange: (patch: Partial<NotebookParam>) => void;
+}) {
+  const [draft, setDraft] = useState('');
+  const choices = choicesOf(param);
+
+  const add = () => {
+    const trimmed = draft.trim();
+    setDraft('');
+    if (!trimmed) return;
+
+    const value = param.type === 'number' ? Number(trimmed) : trimmed;
+    if (param.type === 'number' && !Number.isFinite(value as number)) return;
+    if (choices.some((choice) => String(choice.value) === String(value))) return;
+
+    onChange({ options: [...(param.options ?? []), value] });
+  };
+
+  const remove = (value: string | number) => {
+    const kept = (param.options ?? []).filter((option) => {
+      const optionValue = typeof option === 'object' ? option.value : option;
+      return String(optionValue) !== String(value);
+    });
+    // Nothing left to choose between, so the flag that says "pick several" goes too.
+    onChange({ options: kept.length > 0 ? kept : undefined, ...(kept.length ? {} : { multiple: undefined }) });
+  };
+
+  return (
+    <div className="space-y-1">
+      {choices.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {choices.map((choice) => (
+            <span
+              key={String(choice.value)}
+              className="flex items-center gap-1 bg-muted px-1.5 py-0.5 text-[10px] font-mono"
+              title={String(choice.value)}
+            >
+              {choice.label}
+              <button
+                type="button"
+                onClick={() => remove(choice.value)}
+                className="text-muted-foreground hover:text-foreground"
+                title={`Stop accepting ${choice.value}`}
+              >
+                <X size={9} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-center gap-1">
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={add}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              add();
+            }
+          }}
+          placeholder={choices.length ? 'Another allowed value' : 'Allowed value (optional)'}
+          className="h-7 flex-1 text-xs font-mono"
+        />
+        {choices.length > 0 && (
+          <label className="flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground">
+            <Switch
+              checked={param.multiple === true}
+              onCheckedChange={(checked) => onChange({ multiple: checked ? true : undefined })}
+            />
+            Many
+          </label>
+        )}
+      </div>
+
+      {choices.length > 0 && (
+        <p className="text-[9px] leading-normal text-muted-foreground/60">
+          A dropdown on the page, an enum for agents, and anything else refused before the
+          run starts.
+        </p>
+      )}
+    </div>
+  );
+}
 
 interface ContractPanelProps {
   name: string;
@@ -168,6 +266,27 @@ export function ContractPanel({
                 className="h-7 flex-1 text-xs"
               />
             </div>
+
+            {/* Written by whoever writes the notebook, which is as often an agent as a
+                person. It reaches the page, the tool schema and this panel — so leaving
+                it out of the editor made a field only an agent could change. */}
+            <Input
+              value={input.description ?? ''}
+              onChange={(e) =>
+                onUpdateInput(index, {
+                  description: e.target.value === '' ? undefined : e.target.value,
+                })
+              }
+              placeholder="What this is for (shown on the page and to agents)"
+              className="h-7 w-full text-xs"
+            />
+
+            {(input.type === 'string' || input.type === 'number') && (
+              <OptionsEditor
+                param={input}
+                onChange={(patch) => onUpdateInput(index, patch)}
+              />
+            )}
           </div>
         ))}
       </div>
@@ -266,12 +385,36 @@ export function ContractPanel({
               <span className="w-24 shrink-0 truncate text-[10px] font-mono text-muted-foreground">
                 {input.name}
               </span>
-              <Input
-                value={testArgs[input.name] ?? ''}
-                onChange={(e) => onTestArgChange(input.name, e.target.value)}
-                placeholder={input.default === undefined ? input.type : String(input.default)}
-                className="h-7 flex-1 text-xs"
-              />
+              {choicesOf(input).length > 0 && !input.multiple ? (
+                <Select
+                  value={testArgs[input.name] ?? ''}
+                  onValueChange={(value) => onTestArgChange(input.name, value)}
+                >
+                  <SelectTrigger className="h-7 flex-1 text-xs">
+                    <SelectValue
+                      placeholder={input.default === undefined ? 'Choose…' : String(input.default)}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {choicesOf(input).map((choice) => (
+                      <SelectItem
+                        key={String(choice.value)}
+                        value={String(choice.value)}
+                        className="text-xs"
+                      >
+                        {choice.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  value={testArgs[input.name] ?? ''}
+                  onChange={(e) => onTestArgChange(input.name, e.target.value)}
+                  placeholder={input.default === undefined ? input.type : String(input.default)}
+                  className="h-7 flex-1 text-xs"
+                />
+              )}
             </div>
           ))}
           {missingTestValues.length > 0 && (
