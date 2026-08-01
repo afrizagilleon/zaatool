@@ -1,9 +1,16 @@
 import dagre from 'dagre';
 import type { Edge, Node } from '@xyflow/react';
-import type { NotebookMap, NotebookMapNotebook, NotebookMapTrigger } from '@zaa-tool/shared';
+import type {
+  NotebookJson,
+  NotebookMap,
+  NotebookMapCall,
+  NotebookMapNotebook,
+  NotebookMapTrigger,
+  NotebookStep,
+} from '@zaa-tool/shared';
 
 /**
- * Turns the derived map into something xyflow can draw.
+ * Turns the derived map into something xyflow can draw, at two altitudes.
  *
  * Pure, and deliberately unaware of run state: laying out is expensive and a run event
  * arrives many times a second, so live status is merged into node data afterwards
@@ -31,11 +38,38 @@ export interface UnresolvedNodeData extends Record<string, unknown> {
   reason: 'missing' | 'ambiguous' | 'computed';
 }
 
+export interface CellNodeData extends Record<string, unknown> {
+  /** Position in the notebook, counting every cell including those inside lanes. */
+  index: number;
+  label: string;
+  hasCode: boolean;
+  laneLabel?: string;
+  status?: 'running' | 'done' | 'error';
+}
+
+export interface CallOutNodeData extends Record<string, unknown> {
+  label: string;
+  /** Set when the call resolves, so clicking it can travel there. */
+  notebookId?: string;
+}
+
 const SIZES = {
   notebook: { width: 260, height: 116 },
   trigger: { width: 210, height: 58 },
   unresolved: { width: 190, height: 52 },
+  cell: { width: 240, height: 76 },
+  callOut: { width: 180, height: 46 },
 };
+
+function sizeFor(type: string | undefined): { width: number; height: number } {
+  if (type === 'mapTrigger') return SIZES.trigger;
+  if (type === 'mapUnresolved') return SIZES.unresolved;
+  if (type === 'mapCell') return SIZES.cell;
+  if (type === 'mapCallOut') return SIZES.callOut;
+  return SIZES.notebook;
+}
+
+// ── system level ──────────────────────────────────────────────────────────────
 
 export function buildMapGraph(map: NotebookMap): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = [];
@@ -52,7 +86,6 @@ export function buildMapGraph(map: NotebookMap): { nodes: Node[]; edges: Edge[] 
       id: `fires-${trigger.id}`,
       source: `trigger-${trigger.id}`,
       target: `notebook-${trigger.notebookId}`,
-      animated: false,
       className: trigger.enabled ? 'map-edge-trigger' : 'map-edge-disabled',
     });
   }
@@ -102,23 +135,138 @@ export function buildMapGraph(map: NotebookMap): { nodes: Node[]; edges: Edge[] 
     });
   });
 
-  return { nodes: layout(nodes, edges), edges };
+  return { nodes: layout(nodes, edges, 'LR'), edges };
 }
 
-function layout(nodes: Node[], edges: Edge[]): Node[] {
+// ── notebook level ────────────────────────────────────────────────────────────
+
+/**
+ * What to call a cell on the map.
+ *
+ * The note's first line if there is one, because that is the author's own name for the
+ * step. Failing that the first line of code that is not a comment — "code" told you
+ * nothing, and a notebook of six cells all labelled "code" is not a map of anything.
+ */
+export function cellLabel(step: { note?: string; code?: string }): string {
+  const heading = step.note
+    ?.split('\n')
+    .map((line) => line.replace(/^#+\s*/, '').trim())
+    .find((line) => line.length > 0);
+  if (heading) return heading.length > 44 ? `${heading.slice(0, 43)}…` : heading;
+
+  const statement = step.code
+    ?.split('\n')
+    .map((line) => line.trim())
+    .find((line) => line.length > 0 && !line.startsWith('//') && !line.startsWith('#'));
+  if (statement) return statement.length > 44 ? `${statement.slice(0, 43)}…` : statement;
+
+  return step.code !== undefined ? 'empty cell' : 'note';
+}
+
+/**
+ * One notebook drawn as it runs: a chain, with a parallel group forking into its lanes
+ * and joining again afterwards.
+ *
+ * The fork and the join are the reason this is a graph rather than a list. Everything
+ * else about a notebook is linear, and the drawing says so.
+ */
+export function buildNotebookGraph(
+  document: NotebookJson,
+  calls: NotebookMapCall[],
+  nameOf: (notebookId: string) => string | undefined
+): { nodes: Node[]; edges: Edge[] } {
+  const nodes: Node[] = [];
+  const edges: Edge[] = [];
+  let index = 0;
+
+  const connect = (from: string[], to: string, laneLabel?: string) => {
+    for (const source of from) {
+      edges.push({
+        id: `flow-${source}-${to}`,
+        source,
+        target: to,
+        label: laneLabel,
+        className: 'map-edge-call',
+      });
+    }
+  };
+
+  /**
+   * Returns the ids that anything after these steps must follow.
+   *
+   * `laneLabel` names the branch on the edge that enters it — which is where the eye
+   * already is when it has to choose between two arrows.
+   */
+  const walk = (steps: NotebookStep[], incoming: string[], laneLabel?: string): string[] => {
+    let previous = incoming;
+    let pendingLabel = laneLabel;
+
+    for (const step of steps) {
+      if (step.kind === 'parallel') {
+        const laneEnds: string[] = [];
+        for (const lane of step.lanes ?? []) {
+          laneEnds.push(...walk(lane.steps ?? [], previous, lane.label));
+        }
+        previous = laneEnds.length > 0 ? laneEnds : previous;
+        pendingLabel = undefined;
+        continue;
+      }
+
+      index += 1;
+      const id = `cell-${step.id}`;
+      nodes.push({
+        id,
+        type: 'mapCell',
+        position: { x: 0, y: 0 },
+        data: {
+          index,
+          label: cellLabel(step),
+          hasCode: Boolean(step.code?.trim()),
+          laneLabel,
+        } satisfies CellNodeData,
+      });
+      connect(previous, id, pendingLabel);
+      pendingLabel = undefined;
+      previous = [id];
+
+      for (const call of calls.filter((candidate) => candidate.fromCellId === step.id)) {
+        const outId = `callout-${step.id}-${edges.length}`;
+        nodes.push({
+          id: outId,
+          type: 'mapCallOut',
+          position: { x: 0, y: 0 },
+          data: {
+            label: (call.toNotebookId && nameOf(call.toNotebookId)) || call.reference,
+            notebookId: call.toNotebookId ?? undefined,
+          } satisfies CallOutNodeData,
+        });
+        edges.push({
+          id: `callout-edge-${outId}`,
+          source: id,
+          target: outId,
+          label: 'calls',
+          className: call.resolved ? 'map-edge-call' : 'map-edge-unresolved',
+        });
+      }
+    }
+
+    return previous;
+  };
+
+  walk(document.steps ?? [], []);
+  return { nodes: layout(nodes, edges, 'TB'), edges };
+}
+
+// ── layout ────────────────────────────────────────────────────────────────────
+
+function layout(nodes: Node[], edges: Edge[], rankdir: 'LR' | 'TB'): Node[] {
   const graph = new dagre.graphlib.Graph();
-  graph.setGraph({ rankdir: 'LR', nodesep: 28, ranksep: 110 });
+  graph.setGraph({ rankdir, nodesep: 36, ranksep: 90 });
   graph.setDefaultEdgeLabel(() => ({}));
 
-  for (const node of nodes) {
-    const size =
-      node.type === 'mapTrigger'
-        ? SIZES.trigger
-        : node.type === 'mapUnresolved'
-          ? SIZES.unresolved
-          : SIZES.notebook;
-    graph.setNode(node.id, size);
-  }
+  // A fresh object per node: dagre writes the computed position into whatever it is
+  // handed, so sharing one would place every node of that kind on top of the others.
+  for (const node of nodes) graph.setNode(node.id, { ...sizeFor(node.type) });
   for (const edge of edges) graph.setEdge(edge.source, edge.target);
 
   dagre.layout(graph);

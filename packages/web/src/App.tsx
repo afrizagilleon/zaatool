@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { Navbar } from './components/layout/Navbar.js';
 import { SystemMap } from './components/map/SystemMap.js';
@@ -25,10 +25,6 @@ function App() {
 
   // The URL owns which section is showing and which notebook is open.
   const { notebookId, openNotebook, closeNotebook } = useAppLocation();
-
-  // Which notebook the map has expanded. Deliberately not in the URL: it is a glance,
-  // not a place — opening one navigates to the editor instead.
-  const [mapSelection, setMapSelection] = useState<string | undefined>();
 
   const isCodeEditorOpen = useUiStore((s) => s.isCodeEditorOpen);
   const codeEditorNodeId = useUiStore((s) => s.codeEditorNodeId);
@@ -68,13 +64,7 @@ function App() {
 
       {/* Main content area */}
       <main className="flex-1 flex overflow-hidden relative">
-        {activeTab === 'map' && (
-          <SystemMap
-            onOpenNotebook={openNotebook}
-            selectedNotebookId={mapSelection}
-            onSelectNotebook={setMapSelection}
-          />
-        )}
+        {activeTab === 'map' && <SystemMap onOpenNotebook={openNotebook} />}
 
         {/* No navbar tab reaches this any more; opening a saved workflow does. */}
         {activeTab === 'editor' && (

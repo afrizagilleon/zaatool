@@ -1,19 +1,28 @@
-import { useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Background,
   BackgroundVariant,
   Controls,
   ReactFlow,
   ReactFlowProvider,
+  useNodesInitialized,
+  useReactFlow,
   type Node,
 } from '@xyflow/react';
-import { ArrowClockwise, MapTrifold } from '@phosphor-icons/react';
+import { ArrowClockwise, ArrowSquareOut, CaretLeft, MapTrifold } from '@phosphor-icons/react';
+import type { NotebookJson } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { useNotebookMap } from '../../hooks/useNotebookMap';
 import { useRunActivity } from '../../hooks/useRunActivity';
-import { buildMapGraph, type NotebookNodeData } from '../../lib/map-graph';
-import { MapNotebookNode, MapTriggerNode, MapUnresolvedNode } from './MapNodes';
-import { NotebookStructure } from './NotebookStructure';
+import { notebooksApi } from '../../lib/notebooks-api';
+import { buildMapGraph, buildNotebookGraph, type NotebookNodeData } from '../../lib/map-graph';
+import {
+  MapCallOutNode,
+  MapCellNode,
+  MapNotebookNode,
+  MapTriggerNode,
+  MapUnresolvedNode,
+} from './MapNodes';
 
 /**
  * The system, as the notebooks describe it.
@@ -23,29 +32,70 @@ import { NotebookStructure } from './NotebookStructure';
  * nothing here is authored, every arrow is a `notebooks.run` somewhere in a cell, and
  * it costs nothing to keep true.
  *
- * Doubling as a navigator is the part that makes it worth opening: pick a notebook to
- * see its shape, or go straight to editing it.
+ * Two altitudes, and you travel between them by clicking. The system is a graph because
+ * notebooks call notebooks. Inside one, the drawing is a chain that forks at a parallel
+ * group and joins again, because that is the only branching a notebook has.
  */
 
 // Defined once, outside the component — xyflow remounts every node if this identity
-// changes, which loses selection on each render.
+// changes, which loses selection and viewport on each render.
 const nodeTypes = {
   mapNotebook: MapNotebookNode,
   mapTrigger: MapTriggerNode,
   mapUnresolved: MapUnresolvedNode,
+  mapCell: MapCellNode,
+  mapCallOut: MapCallOutNode,
 };
 
 interface SystemMapProps {
   onOpenNotebook: (id: string) => void;
-  selectedNotebookId?: string;
-  onSelectNotebook: (id: string | undefined) => void;
 }
 
-function MapCanvas({ onOpenNotebook, selectedNotebookId, onSelectNotebook }: SystemMapProps) {
+function MapCanvas({ onOpenNotebook }: SystemMapProps) {
   const { map, isLoading, error, refresh } = useNotebookMap();
-
   const activity = useRunActivity(true);
-  const graph = useMemo(() => (map ? buildMapGraph(map) : { nodes: [], edges: [] }), [map]);
+  const { fitView } = useReactFlow();
+  const nodesInitialized = useNodesInitialized();
+
+  /** Which notebook is being looked inside; undefined means the system level. */
+  const [inside, setInside] = useState<string | undefined>();
+  const [document, setDocument] = useState<NotebookJson | null>(null);
+  const [insideError, setInsideError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!inside) {
+      setDocument(null);
+      return;
+    }
+    let cancelled = false;
+    setDocument(null);
+    setInsideError(null);
+
+    notebooksApi
+      .getById(inside)
+      .then((loaded) => !cancelled && setDocument(loaded))
+      .catch((err: unknown) => !cancelled && setInsideError((err as Error).message));
+
+    return () => {
+      cancelled = true;
+    };
+  }, [inside]);
+
+  const nameOf = useCallback(
+    (notebookId: string) => map?.notebooks.find((entry) => entry.id === notebookId)?.name,
+    [map]
+  );
+
+  const graph = useMemo(() => {
+    if (inside && document) {
+      return buildNotebookGraph(
+        document,
+        (map?.calls ?? []).filter((call) => call.fromNotebookId === inside),
+        nameOf
+      );
+    }
+    return map ? buildMapGraph(map) : { nodes: [], edges: [] };
+  }, [map, inside, document, nameOf]);
 
   // Status is merged in afterwards rather than folded into the layout, so a run lighting
   // the map up never moves a box.
@@ -60,9 +110,42 @@ function MapCanvas({ onOpenNotebook, selectedNotebookId, onSelectNotebook }: Sys
     [graph.nodes, activity]
   );
 
-  const selected = useMemo(
-    () => map?.notebooks.find((notebook) => notebook.id === selectedNotebookId),
-    [map, selectedNotebookId]
+  // A new layout needs a new viewport; without this, drilling in leaves you looking at
+  // empty space where the system used to be. It waits for `nodesInitialized` because
+  // fitting before the nodes have been measured fits to the wrong box, and a tall
+  // notebook ends up running off both ends of the screen.
+  useEffect(() => {
+    if (!nodesInitialized || graph.nodes.length === 0) return;
+    void fitView({ padding: 0.15, duration: 200 });
+  }, [nodesInitialized, graph.nodes, fitView]);
+
+  const insideName = inside ? nameOf(inside) : undefined;
+
+  const onNodeClick = useCallback(
+    (_event: React.MouseEvent, node: Node) => {
+      if (node.id.startsWith('notebook-')) {
+        setInside(node.id.slice('notebook-'.length));
+        return;
+      }
+      if (node.id.startsWith('trigger-')) {
+        const trigger = map?.triggers.find((entry) => `trigger-${entry.id}` === node.id);
+        if (trigger) setInside(trigger.notebookId);
+        return;
+      }
+      if (node.id.startsWith('callout-')) {
+        const target = (node.data as { notebookId?: string }).notebookId;
+        if (target) setInside(target);
+      }
+    },
+    [map]
+  );
+
+  const onNodeDoubleClick = useCallback(
+    (_event: React.MouseEvent, node: Node) => {
+      if (node.id.startsWith('notebook-')) onOpenNotebook(node.id.slice('notebook-'.length));
+      else if (inside) onOpenNotebook(inside);
+    },
+    [inside, onOpenNotebook]
   );
 
   if (error) {
@@ -90,56 +173,66 @@ function MapCanvas({ onOpenNotebook, selectedNotebookId, onSelectNotebook }: Sys
   }
 
   return (
-    <div className="flex-1 flex min-w-0">
-      <div className="flex-1 relative min-w-0">
-        <ReactFlow
-          nodes={nodes}
-          edges={graph.edges}
-          nodeTypes={nodeTypes}
-          fitView
-          nodesDraggable={false}
-          nodesConnectable={false}
-          proOptions={{ hideAttribution: true }}
-          onNodeClick={(_event, node: Node) => {
-            const id = node.id.startsWith('notebook-') ? node.id.slice('notebook-'.length) : undefined;
-            onSelectNotebook(id);
-          }}
-          onNodeDoubleClick={(_event, node: Node) => {
-            if (node.id.startsWith('notebook-')) onOpenNotebook(node.id.slice('notebook-'.length));
-          }}
-          onPaneClick={() => onSelectNotebook(undefined)}
-        >
-          <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
-          <Controls showInteractive={false} />
-        </ReactFlow>
-
-        <div className="absolute top-3 left-3 flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 px-2 text-[11px] bg-background/90 backdrop-blur"
-            onClick={() => void refresh()}
+    <div className="flex-1 flex flex-col min-w-0">
+      {/* A bar rather than a floating overlay: at the system level the leftmost trigger
+          sits at the edge of the fitted viewport, and anything floating covers it. */}
+      <div className="h-9 shrink-0 border-b border-border bg-muted/20 flex items-center gap-1.5 px-2">
+        <div className="flex items-center border border-border bg-background">
+          <button
+            type="button"
+            onClick={() => setInside(undefined)}
+            className={
+              inside
+                ? 'h-6 px-2.5 text-[11px] text-muted-foreground hover:text-foreground flex items-center'
+                : 'h-6 px-2.5 text-[11px] bg-primary/15 text-primary font-medium flex items-center'
+            }
           >
-            <ArrowClockwise size={12} className="mr-1.5" />
-            {isLoading ? 'Reading…' : 'Refresh'}
-          </Button>
-          <span className="text-[10px] text-muted-foreground/70">
-            Derived from your notebooks · double-click to edit
-          </span>
+            {inside && <CaretLeft size={11} className="mr-1" weight="bold" />}
+            System
+          </button>
+          {inside && (
+            <span className="h-6 px-2.5 text-[11px] bg-primary/15 text-primary font-medium flex items-center border-l border-border max-w-[220px] truncate">
+              {insideName ?? 'Notebook'}
+            </span>
+          )}
         </div>
+
+        <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px]" onClick={() => void refresh()}>
+          <ArrowClockwise size={12} className="mr-1.5" />
+          {isLoading ? 'Reading…' : 'Refresh'}
+        </Button>
+
+        {inside && (
+          <Button size="sm" className="h-6 px-2 text-[11px]" onClick={() => onOpenNotebook(inside)}>
+            <ArrowSquareOut size={12} className="mr-1.5" />
+            Open in editor
+          </Button>
+        )}
+
+        <span className="ml-auto text-[10px] text-muted-foreground/70 truncate">
+          {inside
+            ? insideError
+              ? `Could not read it: ${insideError}`
+              : 'Click a call to follow it · double-click to edit'
+            : 'Derived from your notebooks · click to look inside · double-click to edit'}
+        </span>
       </div>
 
-      {selected && (
-        <NotebookStructure
-          notebookId={selected.id}
-          calls={(map?.calls ?? []).filter((call) => call.fromNotebookId === selected.id)}
-          notebookNames={
-            new Map((map?.notebooks ?? []).map((notebook) => [notebook.id, notebook.name]))
-          }
-          onOpen={() => onOpenNotebook(selected.id)}
-          onClose={() => onSelectNotebook(undefined)}
-        />
-      )}
+      <div className="flex-1 relative min-h-0">
+      <ReactFlow
+        nodes={nodes}
+        edges={graph.edges}
+        nodeTypes={nodeTypes}
+        nodesDraggable={false}
+        nodesConnectable={false}
+        proOptions={{ hideAttribution: true }}
+        onNodeClick={onNodeClick}
+        onNodeDoubleClick={onNodeDoubleClick}
+      >
+        <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
+        <Controls showInteractive={false} />
+      </ReactFlow>
+      </div>
     </div>
   );
 }
@@ -151,5 +244,3 @@ export function SystemMap(props: SystemMapProps) {
     </ReactFlowProvider>
   );
 }
-
-export type { NotebookNodeData };

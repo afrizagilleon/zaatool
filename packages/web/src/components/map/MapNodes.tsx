@@ -1,8 +1,17 @@
 import { Handle, Position } from '@xyflow/react';
 import type { Node, NodeProps } from '@xyflow/react';
-import { Clock, Globe, Warning, Question, ArrowsSplit } from '@phosphor-icons/react';
+import {
+  Clock,
+  Globe,
+  Warning,
+  Question,
+  ArrowsSplit,
+  ArrowSquareOut,
+} from '@phosphor-icons/react';
 import { cn } from '../../lib/utils';
 import type {
+  CallOutNodeData,
+  CellNodeData,
   NotebookNodeData,
   TriggerNodeData,
   UnresolvedNodeData,
@@ -95,6 +104,61 @@ export function MapTriggerNode({ data }: NodeProps<Node<TriggerNodeData, 'mapTri
         </div>
       </div>
       <Handle type="source" position={Position.Right} className="!bg-primary !w-2 !h-2" />
+    </div>
+  );
+}
+
+/** One cell inside a notebook, at the second altitude. */
+export function MapCellNode({ data, selected }: NodeProps<Node<CellNodeData, 'mapCell'>>) {
+  const { index, label, hasCode, laneLabel, status } = data;
+
+  return (
+    <div
+      className={cn(
+        'w-[240px] border bg-node-bg shadow-sm px-3 py-2',
+        selected ? 'border-primary' : 'border-border',
+        !hasCode && 'border-dashed opacity-70',
+        status === 'running' && 'border-status-running',
+        status === 'error' && 'border-status-error'
+      )}
+    >
+      <Handle type="target" position={Position.Top} className="!bg-muted-foreground !w-2 !h-2" />
+
+      <div className="flex items-center gap-2">
+        <span className="text-[9px] font-bold text-muted-foreground/60 shrink-0">{index}</span>
+        <span className="text-[11px] truncate flex-1" title={label}>
+          {label}
+        </span>
+        {!hasCode && (
+          <span className="text-[9px] uppercase tracking-wider text-muted-foreground/60 shrink-0">
+            {label === 'empty cell' ? 'empty' : 'note'}
+          </span>
+        )}
+      </div>
+      {laneLabel && (
+        <div className="text-[9px] uppercase tracking-widest text-primary/70 mt-1">{laneLabel}</div>
+      )}
+
+      <Handle type="source" position={Position.Bottom} className="!bg-muted-foreground !w-2 !h-2" />
+    </div>
+  );
+}
+
+/** A call leaving this notebook, clickable so the map keeps being a way to travel. */
+export function MapCallOutNode({ data }: NodeProps<Node<CallOutNodeData, 'mapCallOut'>>) {
+  return (
+    <div
+      className={cn(
+        'w-[180px] border border-dashed px-3 py-2 bg-background',
+        data.notebookId ? 'border-primary/50 cursor-pointer' : 'border-status-error/60'
+      )}
+      title={data.notebookId ? 'Open this notebook' : 'This call resolves to nothing'}
+    >
+      <Handle type="target" position={Position.Top} className="!bg-muted-foreground !w-2 !h-2" />
+      <div className="flex items-center gap-1.5">
+        <ArrowSquareOut size={12} weight="duotone" className="text-primary shrink-0" />
+        <span className="font-mono text-[11px] truncate">{data.label}</span>
+      </div>
     </div>
   );
 }
