@@ -112,6 +112,20 @@ export async function initDb() {
       ON notebook_runs (notebook_id, started_at DESC);
     `);
 
+    // Agent credentials for MCP — separate from the browser session so one can be
+    // revoked without touching the other.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS agent_tokens (
+        id VARCHAR(255) PRIMARY KEY,
+        label VARCHAR(255) NOT NULL,
+        scope VARCHAR(32) NOT NULL DEFAULT 'reader',
+        token_hash VARCHAR(64) NOT NULL UNIQUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_used_at TIMESTAMP,
+        revoked_at TIMESTAMP
+      );
+    `);
+
     // Users table
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (

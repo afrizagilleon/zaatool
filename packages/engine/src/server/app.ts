@@ -12,7 +12,7 @@ import { STORAGE_DIR } from "../services/storage.service.js";
 import { flowsRouter } from "../routes/flows.route.js";
 import { createNotebooksRouter } from "../routes/notebooks.route.js";
 import { createHooksRouter } from "../routes/hooks.route.js";
-import { aiRouter } from "../routes/ai.route.js";
+import { createMcpRouter } from "../routes/mcp.route.js";
 import { authRouter } from "../routes/auth.route.js";
 import { triggersRouter } from "../routes/triggers.route.js";
 import { flowsController } from "../controllers/flows.controller.js";
@@ -45,6 +45,10 @@ export function createApp(publishRunEvent: RunEventSink) {
   // are reachable without a session. They live outside /api for that reason.
   app.use("/hooks", createHooksRouter(publishRunEvent));
 
+  // Agents authenticate with their own revocable token rather than a browser session,
+  // so this sits outside /api and guards itself.
+  app.use("/mcp", createMcpRouter(publishRunEvent));
+
   app.use("/api", authMiddleware);
 
   app.use("/api/auth", authRouter);
@@ -57,7 +61,6 @@ export function createApp(publishRunEvent: RunEventSink) {
   app.use("/api/flows", flowsRouter);
   app.use("/api/notebooks", createNotebooksRouter(publishRunEvent));
   app.use("/api/triggers", triggersRouter);
-  app.use("/api/ai", aiRouter);
 
   app.get("/api/health", (_req, res) => {
     res.status(200).json({ status: "ok" });
