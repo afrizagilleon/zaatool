@@ -110,7 +110,7 @@ export function MapTriggerNode({ data }: NodeProps<Node<TriggerNodeData, 'mapTri
 
 /** One cell inside a notebook, at the second altitude. */
 export function MapCellNode({ data, selected }: NodeProps<Node<CellNodeData, 'mapCell'>>) {
-  const { index, label, hasCode, laneLabel, status } = data;
+  const { index, label, hasCode, laneLabel, status, ms } = data;
 
   return (
     <div
@@ -119,6 +119,7 @@ export function MapCellNode({ data, selected }: NodeProps<Node<CellNodeData, 'ma
         selected ? 'border-primary' : 'border-border',
         !hasCode && 'border-dashed opacity-70',
         status === 'running' && 'border-status-running',
+        status === 'done' && 'border-status-done/60',
         status === 'error' && 'border-status-error'
       )}
     >
@@ -129,10 +130,16 @@ export function MapCellNode({ data, selected }: NodeProps<Node<CellNodeData, 'ma
         <span className="text-[11px] truncate flex-1" title={label}>
           {label}
         </span>
-        {!hasCode && (
-          <span className="text-[9px] uppercase tracking-wider text-muted-foreground/60 shrink-0">
-            {label === 'empty cell' ? 'empty' : 'note'}
+        {ms !== undefined ? (
+          <span className="text-[9px] text-muted-foreground/70 shrink-0 font-mono">
+            {ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`}
           </span>
+        ) : (
+          !hasCode && (
+            <span className="text-[9px] uppercase tracking-wider text-muted-foreground/60 shrink-0">
+              {label === 'empty cell' ? 'empty' : 'note'}
+            </span>
+          )
         )}
       </div>
       {laneLabel && (

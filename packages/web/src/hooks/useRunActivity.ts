@@ -7,6 +7,18 @@ const SETTLE_MS = 4000;
 
 export type NotebookActivity = 'running' | 'done' | 'error';
 
+export interface NotebookActivityState {
+  status: NotebookActivity;
+  /**
+   * The run behind it.
+   *
+   * Carried so a view that is *already looking* at this notebook can open the ordinary
+   * per-run subscription and see individual cells. That channel is authorised by
+   * holding the run id, which is exactly what this hands over.
+   */
+  runId: string;
+}
+
 /**
  * What is running right now, anywhere.
  *
@@ -15,27 +27,22 @@ export type NotebookActivity = 'running' | 'done' | 'error';
  * this browser started: a cron at 3am, an agent working over MCP. So the socket asks to
  * watch, and the engine sends lifecycle only.
  */
-export function useRunActivity(enabled: boolean): Record<string, NotebookActivity> {
-  const [activity, setActivity] = useState<Record<string, NotebookActivity>>({});
+export function useRunActivity(enabled: boolean): Record<string, NotebookActivityState> {
+  const [activity, setActivity] = useState<Record<string, NotebookActivityState>>({});
   const timers = useRef(new Map<string, number>());
 
   useEffect(() => {
     if (!enabled) return;
 
     const socket = new WebSocket(WS_BASE_URL);
-    const clearLater = (flowId: string) => {
-      const existing = timers.current.get(flowId);
-      if (existing) window.clearTimeout(existing);
-      timers.current.set(
-        flowId,
-        window.setTimeout(() => {
-          setActivity((current) => {
-            const { [flowId]: _removed, ...rest } = current;
-            return rest;
-          });
-          timers.current.delete(flowId);
-        }, SETTLE_MS)
-      );
+    const pending = timers.current;
+
+    const forget = (flowId: string) => {
+      const existing = pending.get(flowId);
+      if (existing) {
+        window.clearTimeout(existing);
+        pending.delete(flowId);
+      }
     };
 
     socket.onopen = () => {
@@ -53,23 +60,34 @@ export function useRunActivity(enabled: boolean): Record<string, NotebookActivit
       if (parsed.type !== 'run:activity' || !parsed.flowId) return;
 
       if (parsed.status === 'running') {
-        const existing = timers.current.get(parsed.flowId);
-        if (existing) {
-          window.clearTimeout(existing);
-          timers.current.delete(parsed.flowId);
-        }
+        forget(parsed.flowId);
         setActivity((current) =>
-          current[parsed.flowId] === 'running' ? current : { ...current, [parsed.flowId]: 'running' }
+          current[parsed.flowId]?.status === 'running' && current[parsed.flowId]?.runId === parsed.runId
+            ? current
+            : { ...current, [parsed.flowId]: { status: 'running', runId: parsed.runId } }
         );
         return;
       }
 
       const settled: NotebookActivity = parsed.status === 'success' ? 'done' : 'error';
-      setActivity((current) => ({ ...current, [parsed.flowId]: settled }));
-      clearLater(parsed.flowId);
+      setActivity((current) => ({
+        ...current,
+        [parsed.flowId]: { status: settled, runId: parsed.runId },
+      }));
+
+      forget(parsed.flowId);
+      pending.set(
+        parsed.flowId,
+        window.setTimeout(() => {
+          setActivity((current) => {
+            const { [parsed.flowId]: _removed, ...rest } = current;
+            return rest;
+          });
+          pending.delete(parsed.flowId);
+        }, SETTLE_MS)
+      );
     };
 
-    const pending = timers.current;
     return () => {
       socket.close();
       for (const timer of pending.values()) window.clearTimeout(timer);

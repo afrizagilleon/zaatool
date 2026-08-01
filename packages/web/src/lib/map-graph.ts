@@ -45,6 +45,8 @@ export interface CellNodeData extends Record<string, unknown> {
   hasCode: boolean;
   laneLabel?: string;
   status?: 'running' | 'done' | 'error';
+  /** How long it took in the run being replayed; absent when showing live. */
+  ms?: number;
 }
 
 export interface CallOutNodeData extends Record<string, unknown> {
