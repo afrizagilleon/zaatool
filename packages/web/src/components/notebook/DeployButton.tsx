@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { RocketLaunch, Spinner, CheckCircle } from '@phosphor-icons/react';
+import { RocketLaunch, CheckCircle } from '@phosphor-icons/react';
 import type { NotebookDeployState } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { notebooksApi } from '../../lib/notebooks-api';
+import { DeployReviewDialog } from './DeployReviewDialog';
 import { cn } from '../../lib/utils';
 
 /**
@@ -36,7 +37,7 @@ function summary(state: NotebookDeployState | null, hasTriggers: boolean): strin
 
 export function DeployButton({ notebookId, refreshKey, hasTriggers, isDirty }: DeployButtonProps) {
   const [state, setState] = useState<NotebookDeployState | null>(null);
-  const [isDeploying, setIsDeploying] = useState(false);
+  const [isReviewing, setIsReviewing] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!notebookId) return;
@@ -61,6 +62,7 @@ export function DeployButton({ notebookId, refreshKey, hasTriggers, isDirty }: D
   const isUrgent = hasTriggers && needsDeploy;
 
   return (
+    <>
     <Button
       variant={isUrgent ? 'outline' : 'ghost'}
       size="sm"
@@ -71,25 +73,25 @@ export function DeployButton({ notebookId, refreshKey, hasTriggers, isDirty }: D
           : 'text-muted-foreground hover:text-foreground'
       )}
       title={blockedByUnsaved ? 'Save before deploying' : summary(state, hasTriggers)}
-      disabled={isDeploying || !needsDeploy || blockedByUnsaved}
-      onClick={async () => {
-        setIsDeploying(true);
-        try {
-          await notebooksApi.deploy(notebookId);
-          await refresh();
-        } finally {
-          setIsDeploying(false);
-        }
-      }}
+      disabled={!needsDeploy || blockedByUnsaved}
+      onClick={() => setIsReviewing(true)}
     >
-      {isDeploying ? (
-        <Spinner size={13} className="animate-spin mr-1.5" />
-      ) : needsDeploy ? (
+      {needsDeploy ? (
         <RocketLaunch size={13} className="mr-1.5" />
       ) : (
         <CheckCircle size={13} weight="fill" className="mr-1.5 text-status-done" />
       )}
       {needsDeploy ? 'Deploy' : 'Deployed'}
     </Button>
+
+    {/* Deploying goes through the review rather than straight from the button: the gate
+        is only worth having if the decision behind it is informed. */}
+    <DeployReviewDialog
+      notebookId={notebookId}
+      open={isReviewing}
+      onOpenChange={setIsReviewing}
+      onDeployed={() => void refresh()}
+    />
+    </>
   );
 }

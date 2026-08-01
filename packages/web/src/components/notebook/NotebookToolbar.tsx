@@ -1,4 +1,15 @@
-import { Play, Spinner, FloppyDisk, ArrowLeft, Warning, Eye, EyeSlash } from '@phosphor-icons/react';
+import {
+  Play,
+  Spinner,
+  FloppyDisk,
+  ArrowLeft,
+  Warning,
+  Eye,
+  EyeSlash,
+  ArrowsLeftRight,
+  Lightning,
+  Key,
+} from '@phosphor-icons/react';
 import type { NotebookRuntime } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -12,6 +23,55 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 import type { CellSection } from '../../store/notebookTypes';
+
+/** Marks where one group of controls ends and the next begins. */
+function Divider() {
+  return <div className="h-4 w-px bg-border/70 mx-0.5 shrink-0" />;
+}
+
+/**
+ * One of the notebook's settings panels.
+ *
+ * The label gives way before the icon does. Guidance on crowded toolbars is consistent:
+ * group related controls and let the least important part disappear first, rather than
+ * growing a second row — a second row costs vertical space on every screen to solve a
+ * problem that only exists on narrow ones.
+ */
+function PanelDisclosure({
+  icon,
+  label,
+  badge,
+  width = '',
+  children,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  badge?: string;
+  width?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <details className="relative shrink-0">
+      <summary
+        className="list-none cursor-pointer flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground hover:text-foreground px-1.5 py-1 select-none"
+        title={label}
+      >
+        {icon}
+        <span className="hidden xl:inline">{label}</span>
+        {badge && (
+          <span className="font-mono normal-case tracking-normal text-muted-foreground/70">
+            {badge}
+          </span>
+        )}
+      </summary>
+      <div
+        className={`absolute right-0 top-full mt-1 bg-card border border-border shadow-lg z-50 ${width}`}
+      >
+        {children}
+      </div>
+    </details>
+  );
+}
 
 const SECTIONS: { id: CellSection; label: string }[] = [
   { id: 'note', label: 'Notes' },
@@ -142,37 +202,41 @@ export function NotebookToolbar({
 
       {runHistory}
 
-      <details className="relative">
-        <summary className="list-none cursor-pointer text-[10px] font-semibold uppercase tracking-widest text-muted-foreground hover:text-foreground px-2 py-1 select-none">
-          Contract
-          {contractShape.inputs + contractShape.outputs > 0 && (
-            <span className="ml-1 font-mono normal-case tracking-normal text-muted-foreground/70">
-              {contractShape.inputs}→{contractShape.outputs}
-            </span>
-          )}
-        </summary>
-        <div className="absolute right-0 top-full mt-1 bg-card border border-border shadow-lg z-50">
-          {contractPanel}
-        </div>
-      </details>
+      <Divider />
 
-      <details className="relative">
-        <summary className="list-none cursor-pointer text-[10px] font-semibold uppercase tracking-widest text-muted-foreground hover:text-foreground px-2 py-1 select-none">
-          Triggers{triggerCount > 0 ? ` (${triggerCount})` : ''}
-        </summary>
-        <div className="absolute right-0 top-full mt-1 bg-card border border-border shadow-lg z-50">
-          {triggerPanel}
-        </div>
-      </details>
+      {/* What the notebook *is* — its contract, what starts it, what it may read.
+          Three panels, so they share a group and their labels give way before their
+          icons do. Stacking the toolbar into two rows would cost more than it saves. */}
+      <PanelDisclosure
+        icon={<ArrowsLeftRight size={12} />}
+        label="Contract"
+        badge={
+          contractShape.inputs + contractShape.outputs > 0
+            ? `${contractShape.inputs}→${contractShape.outputs}`
+            : undefined
+        }
+      >
+        {contractPanel}
+      </PanelDisclosure>
 
-      <details className="relative">
-        <summary className="list-none cursor-pointer text-[10px] font-semibold uppercase tracking-widest text-muted-foreground hover:text-foreground px-2 py-1 select-none">
-          Secrets{secrets.length > 0 ? ` (${secrets.length})` : ''}
-        </summary>
-        <div className="absolute right-0 top-full mt-1 w-64 p-3 bg-card border border-border shadow-lg z-50">
-          <NodeSecretsProperties selectedKeys={secrets} onChange={onSecretsChange} />
-        </div>
-      </details>
+      <PanelDisclosure
+        icon={<Lightning size={12} />}
+        label="Triggers"
+        badge={triggerCount > 0 ? String(triggerCount) : undefined}
+      >
+        {triggerPanel}
+      </PanelDisclosure>
+
+      <PanelDisclosure
+        icon={<Key size={12} />}
+        label="Secrets"
+        badge={secrets.length > 0 ? String(secrets.length) : undefined}
+        width="w-64 p-3"
+      >
+        <NodeSecretsProperties selectedKeys={secrets} onChange={onSecretsChange} />
+      </PanelDisclosure>
+
+      <Divider />
 
       <Button
         variant="ghost"
@@ -182,7 +246,7 @@ export function NotebookToolbar({
         disabled={isSaving || !isDirty}
       >
         {isSaving ? <Spinner size={13} className="animate-spin mr-1.5" /> : <FloppyDisk size={13} className="mr-1.5" />}
-        Save
+        <span className="hidden md:inline">Save</span>
       </Button>
 
       {deployButton}

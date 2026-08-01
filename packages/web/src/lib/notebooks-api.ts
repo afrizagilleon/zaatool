@@ -43,6 +43,10 @@ export const notebooksApi = {
   /** What production runs, and whether the draft has moved on since. */
   deployState: (id: string): Promise<NotebookDeployState> => request(`/api/notebooks/${id}/deploy`),
 
+  /** The document production is running, for comparing against the draft. */
+  deployedDocument: (id: string): Promise<NotebookJson> =>
+    request(`/api/notebooks/${id}/deployed`),
+
   /** Pins the current draft as what triggers run. */
   deploy: (id: string): Promise<{ versionId: string }> =>
     request(`/api/notebooks/${id}/deploy`, { method: "POST" }),

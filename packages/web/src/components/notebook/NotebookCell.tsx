@@ -40,6 +40,30 @@ interface NotebookCellProps {
 }
 
 /**
+ * "claude code · 2h ago".
+ *
+ * Kept to one quiet line: when an agent has written most of the notebook, the useful
+ * signal is which cells *you* wrote and which changed recently — not a timestamp on
+ * every row demanding to be read.
+ */
+function authorLine(author: { by: string; at: string } | undefined): string | null {
+  if (!author) return null;
+
+  const elapsed = Date.now() - new Date(author.at).getTime();
+  const minutes = Math.round(elapsed / 60_000);
+  const when =
+    minutes < 1
+      ? 'just now'
+      : minutes < 60
+        ? `${minutes}m ago`
+        : minutes < 60 * 24
+          ? `${Math.round(minutes / 60)}h ago`
+          : `${Math.round(minutes / (60 * 24))}d ago`;
+
+  return `${author.by} · ${when}`;
+}
+
+/**
  * Every section is laid out as [fold gutter][content], so the control is always
  * in the same place at the left edge — never floating over the content it folds.
  */
@@ -165,6 +189,15 @@ export function NotebookCell({
         )}
 
         <div className="flex-1" />
+
+        {authorLine(cell.author) && (
+          <span
+            className="text-[9px] text-muted-foreground/60 truncate max-w-[160px]"
+            title={`Last changed by ${cell.author?.by} on ${new Date(cell.author?.at ?? '').toLocaleString()}`}
+          >
+            {authorLine(cell.author)}
+          </span>
+        )}
 
         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
           {!showNote && (

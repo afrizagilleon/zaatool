@@ -3,7 +3,6 @@ import {
   Moon,
   Spinner,
   FloppyDisk,
-  RocketLaunch,
   SignOut,
   List,
   User as UserIcon,
@@ -164,40 +163,26 @@ export function Navbar() {
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Storage Actions */}
-      <div className="flex items-center gap-1 mr-2">
-        <Button
-          onClick={save}
-          disabled={isSaving}
-          variant="ghost"
-          className="h-7 px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground"
-        >
-          {isSaving ? (
-            <Spinner size={14} className="animate-spin mr-1.5" />
-          ) : (
-            <FloppyDisk size={14} className="mr-1.5" />
-          )}
-          Save
-        </Button>
-
-        <div className="hidden lg:block h-4 w-px bg-border mx-1" />
-
-        <Button
-          variant="ghost"
-          size="sm"
-          className="hidden lg:inline-flex h-7 px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground relative group"
-          disabled
-        >
-          <RocketLaunch size={16} className="mr-1.5" />
-          Deploy
-          <span className="absolute -top-1 -right-2 text-[8px] bg-primary/20 text-primary px-1 font-bold group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
-            SOON
-          </span>
-        </Button>
-
-        <div className="h-4 w-px bg-border mx-1" />
-      </div>
-
+      {/* The canvas's own Save, and only there. Everywhere else it duplicated the
+          toolbar's Save and saved something the user was not looking at. */}
+      {activeTab === 'editor' && (
+        <div className="flex items-center gap-1 mr-2">
+          <Button
+            onClick={save}
+            disabled={isSaving}
+            variant="ghost"
+            className="h-7 px-2.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+          >
+            {isSaving ? (
+              <Spinner size={14} className="animate-spin mr-1.5" />
+            ) : (
+              <FloppyDisk size={14} className="mr-1.5" />
+            )}
+            Save
+          </Button>
+          <div className="h-4 w-px bg-border mx-1" />
+        </div>
+      )}
 
       {/* Dark mode toggle */}
       <Button
