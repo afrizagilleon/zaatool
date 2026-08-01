@@ -13,6 +13,7 @@ import { compileNotebook, NotebookCompileError } from "../core/notebook-compiler
 import { ContractError } from "../core/notebook-contract.js";
 import { fromMarkdown, toMarkdown, NotebookTextError } from "../core/notebook-text.js";
 import { outwardChanges, requestApproval } from "./approval.js";
+import { buildNotebookMap, renderNotebookMap } from "../core/notebook-map.js";
 import type { NotebookPlan } from "../core/notebook-compiler.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 import type { AgentScope } from "../services/agent-tokens.service.js";
@@ -219,6 +220,17 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
       }
       return reply(lines.join("\n"));
     }
+  );
+
+  server.registerTool(
+    "system_map",
+    {
+      title: "Map the whole workspace",
+      description:
+        "How the notebooks fit together: what triggers each one, which ones call which, and what contract each exposes. Read this before changing a notebook — it is how you find out who depends on it. Call edges are read out of the code, so a call whose target is computed at run time is reported as such rather than hidden.",
+      inputSchema: {},
+    },
+    async () => reply(renderNotebookMap(buildNotebookMap(await notebooksService.getAllDocuments())))
   );
 
   server.registerTool(

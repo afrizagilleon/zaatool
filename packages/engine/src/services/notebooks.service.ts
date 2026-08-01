@@ -20,6 +20,17 @@ export class NotebooksService {
     return rows;
   }
 
+  /** Every document at once, for anything that has to look at the whole workspace. */
+  async getAllDocuments(): Promise<{ document: NotebookJson; updatedAt: string }[]> {
+    const { rows } = await pool.query(
+      "SELECT * FROM notebooks ORDER BY updated_at DESC"
+    );
+    return (rows as NotebookRecord[]).map((row) => ({
+      document: this.parseDocument(row),
+      updatedAt: new Date(row.updated_at).toISOString(),
+    }));
+  }
+
   async getById(id: string): Promise<NotebookRecord | null> {
     const { rows } = await pool.query("SELECT * FROM notebooks WHERE id = $1", [id]);
     return rows[0] ?? null;

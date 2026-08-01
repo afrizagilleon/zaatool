@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { notebooksService } from "../services/notebooks.service.js";
+import { buildNotebookMap } from "../core/notebook-map.js";
 import { notebookRunsService } from "../services/notebook-runs.service.js";
 import {
   notebookExecutionService,
@@ -34,6 +35,15 @@ export class NotebooksController {
   list = async (_req: Request, res: Response) => {
     try {
       res.json(await notebooksService.getSummary());
+    } catch (err: unknown) {
+      respondWithError(res, err);
+    }
+  };
+
+  /** The system map. Computed on request — there is nothing stored to go stale. */
+  map = async (_req: Request, res: Response) => {
+    try {
+      res.json(buildNotebookMap(await notebooksService.getAllDocuments()));
     } catch (err: unknown) {
       respondWithError(res, err);
     }
