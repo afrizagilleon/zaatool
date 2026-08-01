@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import { compileNotebook, selectPlanCell } from "../core/notebook-compiler.js";
 import { RunGate } from "../core/run-gate.js";
-import { runNotebook } from "../core/notebook-runner.js";
+import { runNotebook, type NotebookRunResult } from "../core/notebook-runner.js";
 import { bindInputs } from "../core/notebook-contract.js";
 import { createRunEmitter, type RunEventSink } from "../core/run-emitter.js";
 import { notebooksService } from "./notebooks.service.js";
@@ -60,6 +60,16 @@ export interface StartRunOptions {
   cellId?: string;
   /** Recorded on the run so a failure can be traced to what set it off. */
   triggerSource?: NotebookRunTrigger;
+}
+
+export interface StartedRun {
+  runId: string;
+  /**
+   * Resolves when the run is over, with its outcome. Never rejects: a cell failure is
+   * a `failed` status, and an unexpected throw is reported the same way, so a caller
+   * that only wants the id can ignore this without risking an unhandled rejection.
+   */
+  completed: Promise<NotebookRunResult>;
 }
 
 /** Every cell's source, keyed by id, so the recorded run knows what it ran. */
@@ -168,7 +178,7 @@ export class NotebookExecutionService {
     notebookId: string,
     publish: RunEventSink,
     options: StartRunOptions = {}
-  ): Promise<{ runId: string }> {
+  ): Promise<StartedRun> {
     const record = await notebooksService.getById(notebookId);
     if (!record) throw new NotebookNotFoundError(notebookId);
 
@@ -210,10 +220,18 @@ export class NotebookExecutionService {
     // Detached: runNotebook reports its own outcome through terminal events and never
     // rejects for a cell failure. The gate slot is taken here rather than before the
     // run row is written, so a queued run still has an id the caller can follow.
+    //
+    // `completed` exists for callers with no event stream to watch — an agent over MCP
+    // has only the answer it is handed. It never rejects, so ignoring it stays safe.
+    let settle: (result: NotebookRunResult) => void = () => {};
+    const completed = new Promise<NotebookRunResult>((resolve) => {
+      settle = resolve;
+    });
+
     void (async () => {
       const release = await runGate.acquire();
       try {
-        await runNotebook(plan, {
+        const result = await runNotebook(plan, {
           ee,
           secrets,
           // Declared arguments first, so a trigger payload seeded under `input`
@@ -221,12 +239,18 @@ export class NotebookExecutionService {
           input: { ...options.input, ...boundInputs },
           call: this.callerFor(notebookId, document.name),
         });
+        // Waiting for the recorder means a caller that reads the run the moment this
+        // resolves sees every cell, not whichever writes happened to land first.
+        await recorder.drain();
+        settle(result);
+      } catch (err: unknown) {
+        settle({ status: "failed", errors: [(err as Error).message], ms: 0, outputs: {} });
       } finally {
         release();
       }
     })();
 
-    return { runId };
+    return { runId, completed };
   }
 }
 

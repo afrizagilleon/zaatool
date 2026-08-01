@@ -25,6 +25,8 @@ export interface RunResultStore {
 export class NotebookRunRecorder {
   /** Logs arrive before the cell finishes, so they are held until there is a result to attach them to. */
   private pendingLogs = new Map<string, CellLogEntry[]>();
+  /** Writes started but not yet settled, so a caller can wait for the record to be whole. */
+  private inFlight = new Set<Promise<void>>();
   private sources: Record<string, string | undefined>;
 
   constructor(
@@ -97,8 +99,24 @@ export class NotebookRunRecorder {
   }
 
   private detach(write: Promise<void>): void {
-    void write.catch((err: unknown) => {
+    const tracked = write.catch((err: unknown) => {
       console.error(`Failed to record run ${this.runId}:`, (err as Error).message);
     });
+    this.inFlight.add(tracked);
+    void tracked.finally(() => this.inFlight.delete(tracked));
+  }
+
+  /**
+   * Resolves once every write started so far has settled.
+   *
+   * Detached writes are right for a browser watching over a socket — it already has
+   * the events — but wrong for a caller whose only view of the run is the stored row.
+   * An agent asks for a cell's output the instant the run ends, and without this it
+   * can read a row the last write has not reached yet.
+   */
+  async drain(): Promise<void> {
+    while (this.inFlight.size > 0) {
+      await Promise.all([...this.inFlight]);
+    }
   }
 }
