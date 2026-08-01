@@ -45,6 +45,15 @@ export interface McpToolDeps {
   writer: string;
 }
 
+/**
+ * Where a person would go to look at this.
+ *
+ * An agent cannot deploy, so every write ends with someone being asked to. Handing over
+ * a link rather than an id is the difference between a request and an errand.
+ */
+const editorUrl = (notebookId: string): string =>
+  `${process.env.WEB_BASE_URL ?? "http://localhost:5173"}/#/notebooks/${notebookId}`;
+
 /** Long enough for a real API call chain, short enough that a hung run answers. */
 const DEFAULT_RUN_TIMEOUT_SECONDS = 120;
 const MAX_RUN_TIMEOUT_SECONDS = 600;
@@ -207,7 +216,7 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
     {
       title: "List notebooks",
       description:
-        "Every notebook, with its contract and its triggers. Start here: it tells you what already exists so you can call it instead of writing it again.",
+        "Every notebook, with its contract and its triggers. Start here before writing anything: it tells you what already exists so you can call it instead of writing it again.",
       inputSchema: {},
     },
     async () => {
@@ -406,6 +415,9 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
         [
           "Saves a notebook from its text form. Front matter carries `name`, `runtime` (node or python), `secrets`, `inputs`, `outputs` and `triggers`; the body is cells.",
           "",
+          "BEFORE WRITING: call `system_map` and check whether a deployed notebook already does this. Reuse beats rewriting, and a workspace fills up with near-duplicates fast.",
+          "NEVER write a notebook for one particular value. A notebook that answers \"convert 23.3 USD\" is a notebook that will be wrong tomorrow — declare `amount` as an input and answer every version of the question.",
+          "",
           "Minimal example — prose, then one code block, is read as a single cell:",
           "",
           "---",
@@ -426,7 +438,7 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
           "To reuse another notebook, call `await notebooks.run('its-name', { arg: 1 })` from a cell; you get back only that notebook's declared outputs.",
           "",
           "Read first and keep the ids you were given: run history and freshness are keyed by cell id, so dropping them starts the record over.",
-          "Saving changes the draft. Triggers run the version a person deployed, so nothing you write here reaches production on its own.",
+          "Saving changes the draft. Triggers run the version a person deployed, so nothing you write here reaches production on its own, and it does not become a callable tool until then either.",
         ].join("\n"),
       inputSchema: {
         text: z.string().describe("The whole notebook in its text form."),
@@ -476,8 +488,13 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
               : "")
         );
       } else {
-        lines.push("Not deployed — its triggers will not fire until someone deploys it.");
+        lines.push(
+          "Not deployed — its triggers will not fire and it is not callable as a tool until someone deploys it."
+        );
       }
+
+      // A person has to deploy this, and telling them where it is costs one line.
+      lines.push(`Open it at ${editorUrl(saved.id)} to review and deploy.`);
 
       // Saved either way, then compiled — a half-written notebook is a normal state to
       // be in mid-task, but the agent should learn what is wrong now rather than at the

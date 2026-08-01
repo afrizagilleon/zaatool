@@ -74,6 +74,14 @@ export interface StartRunOptions {
 export interface StartedRun {
   runId: string;
   /**
+   * The names this notebook promises to hand back.
+   *
+   * Reported so a caller can decide whether waiting for the run is worth anything —
+   * a notebook that declares no outputs has nothing to return, and waiting for it would
+   * only make the caller slower.
+   */
+  declaredOutputs: string[];
+  /**
    * Resolves when the run is over, with its outcome. Never rejects: a cell failure is
    * a `failed` status, and an unexpected throw is reported the same way, so a caller
    * that only wants the id can ignore this without risking an unhandled rejection.
@@ -321,7 +329,7 @@ export class NotebookExecutionService {
       }
     })();
 
-    return { runId, completed };
+    return { runId, declaredOutputs: fullPlan.outputs ?? [], completed };
   }
 }
 

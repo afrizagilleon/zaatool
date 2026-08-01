@@ -96,10 +96,8 @@ await check("after deploying, the same webhook runs", async () => {
     headers: { "Content-Type": "application/json" },
     body: "{}",
   });
-  assert.equal(res.status, 202);
-
-  const run = await latestRun(found.id);
-  assert.equal(run?.status, "success", run?.error ?? "");
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).status, "success");
 });
 
 console.log("\nwhat a trigger actually runs");
@@ -116,7 +114,8 @@ await check("editing after deploying does not change what the webhook does", asy
     headers: { "Content-Type": "application/json" },
     body: "{}",
   });
-  assert.equal(res.status, 202);
+  assert.equal(res.status, 200);
+  assert.deepEqual((await res.json()).outputs, { marker: "deployed-version" });
 
   const run = await latestRun(id);
   const source = run?.cell_results["zz-dep-slug-2-cell"]?.source ?? "";
@@ -147,10 +146,83 @@ await check("deploying again moves production to the current draft", async () =>
     headers: { "Content-Type": "application/json" },
     body: "{}",
   });
-  assert.equal(res.status, 202);
+  assert.equal(res.status, 200);
+  assert.deepEqual((await res.json()).outputs, { marker: "draft-version" });
+});
 
-  const run = await latestRun(found.id);
-  assert.match(run?.cell_results["zz-dep-slug-2-cell"]?.source ?? "", /draft-version/);
+console.log("\nwhat a webhook answers");
+
+await check("a notebook that declares outputs hands them back to the caller", async () => {
+  const id = await store({
+    id: "",
+    name: "zz-dep-answers",
+    runtime: "node",
+    inputs: [{ name: "amount", type: "number", required: true }],
+    outputs: ["marker", "doubled"],
+    triggers: [{ id: "zz-dep-ans-t", kind: "webhook", slug: "zz-dep-slug-5" }],
+    steps: [
+      {
+        id: "zz-dep-ans-cell",
+        kind: "cell",
+        code: "return { marker: 'answered', doubled: inputs.amount * 2 };",
+      },
+    ],
+  });
+  await notebooksService.deploy(id, "test");
+
+  const res = await fetch(`${base}/hooks/zz-dep-slug-5`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ amount: 21 }),
+  });
+
+  assert.equal(res.status, 200, "the caller was left holding a run id");
+  const body = await res.json();
+  assert.equal(body.status, "success");
+  assert.deepEqual(body.outputs, { marker: "answered", doubled: 42 });
+});
+
+await check("a notebook that declares none still answers immediately", async () => {
+  const id = await store({
+    id: "",
+    name: "zz-dep-fireforget",
+    runtime: "node",
+    triggers: [{ id: "zz-dep-ff-t", kind: "webhook", slug: "zz-dep-slug-6" }],
+    steps: [{ id: "zz-dep-ff-cell", kind: "cell", code: "return {};" }],
+  });
+  await notebooksService.deploy(id, "test");
+
+  const res = await fetch(`${base}/hooks/zz-dep-slug-6`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+
+  assert.equal(res.status, 202, "waited for a notebook with nothing to say");
+  assert.equal((await res.json()).status, "started");
+});
+
+await check("a failing notebook reports the failure rather than a cheerful run id", async () => {
+  const id = await store({
+    id: "",
+    name: "zz-dep-broken",
+    runtime: "node",
+    outputs: ["never"],
+    triggers: [{ id: "zz-dep-broken-t", kind: "webhook", slug: "zz-dep-slug-7" }],
+    steps: [{ id: "zz-dep-broken-cell", kind: "cell", code: "throw new Error('nope');" }],
+  });
+  await notebooksService.deploy(id, "test");
+
+  const res = await fetch(`${base}/hooks/zz-dep-slug-7`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+
+  assert.equal(res.status, 500);
+  const body = await res.json();
+  assert.equal(body.status, "failed");
+  assert.match(String(body.error), /nope/);
 });
 
 console.log("\nwhat the editor is told");
@@ -227,10 +299,8 @@ await check("a triggered run calls the callee's deployed version, not its draft"
     headers: { "Content-Type": "application/json" },
     body: "{}",
   });
-  assert.equal(res.status, 202);
-
-  const run = await latestRun(callerId);
-  assert.deepEqual(run?.cell_results["zz-dep-caller-cell"]?.output, { got: "deployed" });
+  assert.equal(res.status, 200);
+  assert.deepEqual((await res.json()).outputs, { got: "deployed" });
 });
 
 await check("running that same caller by hand reaches the callee's draft", async () => {

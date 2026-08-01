@@ -85,10 +85,18 @@ function describe(document: NotebookJson): string {
   })();
 
   const outputs = (document.outputs ?? []).join(", ");
+  const inputs = (document.inputs ?? []).map((input) => input.name);
+
+  // The arguments are in the schema, but a model choosing between tools reads the
+  // sentence first — and "takes no arguments" is the fact that decides whether this
+  // tool can answer the question at all.
+  const takes = inputs.length > 0 ? `Takes: ${inputs.join(", ")}.` : "Takes no arguments.";
+
   return [
     firstNote ?? `Runs the "${document.name}" notebook.`,
+    takes,
     outputs ? `Returns: ${outputs}.` : "Returns nothing.",
-    "This is a deployed notebook in this workspace — read it with notebook_read to see exactly what it does.",
+    "A deployed notebook in this workspace — read it with notebook_read to see exactly what it does.",
   ].join(" ");
 }
 
