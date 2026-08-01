@@ -40,8 +40,11 @@ function isTerminal(event: RunEvent): boolean {
  */
 export class RunEventHub {
   private channels = new Map<string, RunChannel>();
+  private watchers = new Set<RunEventListener>();
 
   publish(event: RunEvent): void {
+    for (const watcher of this.watchers) watcher(event);
+
     const channel = this.channelFor(event.runId);
 
     channel.buffer.push(event);
@@ -75,6 +78,21 @@ export class RunEventHub {
       const current = this.channels.get(runId);
       if (!current) return;
       current.listeners.delete(listener);
+    };
+  }
+
+  /**
+   * Every event, for a listener that cannot know run ids in advance — the map, which
+   * has to show a cron firing at 3am or an agent running a cell over MCP.
+   *
+   * No buffer and no replay: a watcher wants what is happening, not what happened, and
+   * holding history for something nobody proved they started would be a leak waiting to
+   * be found. Whoever consumes this is responsible for narrowing it down to lifecycle.
+   */
+  watch(listener: RunEventListener): () => void {
+    this.watchers.add(listener);
+    return () => {
+      this.watchers.delete(listener);
     };
   }
 

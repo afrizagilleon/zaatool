@@ -1,22 +1,55 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { Server } from "http";
-import type { RunSubscribeMessage } from "@zaa-tool/shared";
+import type {
+  RunActivityEvent,
+  RunClientMessage,
+  RunEvent,
+} from "@zaa-tool/shared";
 import type { RunEventHub } from "./run-event-hub.js";
 
 /** Guards against a single socket holding open an unbounded number of channels. */
 const MAX_SUBSCRIPTIONS_PER_SOCKET = 20;
 
-function parseSubscribe(raw: unknown): RunSubscribeMessage | null {
+function parseMessage(raw: unknown): RunClientMessage | null {
   if (typeof raw !== "string") return null;
   try {
     const message: unknown = JSON.parse(raw);
     if (typeof message !== "object" || message === null) return null;
-    const { action, runId } = message as Partial<RunSubscribeMessage>;
+    const { action, runId } = message as { action?: string; runId?: string };
+    if (action === "watch") return { action: "watch" };
     if (action !== "subscribe" || typeof runId !== "string" || runId.length === 0) return null;
     return { action, runId };
   } catch {
     return null;
   }
+}
+
+/**
+ * The only events a watcher is told about, and only that something happened.
+ *
+ * Deliberately excludes `cell:log` and `cell:done`: the watch channel is not scoped to
+ * a run the client proved it started, so nothing carrying a value may travel on it.
+ */
+const ACTIVITY_EVENTS = new Set<RunEvent["type"]>([
+  "cell:start",
+  "node:start",
+  "run:done",
+  "run:error",
+  "flow:done",
+  "flow:error",
+]);
+
+function toActivity(event: RunEvent): RunActivityEvent | null {
+  if (!ACTIVITY_EVENTS.has(event.type)) return null;
+
+  const status: RunActivityEvent["status"] =
+    event.type === "run:done" || event.type === "flow:done"
+      ? "success"
+      : event.type === "run:error" || event.type === "flow:error"
+        ? "failed"
+        : "running";
+
+  return { type: "run:activity", runId: event.runId, flowId: event.flowId, status };
 }
 
 /**
@@ -39,8 +72,23 @@ export class WebSocketManager {
       const unsubscribes = new Map<string, () => void>();
 
       ws.on("message", (raw) => {
-        const message = parseSubscribe(raw.toString());
+        const message = parseMessage(raw.toString());
         if (!message) return;
+
+        if (message.action === "watch") {
+          if (unsubscribes.has("*")) return;
+          unsubscribes.set(
+            "*",
+            this.hub.watch((event) => {
+              const activity = toActivity(event);
+              if (activity && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(activity));
+              }
+            })
+          );
+          return;
+        }
+
         if (unsubscribes.has(message.runId)) return;
         if (unsubscribes.size >= MAX_SUBSCRIPTIONS_PER_SOCKET) return;
 

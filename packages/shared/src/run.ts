@@ -44,6 +44,34 @@ export interface RunSubscribeMessage {
   runId: string;
 }
 
+/**
+ * Asks for run *activity* across the workspace rather than one run's events.
+ *
+ * The map needs this because it cannot know a run id in advance: a cron firing at 3am
+ * and an agent running a cell over MCP both start runs the browser never asked for, and
+ * both should light up on screen.
+ */
+export interface RunWatchMessage {
+  action: "watch";
+}
+
+export type RunClientMessage = RunSubscribeMessage | RunWatchMessage;
+
+/**
+ * Lifecycle only — which document is busy and how it ended.
+ *
+ * Carries no output, no logs and no cell identity, because this channel is not scoped
+ * to a run the client can prove it started. Anything a watcher should not see must not
+ * be put in here.
+ */
+export interface RunActivityEvent {
+  type: "run:activity";
+  runId: string;
+  /** Notebook id, or flow id for a graph run. */
+  flowId: string;
+  status: "running" | "success" | "failed";
+}
+
 /** Response of every endpoint that starts a run. */
 export interface RunStartedResponse {
   status: "started";
