@@ -47,6 +47,13 @@ export async function requestApproval(
   try {
     result = await server.server.elicitInput({
       message: `${request.summary}\n\n${request.consequence}`,
+      // Nothing is required, because `accept` already *is* the approval.
+      //
+      // This asked for a required `approve` boolean at first, which quietly assumed
+      // every client renders a form. Hermes does not — it turns an elicitation into a
+      // pair of buttons and answers `accept` with no content — so approving was
+      // rejected by the schema and deleting became impossible from Telegram. The
+      // question was being asked twice; once is enough.
       requestedSchema: {
         type: "object",
         properties: {
@@ -56,7 +63,6 @@ export async function requestApproval(
             description: request.consequence,
           },
         },
-        required: ["approve"],
       },
     });
   } catch (err: unknown) {
@@ -68,7 +74,10 @@ export async function requestApproval(
   if (result.action !== "accept") {
     return { approved: false, reason: "Declined." };
   }
-  if (result.content?.approve !== true) {
+  // A client that *did* render the checkbox and had it unticked is saying no inside a
+  // form it otherwise submitted. Anything else — including no content at all — is the
+  // approval that `accept` already means.
+  if (result.content?.approve === false) {
     return { approved: false, reason: "Not approved." };
   }
   return { approved: true };

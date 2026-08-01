@@ -356,7 +356,7 @@ await check("deleting refuses unless the name is typed again", async () => {
 console.log("\napproval");
 
 /** A client that can be asked, answering every elicitation the same way. */
-async function connectAnswering(answer: boolean | "decline"): Promise<Client> {
+async function connectAnswering(answer: boolean | "decline" | "accept-only"): Promise<Client> {
   const server = new McpServer({ name: "zaatool", version: "1.0.0" });
   registerNotebookTools(server, { publishRunEvent: () => {}, writer: "test-agent" }, "author");
 
@@ -367,11 +367,13 @@ async function connectAnswering(answer: boolean | "decline"): Promise<Client> {
     { name: "test-agent-with-buttons", version: "1.0.0" },
     { capabilities: { elicitation: {} } }
   );
-  client.setRequestHandler(ElicitRequestSchema, async () =>
-    answer === "decline"
-      ? { action: "decline" as const }
-      : { action: "accept" as const, content: { approve: answer } }
-  );
+  client.setRequestHandler(ElicitRequestSchema, async () => {
+    if (answer === "decline") return { action: "decline" as const };
+    // How Hermes answers: an elicitation is a pair of buttons, so tapping Approve sends
+    // `accept` and nothing else. The schema must not demand a field it will never send.
+    if (answer === "accept-only") return { action: "accept" as const };
+    return { action: "accept" as const, content: { approve: answer } };
+  });
 
   await client.connect(clientTransport);
   return client;
@@ -402,6 +404,32 @@ await check("saving without touching triggers needs no approval", async () => {
     ["---", "name: zz-mcp-plain", "runtime: node", "---", "", "```js", "return { ok: 1 };", "```"].join("\n")
   );
   assert.ok(!plain.isError, textOf(plain));
+});
+
+await check("a client that answers accept with no form is approving", async () => {
+  await write(
+    ["---", "name: zz-mcp-buttons", "runtime: node", "---", "", "```js", "return {};", "```"].join("\n")
+  );
+
+  const buttons = await connectAnswering("accept-only");
+  const result = await call(buttons, "notebook_delete", { notebook: "zz-mcp-buttons" });
+
+  assert.ok(!result.isError, textOf(result));
+  assert.equal(await notebooksService.findByIdOrName("zz-mcp-buttons"), null);
+  await buttons.close();
+});
+
+await check("an unticked checkbox inside an accepted form is still a no", async () => {
+  await write(
+    ["---", "name: zz-mcp-unticked", "runtime: node", "---", "", "```js", "return {};", "```"].join("\n")
+  );
+
+  const unticked = await connectAnswering(false);
+  const result = await call(unticked, "notebook_delete", { notebook: "zz-mcp-unticked" });
+
+  assert.ok(result.isError, "an unticked approval deleted the notebook");
+  assert.ok(await notebooksService.findByIdOrName("zz-mcp-unticked"), "it was deleted anyway");
+  await unticked.close();
 });
 
 await check("deleting asks too, and a decline leaves the notebook alone", async () => {
