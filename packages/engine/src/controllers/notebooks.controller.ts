@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { notebooksService } from "../services/notebooks.service.js";
 import { buildNotebookMap } from "../core/notebook-map.js";
+import { outputSpecs } from "../core/notebook-outputs.js";
 import { notifyCatalogChanged } from "../mcp/notebook-catalog.js";
 import { notebookRunsService } from "../services/notebook-runs.service.js";
 import {
@@ -92,7 +93,10 @@ export class NotebooksController {
           name: document.name,
           description: firstNoteOf(document),
           inputs: document.inputs ?? [],
-          outputs: document.outputs ?? [],
+          // Normalised here rather than in the browser: a page has to decide how to show
+          // each value, and it should not also have to know there are two ways to write
+          // an output down.
+          outputs: outputSpecs(document.outputs),
         });
       }
 

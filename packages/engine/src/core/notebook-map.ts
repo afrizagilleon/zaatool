@@ -7,6 +7,7 @@ import type {
   NotebookParam,
   NotebookStep,
 } from "@zaa-tool/shared";
+import { outputNames } from "./notebook-outputs.js";
 
 /**
  * Builds the system map from the documents.
@@ -99,7 +100,7 @@ export function buildNotebookMap(
       name: document.name,
       runtime: document.runtime,
       inputs: (document.inputs ?? []).map(describeInput),
-      outputs: [...(document.outputs ?? [])],
+      outputs: outputNames(document.outputs),
       secrets: [...(document.secrets ?? [])],
       cellCount: cells.length,
       parallelCount: counts.parallel,

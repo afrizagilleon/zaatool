@@ -1,5 +1,6 @@
 import type {
   NotebookJson,
+  NotebookOutput,
   NotebookParam,
   NotebookRuntime,
   NotebookStep,
@@ -60,7 +61,7 @@ export interface NotebookState {
 
   /** The reuse contract: what a caller supplies, and what it gets back. */
   inputs: NotebookParam[];
-  outputs: string[];
+  outputs: Array<string | NotebookOutput>;
   /**
    * Values for a test run from the editor. Never saved: they are how the author
    * exercises the contract, not part of what the notebook is.
@@ -74,7 +75,7 @@ export interface NotebookState {
   addInput: () => void;
   updateInput: (index: number, patch: Partial<NotebookParam>) => void;
   removeInput: (index: number) => void;
-  setOutputs: (outputs: string[]) => void;
+  setOutputs: (outputs: Array<string | NotebookOutput>) => void;
   setTestArg: (name: string, value: string) => void;
 
   addTrigger: (kind: 'cron' | 'webhook') => void;

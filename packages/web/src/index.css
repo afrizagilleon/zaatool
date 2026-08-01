@@ -76,7 +76,31 @@
     --color-status-error: var(--status-error);
 }
 
+/*
+ * Chart series colours.
+ *
+ * A fixed order, never cycled: slot 1 is always the first series, so a chart that
+ * gains or loses a column does not repaint the ones that stayed. The existing
+ * --chart-1..5 are five greys, which cannot tell two series apart — these replace
+ * them for anything with more than one.
+ *
+ * Both sets are validated against this app's own card surfaces (#ffffff light,
+ * #0e0f14 dark): lightness band, chroma floor, adjacent CVD separation and
+ * normal-vision separation all pass. Three light-mode slots sit below 3:1 contrast,
+ * which is why every chart ships a table view beside it.
+ *
+ * Used as `fill="var(--series-1)"`, so switching theme recolours without any JS.
+ */
 :root {
+    --series-1: #2a78d6;
+    --series-2: #eb6834;
+    --series-3: #1baf7a;
+    --series-4: #eda100;
+    --series-5: #e87ba4;
+    --series-6: #008300;
+    --series-7: #4a3aa7;
+    --series-8: #e34948;
+
     --background: oklch(0.985 0.002 260);
     --foreground: oklch(0.145 0.005 260);
     --card: oklch(1 0 0);
@@ -133,6 +157,16 @@
 }
 
 .dark {
+    /* The same eight hues, stepped for the dark surface — not an automatic flip. */
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --series-7: #9085e9;
+    --series-8: #e66767;
+
     --background: oklch(0.12 0.008 270);
     --foreground: oklch(0.93 0.006 260);
     --card: oklch(0.17 0.01 270);

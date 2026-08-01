@@ -7,6 +7,7 @@ import { ContractError } from "../core/notebook-contract.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 import type { NotebookJson, NotebookParam } from "@zaa-tool/shared";
 import { optionValues } from "../core/notebook-contract.js";
+import { outputNames } from "../core/notebook-outputs.js";
 
 /**
  * Deployed notebooks, offered to an agent as tools it can simply call.
@@ -101,7 +102,7 @@ function describe(document: NotebookJson): string {
     return undefined;
   })();
 
-  const outputs = (document.outputs ?? []).join(", ");
+  const outputs = outputNames(document.outputs).join(", ");
 
   // Spelling the permitted values out here as well as in the schema is deliberate: a
   // model shortlists tools by reading descriptions, and a tool whose one argument is a

@@ -1,11 +1,18 @@
 import { useState } from 'react';
 import {  Plus, Trash, Copy, Check, X, Warning } from '@phosphor-icons/react';
-import type { NotebookParam, NotebookParamType, NotebookRuntime } from '@zaa-tool/shared';
+import type {
+  NotebookOutput,
+  NotebookOutputRender,
+  NotebookParam,
+  NotebookParamType,
+  NotebookRuntime,
+} from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Switch } from '../ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { choicesOf } from '../../lib/notebook-options';
+import { RENDERS, specsOf, toDeclaration } from '../../lib/notebook-outputs';
 
 const TYPES: NotebookParamType[] = ['string', 'number', 'boolean', 'json'];
 
@@ -110,12 +117,12 @@ interface ContractPanelProps {
   name: string;
   runtime: NotebookRuntime;
   inputs: NotebookParam[];
-  outputs: string[];
+  outputs: Array<string | NotebookOutput>;
   testArgs: Record<string, string>;
   onAddInput: () => void;
   onUpdateInput: (index: number, patch: Partial<NotebookParam>) => void;
   onRemoveInput: (index: number) => void;
-  onOutputsChange: (outputs: string[]) => void;
+  onOutputsChange: (outputs: Array<string | NotebookOutput>) => void;
   onTestArgChange: (name: string, value: string) => void;
 }
 
@@ -159,9 +166,11 @@ export function ContractPanel({
   const [newOutput, setNewOutput] = useState('');
   const [copied, setCopied] = useState(false);
 
+  const specs = specsOf(outputs);
+
   const addOutput = () => {
     const trimmed = newOutput.trim();
-    if (!trimmed || outputs.includes(trimmed)) {
+    if (!trimmed || specs.some((spec) => spec.name === trimmed)) {
       setNewOutput('');
       return;
     }
@@ -297,23 +306,55 @@ export function ContractPanel({
           Outputs
         </span>
 
-        {outputs.length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {outputs.map((output) => (
-              <span
-                key={output}
-                className="flex items-center gap-1 bg-muted px-1.5 py-0.5 text-[10px] font-mono"
-              >
-                {output}
+        {specs.length > 0 && (
+          <div className="space-y-1">
+            {specs.map((spec, index) => (
+              <div key={spec.name} className="flex items-center gap-1">
+                <span className="min-w-0 flex-1 truncate bg-muted px-1.5 py-1 text-[10px] font-mono">
+                  {spec.name}
+                </span>
+
+                {/* `auto` is the value's own shape deciding, which is right almost
+                    always — this is here for the times it is not. */}
+                <Select
+                  value={spec.render ?? 'auto'}
+                  onValueChange={(render) =>
+                    onOutputsChange(
+                      specs.map((existing, at) =>
+                        at === index
+                          ? render === 'auto'
+                            ? existing.name
+                            : { ...existing, render: render as NotebookOutputRender }
+                          : toDeclaration(existing)
+                      )
+                    )
+                  }
+                >
+                  <SelectTrigger className="h-6 w-20 text-[10px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {RENDERS.map((render) => (
+                      <SelectItem key={render} value={render} className="text-xs">
+                        {render}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
                 <button
                   type="button"
-                  onClick={() => onOutputsChange(outputs.filter((name) => name !== output))}
-                  className="text-muted-foreground hover:text-foreground"
-                  title={`Stop returning ${output}`}
+                  onClick={() =>
+                    onOutputsChange(
+                      specs.filter((_, at) => at !== index).map(toDeclaration)
+                    )
+                  }
+                  className="shrink-0 text-muted-foreground hover:text-foreground"
+                  title={`Stop returning ${spec.name}`}
                 >
-                  <X size={9} />
+                  <X size={10} />
                 </button>
-              </span>
+              </div>
             ))}
           </div>
         )}

@@ -14,6 +14,7 @@ import { ContractError } from "../core/notebook-contract.js";
 import { fromMarkdown, toMarkdown, NotebookTextError } from "../core/notebook-text.js";
 import { requestApproval } from "./approval.js";
 import { buildNotebookMap, renderNotebookMap } from "../core/notebook-map.js";
+import { outputNames } from "../core/notebook-outputs.js";
 import type { NotebookPlan } from "../core/notebook-compiler.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 import type { AgentScope } from "../services/agent-tokens.service.js";
@@ -132,7 +133,7 @@ function contractLine(document: NotebookJson): string {
   const inputs = (document.inputs ?? [])
     .map((input) => `${input.name}: ${input.type}${input.required ? "!" : ""}`)
     .join(", ");
-  const outputs = (document.outputs ?? []).join(", ");
+  const outputs = outputNames(document.outputs).join(", ");
   if (!inputs && !outputs) return "no contract — cannot be called by another notebook";
   return `(${inputs || "no inputs"}) → {${outputs || "nothing"}}`;
 }

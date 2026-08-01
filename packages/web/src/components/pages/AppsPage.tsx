@@ -8,6 +8,7 @@ import { Switch } from '../ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { notebooksApi } from '../../lib/notebooks-api';
 import { choicesOf, hasChoices } from '../../lib/notebook-options';
+import { OutputView } from './render/OutputView';
 import { cn } from '../../lib/utils';
 
 /**
@@ -184,20 +185,6 @@ function Field({
   );
 }
 
-function Result({ value }: { value: unknown }) {
-  if (value === null || value === undefined) {
-    return <span className="text-muted-foreground/60 italic">nothing</span>;
-  }
-  if (typeof value === 'object') {
-    return (
-      <pre className="whitespace-pre-wrap font-mono text-[11px] bg-muted/40 p-2 overflow-x-auto">
-        {JSON.stringify(value, null, 2)}
-      </pre>
-    );
-  }
-  return <span className="font-mono text-sm">{String(value)}</span>;
-}
-
 function PageRunner({ page, onBack }: { page: NotebookPage; onBack: () => void }) {
   const [values, setValues] = useState<Record<string, string>>(() => initialValues(page.inputs));
   const [isRunning, setIsRunning] = useState(false);
@@ -274,12 +261,15 @@ function PageRunner({ page, onBack }: { page: NotebookPage; onBack: () => void }
             {page.outputs.length === 0 && (
               <p className="text-xs text-muted-foreground">It declares no outputs.</p>
             )}
-            {page.outputs.map((name) => (
-              <div key={name} className="border border-border p-3 space-y-1">
+            {page.outputs.map((output) => (
+              <div key={output.name} className="border border-border p-3 space-y-1.5">
                 <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                  {name}
+                  {output.name}
                 </div>
-                <Result value={outputs[name]} />
+                {output.description && (
+                  <p className="text-[11px] text-muted-foreground/70">{output.description}</p>
+                )}
+                <OutputView output={output} value={outputs[output.name]} />
               </div>
             ))}
           </div>
@@ -338,7 +328,7 @@ export function AppsPage() {
               )}
               <div className="text-[10px] text-muted-foreground/60 mt-1.5 font-mono">
                 ({page.inputs.map((input) => input.name).join(', ') || 'no inputs'}) →{' '}
-                {page.outputs.join(', ') || 'nothing'}
+                {page.outputs.map((output) => output.name).join(', ') || 'nothing'}
               </div>
             </button>
           ))}

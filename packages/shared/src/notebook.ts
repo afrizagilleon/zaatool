@@ -157,6 +157,36 @@ export interface NotebookParam {
   multiple?: boolean;
 }
 
+/**
+ * How an output is shown.
+ *
+ * `auto` is not a fallback, it is the intended default: the value's own shape decides.
+ * An array of objects is a table whether or not anyone said so, and a notebook written
+ * by an agent that never thought about presentation still gets a usable page.
+ *
+ * The vocabulary is deliberately this short, and nothing here configures a renderer.
+ * A table's columns come from the data; its paging, search and sorting are always on
+ * because nobody ever wanted them off. The old dashboard's `tableConfig`/`chartConfig`
+ * are what happens when presentation becomes a second thing to declare and keep in step.
+ */
+export type NotebookOutputRender =
+  | "auto"
+  | "text"
+  | "markdown"
+  | "table"
+  | "chart"
+  | "image"
+  | "file"
+  | "json";
+
+export interface NotebookOutput {
+  name: string;
+  description?: string;
+  render?: NotebookOutputRender;
+  /** Chart only: the column along the bottom. Defaults to the first non-numeric one. */
+  x?: string;
+}
+
 export interface NotebookJson {
   version: string;
   id: string;
@@ -167,8 +197,14 @@ export interface NotebookJson {
   triggers?: NotebookTrigger[];
   /** Values a caller supplies, seeded into scope before the first cell. */
   inputs?: NotebookParam[];
-  /** Names lifted from the final scope and handed back to the caller. */
-  outputs?: string[];
+  /**
+   * Names lifted from the final scope and handed back to the caller.
+   *
+   * A bare string is the same as `{ name }` — every document written before outputs
+   * could say how they look still reads, and a notebook that never cares keeps saying
+   * `outputs: [sum, workings]`.
+   */
+  outputs?: Array<string | NotebookOutput>;
   steps: NotebookStep[];
 }
 
@@ -196,7 +232,8 @@ export interface NotebookPage {
   name: string;
   description: string;
   inputs: NotebookParam[];
-  outputs: string[];
+  /** Always the full form here, whatever the document wrote — the page has to render it. */
+  outputs: NotebookOutput[];
 }
 
 export interface NotebookSummary {

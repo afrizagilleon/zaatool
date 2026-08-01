@@ -4,6 +4,8 @@ import type {
   NotebookCell,
   NotebookJson,
   NotebookLane,
+  NotebookOutput,
+  NotebookOutputRender,
   NotebookParam,
   NotebookParamType,
   NotebookRuntime,
@@ -11,6 +13,7 @@ import type {
   NotebookTrigger,
   ParallelStep,
 } from "@zaa-tool/shared";
+import { OUTPUT_RENDERS } from "./notebook-outputs.js";
 
 /**
  * The notebook's text form: the same document, written as markdown.
@@ -205,7 +208,7 @@ export function fromMarkdown(text: string, options?: FromMarkdownOptions): Noteb
   const secrets = readStringList(meta.secrets, "secrets", issues);
   if (secrets.length > 0) notebook.secrets = secrets;
 
-  const outputs = readStringList(meta.outputs, "outputs", issues);
+  const outputs = readOutputs(meta.outputs, issues);
   if (outputs.length > 0) notebook.outputs = outputs;
 
   const inputs = readInputs(meta.inputs, issues);
@@ -273,6 +276,62 @@ function readStringList(value: unknown, field: string, issues: string[]): string
     else issues.push(`\`${field}\` must contain names, got ${JSON.stringify(entry)}`);
   }
   return list;
+}
+
+/**
+ * Reads the declared outputs, in either form.
+ *
+ * A bare name stays a bare name. Most notebooks never say anything about presentation,
+ * and rewriting `outputs: [sum]` into `outputs: [{name: sum}]` on every save would churn
+ * documents to record a fact nobody stated.
+ */
+function readOutputs(value: unknown, issues: string[]): Array<string | NotebookOutput> {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    issues.push("`outputs` must be a list");
+    return [];
+  }
+
+  const outputs: Array<string | NotebookOutput> = [];
+  for (const entry of value) {
+    if (typeof entry === "string") {
+      if (entry.trim()) outputs.push(entry.trim());
+      else issues.push("an output name is empty");
+      continue;
+    }
+
+    if (typeof entry === "object" && entry !== null && !Array.isArray(entry)) {
+      const raw = entry as Record<string, unknown>;
+      const name = typeof raw.name === "string" ? raw.name.trim() : "";
+      if (!name) {
+        issues.push("each output needs a `name`");
+        continue;
+      }
+
+      const output: NotebookOutput = { name };
+      if (typeof raw.description === "string" && raw.description) {
+        output.description = raw.description;
+      }
+      if (raw.render !== undefined) {
+        if (!OUTPUT_RENDERS.includes(raw.render as NotebookOutputRender)) {
+          issues.push(
+            `output "${name}" has render ${JSON.stringify(raw.render)}; expected one of ${OUTPUT_RENDERS.join(", ")}`
+          );
+        } else if (raw.render !== "auto") {
+          // `auto` is the absence of an instruction, so it is not written down.
+          output.render = raw.render as NotebookOutputRender;
+        }
+      }
+      if (typeof raw.x === "string" && raw.x) output.x = raw.x;
+
+      outputs.push(output);
+      continue;
+    }
+
+    issues.push(`each output must be a name or a mapping, got ${JSON.stringify(entry)}`);
+  }
+
+  return outputs;
 }
 
 /**

@@ -6,6 +6,7 @@ import type {
   NotebookRuntime,
   NotebookStep,
 } from "@zaa-tool/shared";
+import { outputNames } from "./notebook-outputs.js";
 
 const DEFAULT_CELL_TIMEOUT_MS = 30_000;
 const VALID_RUNTIMES: NotebookRuntime[] = ["node", "python"];
@@ -203,16 +204,15 @@ export function compileNotebook(notebook: NotebookJson): NotebookPlan {
   const compileOutputs = (): string[] => {
     if (!Array.isArray(notebook.outputs)) return [];
 
-    const names: string[] = [];
+    // How an output is *shown* is no concern of the runner, so the plan carries names
+    // only. A nameless entry is still worth reporting: a caller destructuring the result
+    // would silently get one property fewer than the contract promised. Duplicates are
+    // not an error — saying a name twice asks for the same thing twice.
     for (const output of notebook.outputs) {
-      const name = typeof output === "string" ? output.trim() : "";
-      if (!name) {
-        issues.push("An output is missing a name");
-        continue;
-      }
-      if (!names.includes(name)) names.push(name);
+      const name = typeof output === "string" ? output.trim() : (output?.name ?? "").trim();
+      if (!name) issues.push("An output is missing a name");
     }
-    return names;
+    return outputNames(notebook.outputs);
   };
 
   const inputs = compileInputs();
