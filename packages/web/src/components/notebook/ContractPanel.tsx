@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowsLeftRight, Plus, Trash, Copy, Check, X, Warning } from '@phosphor-icons/react';
+import {  Plus, Trash, Copy, Check, X, Warning } from '@phosphor-icons/react';
 import type { NotebookParam, NotebookParamType, NotebookRuntime } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -88,14 +88,7 @@ export function ContractPanel({
     .map((input) => input.name);
 
   return (
-    <div className="w-[26rem] p-3 space-y-3">
-      <div className="flex items-center gap-2">
-        <ArrowsLeftRight size={13} className="text-muted-foreground" />
-        <span className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground">
-          Contract
-        </span>
-      </div>
-
+    <div className="w-full p-3 space-y-3">
       {inputs.length === 0 && outputs.length === 0 && (
         <p className="text-[10px] text-muted-foreground leading-normal">
           Nothing declared. This notebook runs on its own, but another notebook calling it

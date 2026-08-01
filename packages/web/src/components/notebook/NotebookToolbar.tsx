@@ -6,15 +6,15 @@ import {
   Warning,
   Eye,
   EyeSlash,
-  ArrowsLeftRight,
-  Lightning,
-  Key,
+  SlidersHorizontal,
+  CaretDown,
 } from '@phosphor-icons/react';
 import type { NotebookRuntime } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { NodeSecretsProperties } from '../panels/properties/NodeSecretsProperties';
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -29,47 +29,24 @@ function Divider() {
   return <div className="h-4 w-px bg-border/70 mx-0.5 shrink-0" />;
 }
 
-/**
- * One of the notebook's settings panels.
- *
- * The label gives way before the icon does. Guidance on crowded toolbars is consistent:
- * group related controls and let the least important part disappear first, rather than
- * growing a second row — a second row costs vertical space on every screen to solve a
- * problem that only exists on narrow ones.
- */
-function PanelDisclosure({
-  icon,
+/** One labelled part of the Setup popover. */
+function SetupSection({
   label,
-  badge,
-  width = '',
+  hint,
   children,
 }: {
-  icon: React.ReactNode;
   label: string;
-  badge?: string;
-  width?: string;
+  hint: string;
   children: React.ReactNode;
 }) {
   return (
-    <details className="relative shrink-0">
-      <summary
-        className="list-none cursor-pointer flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground hover:text-foreground px-1.5 py-1 select-none"
-        title={label}
-      >
-        {icon}
-        <span className="hidden xl:inline">{label}</span>
-        {badge && (
-          <span className="font-mono normal-case tracking-normal text-muted-foreground/70">
-            {badge}
-          </span>
-        )}
-      </summary>
-      <div
-        className={`absolute right-0 top-full mt-1 bg-card border border-border shadow-lg z-50 ${width}`}
-      >
-        {children}
-      </div>
-    </details>
+    <section className="border-b border-border last:border-b-0">
+      <header className="flex items-baseline gap-2 px-3 py-2 bg-muted/30">
+        <h3 className="text-[10px] font-semibold uppercase tracking-widest">{label}</h3>
+        <span className="text-[10px] text-muted-foreground/70">{hint}</span>
+      </header>
+      {children}
+    </section>
   );
 }
 
@@ -133,6 +110,10 @@ export function NotebookToolbar({
   onBack,
 }: NotebookToolbarProps) {
   const hiddenCount = SECTIONS.filter((section) => allCollapsed[section.id]).length;
+  // One number on the button, so folding the three panels away does not also hide the
+  // fact that there is anything in them.
+  const setupCount =
+    contractShape.inputs + contractShape.outputs + triggerCount + secrets.length;
 
   return (
     <div className="flex items-center gap-2 px-3 h-11 border-b border-border shrink-0">
@@ -204,37 +185,40 @@ export function NotebookToolbar({
 
       <Divider />
 
-      {/* What the notebook *is* — its contract, what starts it, what it may read.
-          Three panels, so they share a group and their labels give way before their
-          icons do. Stacking the toolbar into two rows would cost more than it saves. */}
-      <PanelDisclosure
-        icon={<ArrowsLeftRight size={12} />}
-        label="Contract"
-        badge={
-          contractShape.inputs + contractShape.outputs > 0
-            ? `${contractShape.inputs}→${contractShape.outputs}`
-            : undefined
-        }
-      >
-        {contractPanel}
-      </PanelDisclosure>
-
-      <PanelDisclosure
-        icon={<Lightning size={12} />}
-        label="Triggers"
-        badge={triggerCount > 0 ? String(triggerCount) : undefined}
-      >
-        {triggerPanel}
-      </PanelDisclosure>
-
-      <PanelDisclosure
-        icon={<Key size={12} />}
-        label="Secrets"
-        badge={secrets.length > 0 ? String(secrets.length) : undefined}
-        width="w-64 p-3"
-      >
-        <NodeSecretsProperties selectedKeys={secrets} onChange={onSecretsChange} />
-      </PanelDisclosure>
+      {/* Contract, triggers and secrets are configuration — opened now and then, not
+          every minute — so they live behind one labelled button rather than three.
+          They were icon-only for a while and that was a mistake: an icon has to be
+          *conventional* to replace a word, and there is no conventional icon for "the
+          contract this notebook exposes". A word never needs to be learned. */}
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
+          >
+            <SlidersHorizontal size={13} className="mr-1.5" />
+            Setup
+            {setupCount > 0 && (
+              <span className="ml-1.5 text-[10px] text-muted-foreground/60">{setupCount}</span>
+            )}
+            <CaretDown size={10} className="ml-1 opacity-60" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-[380px] p-0 max-h-[70vh] overflow-y-auto">
+          <SetupSection label="Contract" hint={`${contractShape.inputs} in · ${contractShape.outputs} out`}>
+            {contractPanel}
+          </SetupSection>
+          <SetupSection label="Triggers" hint={triggerCount > 0 ? `${triggerCount} set up` : 'none'}>
+            {triggerPanel}
+          </SetupSection>
+          <SetupSection label="Secrets" hint={secrets.length > 0 ? `${secrets.length} allowed` : 'none'}>
+            <div className="p-3">
+              <NodeSecretsProperties selectedKeys={secrets} onChange={onSecretsChange} />
+            </div>
+          </SetupSection>
+        </PopoverContent>
+      </Popover>
 
       <Divider />
 
@@ -246,7 +230,7 @@ export function NotebookToolbar({
         disabled={isSaving || !isDirty}
       >
         {isSaving ? <Spinner size={13} className="animate-spin mr-1.5" /> : <FloppyDisk size={13} className="mr-1.5" />}
-        <span className="hidden md:inline">Save</span>
+        Save
       </Button>
 
       {deployButton}

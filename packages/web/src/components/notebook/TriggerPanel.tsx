@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Lightning, Plus, Trash, Copy, Check, Clock, Globe } from '@phosphor-icons/react';
+import {  Plus, Trash, Copy, Check, Clock, Globe } from '@phosphor-icons/react';
 import type { NotebookTrigger } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { Switch } from '../ui/switch';
@@ -51,13 +51,8 @@ function CopyableUrl({ url }: { url: string }) {
  */
 export function TriggerPanel({ triggers, isSaved, onAdd, onUpdate, onRemove }: TriggerPanelProps) {
   return (
-    <div className="w-96 p-3 space-y-3">
+    <div className="w-full p-3 space-y-3">
       <div className="flex items-center gap-2">
-        <Lightning size={13} className="text-muted-foreground" />
-        <span className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground">
-          Triggers
-        </span>
-        <div className="flex-1" />
         <Button
           variant="ghost"
           size="sm"
