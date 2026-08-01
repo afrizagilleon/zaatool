@@ -19,7 +19,7 @@ const MAX_LOG_LENGTH = 2_000;
 const MAX_RUNS_PER_NOTEBOOK = 50;
 
 const SUMMARY_COLUMNS =
-  "id, notebook_id, status, trigger_source, cell_id, error, started_at, finished_at";
+  "id, notebook_id, status, trigger_source, cell_id, parent_run_id, error, started_at, finished_at";
 
 function truncateLogs(result: RecordedCellResult): RecordedCellResult {
   if (!result.logs || result.logs.length === 0) return result;
@@ -38,11 +38,13 @@ export class NotebookRunsService {
     notebookId: string;
     triggerSource: NotebookRunTrigger;
     cellId?: string;
+    /** Set when another notebook's run asked for this one. */
+    parentRunId?: string;
   }): Promise<void> {
     await pool.query(
-      `INSERT INTO notebook_runs (id, notebook_id, status, trigger_source, cell_id)
-       VALUES ($1, $2, 'running', $3, $4)`,
-      [run.runId, run.notebookId, run.triggerSource, run.cellId ?? null]
+      `INSERT INTO notebook_runs (id, notebook_id, status, trigger_source, cell_id, parent_run_id)
+       VALUES ($1, $2, 'running', $3, $4, $5)`,
+      [run.runId, run.notebookId, run.triggerSource, run.cellId ?? null, run.parentRunId ?? null]
     );
 
     await this.pruneOldRuns(run.notebookId);

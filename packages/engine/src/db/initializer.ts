@@ -107,6 +107,16 @@ export async function initDb() {
       );
     `);
 
+    // A run started by another notebook records who asked for it.
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE notebook_runs ADD COLUMN parent_run_id VARCHAR(255);
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
+
     await client.query(`
       CREATE INDEX IF NOT EXISTS notebook_runs_notebook_started_idx
       ON notebook_runs (notebook_id, started_at DESC);

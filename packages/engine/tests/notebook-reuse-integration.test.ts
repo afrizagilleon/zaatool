@@ -10,9 +10,9 @@
  *   pnpm --filter @zaa-tool/engine exec tsx tests/notebook-reuse-integration.test.ts
  */
 import assert from "node:assert/strict";
-import { EventEmitter } from "node:events";
 import { notebooksService } from "../src/services/notebooks.service.js";
 import { notebookExecutionService } from "../src/services/notebook-execution.service.js";
+import { notebookRunsService } from "../src/services/notebook-runs.service.js";
 import { pool } from "../src/db/connection.js";
 import type { NotebookJson } from "@zaa-tool/shared";
 
@@ -50,7 +50,12 @@ function runToCompletion(
   return new Promise((resolve, reject) => {
     const cells: Record<string, unknown> = {};
     const logs: string[] = [];
-    const done = new EventEmitter();
+    /**
+     * A called notebook publishes under its own run id through the same sink, so this
+     * stands in for the event hub, which routes by run id. Without the filter a callee's
+     * `run:done` would end the wait before the caller had finished.
+     */
+    let ownRunId: string | null = null;
 
     const timeout = setTimeout(() => reject(new Error("run did not finish in 60s")), 60_000);
 
@@ -58,6 +63,7 @@ function runToCompletion(
       .start(
         notebookId,
         (event: any) => {
+          if (ownRunId !== null && event.runId !== ownRunId) return;
           if (event.type === "cell:done") cells[event.cellId] = event.output;
           if (event.type === "cell:log") logs.push(String(event.payload));
           if (event.type === "run:done") {
@@ -71,12 +77,13 @@ function runToCompletion(
         },
         options
       )
+      .then(({ runId }) => {
+        ownRunId = runId;
+      })
       .catch((err) => {
         clearTimeout(timeout);
         reject(err);
       });
-
-    done.setMaxListeners(0);
   });
 }
 
@@ -308,6 +315,81 @@ await check("nested calls do not exhaust the run gate", async () => {
     assert.equal(result.status, "success", result.error);
     assert.deepEqual(result.cells[`parallel-cell-${index + 1}`], { total: index + 2 });
   });
+});
+
+// ── a callee is a run of its own ──────────────────────────────────────────────
+
+await check("a called notebook records its own run, linked to the caller's", async () => {
+  const calleeId = await store({
+    id: "",
+    name: "zz-test-callee-history",
+    runtime: "node",
+    outputs: ["doubled"],
+    steps: [{ id: "callee-cell", kind: "cell", code: "return { doubled: inputs.n * 2 };" }],
+    inputs: [{ name: "n", type: "number", required: true }],
+  });
+
+  const callerId = await store({
+    id: "",
+    name: "zz-test-caller-history",
+    runtime: "node",
+    steps: [
+      {
+        id: "caller-cell",
+        kind: "cell",
+        code: "const r = await notebooks.run('zz-test-callee-history', { n: 21 }); return { total: r.doubled };",
+      },
+    ],
+  });
+
+  const before = await notebookRunsService.listByNotebook(calleeId);
+  assert.equal(before.length, 0, "the callee already had runs");
+
+  const result = await runToCompletion(callerId);
+  assert.equal(result.status, "success", result.error);
+
+  const after = await notebookRunsService.listByNotebook(calleeId);
+  assert.equal(after.length, 1, "the callee's run was not recorded");
+  assert.equal(after[0].status, "success");
+  assert.equal(after[0].trigger_source, "call");
+
+  const callerRuns = await notebookRunsService.listByNotebook(callerId);
+  assert.equal(after[0].parent_run_id, callerRuns[0].id, "the callee is not linked to its caller");
+
+  const detail = await notebookRunsService.getById(after[0].id);
+  assert.deepEqual(detail?.cell_results["callee-cell"]?.output, { doubled: 42 });
+  assert.ok(
+    detail?.cell_results["callee-cell"]?.source?.includes("inputs.n"),
+    "the callee's own source was not recorded"
+  );
+});
+
+await check("a callee that fails leaves its own failed run behind", async () => {
+  const calleeId = await store({
+    id: "",
+    name: "zz-test-callee-fails",
+    runtime: "node",
+    steps: [{ id: "boom", kind: "cell", code: "throw new Error('callee exploded');" }],
+  });
+
+  const callerId = await store({
+    id: "",
+    name: "zz-test-caller-of-failure",
+    runtime: "node",
+    steps: [
+      { id: "caller-cell-2", kind: "cell", code: "await notebooks.run('zz-test-callee-fails'); return {};" },
+    ],
+  });
+
+  const result = await runToCompletion(callerId);
+  assert.equal(result.status, "failed");
+
+  const runs = await notebookRunsService.listByNotebook(calleeId);
+  assert.equal(runs.length, 1, "a failing callee left no record");
+  assert.equal(runs[0].status, "failed");
+
+  const detail = await notebookRunsService.getById(runs[0].id);
+  assert.match(String(detail?.cell_results["boom"]?.error), /callee exploded/);
 });
 
 for (const id of created) {

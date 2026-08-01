@@ -1,4 +1,3 @@
-import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import { compileNotebook, selectPlanCell } from "../core/notebook-compiler.js";
 import { RunGate } from "../core/run-gate.js";
@@ -106,7 +105,14 @@ export class NotebookExecutionService {
    */
   private async callNotebook(
     request: NotebookCallRequest,
-    context: { stack: string[]; names: string[]; log: (level: string, msg: string) => void }
+    context: {
+      stack: string[];
+      names: string[];
+      log: (level: string, msg: string) => void;
+      publish: RunEventSink;
+      /** The run that asked for this one, so the callee's history explains itself. */
+      parentRunId: string;
+    }
   ): Promise<Record<string, unknown>> {
     const reference = String(request.notebook ?? "").trim();
     const found = await notebooksService.findByIdOrName(reference);
@@ -136,16 +142,36 @@ export class NotebookExecutionService {
     const input = bindInputs(plan.inputs, request.input);
     const secrets = await secretsService.getByKeys(plan.secrets);
 
+    // A called notebook is a run in its own right, with its own id and its own history
+    // row. It used to be invisible: a callee that failed at 3am left no record anywhere,
+    // and the only trace was a sentence inside the caller's error.
+    const runId = randomUUID();
+    await notebookRunsService.start({
+      runId,
+      notebookId: found.id,
+      triggerSource: "call",
+      parentRunId: context.parentRunId,
+    });
+
     const nested = {
       stack: [...context.stack, found.id],
       names: chain,
       log: context.log,
+      publish: context.publish,
+      parentRunId: runId,
     };
 
-    // The callee's cells are not the caller's cells, so its progress events are not
-    // forwarded — only its logs, labelled, so a failure deep in a chain is traceable
-    // from the calling cell's output.
-    const ee = new EventEmitter();
+    const recorder = new NotebookRunRecorder(runId, sourcesOf(plan));
+    // Published under the callee's own run id, so a client following the *caller* still
+    // never sees another notebook's cells — but the workspace does, which is how a call
+    // chain lights up across the map.
+    const ee = createRunEmitter({ runId, flowId: found.id }, (event) => {
+      context.publish(event);
+      recorder.handle(event);
+    });
+
+    // The callee's logs also surface on the cell that is waiting, labelled, so a failure
+    // deep in a chain is readable without going looking for the nested run.
     ee.on("cell:log", (event: { level: string; payload: string }) => {
       context.log(event.level, `[${document.name}] ${event.payload}`);
     });
@@ -156,6 +182,7 @@ export class NotebookExecutionService {
       input,
       call: (nestedRequest) => this.callNotebook(nestedRequest, nested),
     });
+    await recorder.drain();
 
     if (result.status === "failed") {
       throw new Error(`${document.name}: ${result.errors[0] ?? "run failed"}`);
@@ -165,12 +192,19 @@ export class NotebookExecutionService {
   }
 
   /** The bridge handed to a run's cells, rooted at the notebook that started it. */
-  private callerFor(notebookId: string, name: string): NotebookCaller {
+  private callerFor(
+    notebookId: string,
+    name: string,
+    publish: RunEventSink,
+    runId: string
+  ): NotebookCaller {
     return (request, log) =>
       this.callNotebook(request, {
         stack: [notebookId],
         names: [name],
         log: log ?? (() => {}),
+        publish,
+        parentRunId: runId,
       });
   }
 
@@ -237,7 +271,7 @@ export class NotebookExecutionService {
           // Declared arguments first, so a trigger payload seeded under `input`
           // cannot quietly shadow a value the contract promised.
           input: { ...options.input, ...boundInputs },
-          call: this.callerFor(notebookId, document.name),
+          call: this.callerFor(notebookId, document.name, publish, runId),
         });
         // Waiting for the recorder means a caller that reads the run the moment this
         // resolves sees every cell, not whichever writes happened to land first.

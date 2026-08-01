@@ -8,7 +8,8 @@
 
 export type NotebookRunStatus = "running" | "success" | "failed";
 
-export type NotebookRunTrigger = "manual" | "cell" | "cron" | "webhook";
+/** `call` is a run another notebook asked for, through `notebooks.run`. */
+export type NotebookRunTrigger = "manual" | "cell" | "cron" | "webhook" | "call";
 
 export interface CellLogEntry {
   level: string;
@@ -39,6 +40,13 @@ export interface NotebookRunSummary {
   trigger_source: NotebookRunTrigger;
   /** Set when only one cell was run. */
   cell_id: string | null;
+  /**
+   * The run that asked for this one, when a notebook called another.
+   *
+   * Without it a callee's history is a list of runs with no explanation — you would see
+   * that it ran at 03:00 and have no way to find out what set it off.
+   */
+  parent_run_id: string | null;
   error: string | null;
   started_at: string;
   finished_at: string | null;
