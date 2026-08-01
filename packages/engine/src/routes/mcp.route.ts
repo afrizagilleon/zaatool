@@ -25,6 +25,8 @@ import type { RunEventSink } from "../core/run-emitter.js";
 interface Session {
   transport: StreamableHTTPServerTransport;
   scope: AgentScope;
+  /** The token's label, recorded as the author of whatever this session writes. */
+  writer: string;
 }
 
 /** JSON-RPC has its own shape for failure; an HTML error page would confuse a client. */
@@ -56,7 +58,10 @@ export function createMcpRouter(publishRunEvent: RunEventSink): Router {
   const sessions = new Map<string, Session>();
 
   /** Every request is authenticated, including ones on an established session. */
-  async function authenticate(req: Request, res: Response): Promise<AgentScope | null> {
+  async function authenticate(
+    req: Request,
+    res: Response
+  ): Promise<{ scope: AgentScope; writer: string } | null> {
     const token = presentedToken(req);
     if (!token) {
       rpcError(res, 401, "Missing agent token. Send Authorization: Bearer <token> or X-API-Key.");
@@ -67,7 +72,7 @@ export function createMcpRouter(publishRunEvent: RunEventSink): Router {
       rpcError(res, 401, "Unknown or revoked agent token.");
       return null;
     }
-    return record.scope;
+    return { scope: record.scope, writer: record.label };
   }
 
   function sessionFor(req: Request): Session | undefined {
@@ -77,8 +82,9 @@ export function createMcpRouter(publishRunEvent: RunEventSink): Router {
 
   router.post("/", async (req: Request, res: Response) => {
     try {
-      const scope = await authenticate(req, res);
-      if (!scope) return;
+      const identity = await authenticate(req, res);
+      if (!identity) return;
+      const { scope, writer } = identity;
 
       const existing = sessionFor(req);
       if (existing) {
@@ -100,7 +106,7 @@ export function createMcpRouter(publishRunEvent: RunEventSink): Router {
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (sessionId) => {
-          sessions.set(sessionId, { transport, scope });
+          sessions.set(sessionId, { transport, scope, writer });
         },
       });
 
@@ -109,7 +115,7 @@ export function createMcpRouter(publishRunEvent: RunEventSink): Router {
       };
 
       const server = new McpServer({ name: "zaatool", version: "1.0.0" });
-      registerNotebookTools(server, { publishRunEvent }, scope);
+      registerNotebookTools(server, { publishRunEvent, writer }, scope);
       registerConventions(server);
       await server.connect(transport);
 
@@ -122,8 +128,8 @@ export function createMcpRouter(publishRunEvent: RunEventSink): Router {
 
   /** GET opens the server-to-client stream; DELETE ends the session. */
   const continueSession = async (req: Request, res: Response): Promise<void> => {
-    const scope = await authenticate(req, res);
-    if (!scope) return;
+    const identity = await authenticate(req, res);
+    if (!identity) return;
 
     const session = sessionFor(req);
     if (!session) {

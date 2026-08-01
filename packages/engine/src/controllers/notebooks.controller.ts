@@ -70,7 +70,8 @@ export class NotebooksController {
       if (!req.body || !Array.isArray(req.body.steps)) {
         return res.status(400).json({ error: "Invalid notebook: missing steps" });
       }
-      res.json(await notebooksService.save(req.body));
+      const user = (req as Request & { user?: { username?: string } }).user;
+      res.json(await notebooksService.save(req.body, user?.username ?? "unknown"));
     } catch (err: unknown) {
       respondWithError(res, err);
     }
@@ -82,6 +83,17 @@ export class NotebooksController {
       const state = await notebooksService.getDeployState(String(req.params.id));
       if (!state) return res.status(404).json({ error: "Notebook not found" });
       res.json(state);
+    } catch (err: unknown) {
+      respondWithError(res, err);
+    }
+  };
+
+  /** The version production is running, so the editor can show what has changed. */
+  deployedDocument = async (req: Request, res: Response) => {
+    try {
+      const document = await notebooksService.getDeployedDocument(String(req.params.id));
+      if (!document) return res.status(404).json({ error: "Nothing deployed" });
+      res.json(document);
     } catch (err: unknown) {
       respondWithError(res, err);
     }

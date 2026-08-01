@@ -30,9 +30,23 @@ export interface CellFolding {
   output?: boolean;
 }
 
+/**
+ * Who last changed a cell, and when.
+ *
+ * Stamped by the engine from the identity that authenticated the write — a person's
+ * username, or the label on an agent's token. Never taken from the request body, so it
+ * cannot be claimed.
+ */
+export interface CellAuthor {
+  by: string;
+  at: string;
+}
+
 export interface NotebookCell {
   id: string;
   kind: "cell";
+  /** Set by the server on save; absent on cells written before this existed. */
+  author?: CellAuthor;
   note?: string;
   /** Whatever the code returns is merged into the notebook scope by name. */
   code?: string;

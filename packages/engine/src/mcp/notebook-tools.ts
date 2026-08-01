@@ -37,6 +37,12 @@ import type { NotebookJson } from "@zaa-tool/shared";
 
 export interface McpToolDeps {
   publishRunEvent: RunEventSink;
+  /**
+   * What to record as the author of anything this connection writes — the label on the
+   * token it authenticated with, so "claude code" and "hermes" are told apart in a
+   * notebook's history.
+   */
+  writer: string;
 }
 
 /** Long enough for a real API call chain, short enough that a hung run answers. */
@@ -451,7 +457,7 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
       const before = existing ? notebooksService.parseDocument(existing) : null;
       if (before) document = fromMarkdown(text, { id: fallbackId, previous: before });
 
-      const saved = await notebooksService.save(document);
+      const saved = await notebooksService.save(document, deps.writer);
 
       const lines = [
         `${existing ? "Updated" : "Created"} **${saved.name}** \`${saved.id}\``,

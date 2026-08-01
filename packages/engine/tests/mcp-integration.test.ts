@@ -42,7 +42,7 @@ await initDb();
 /** A client wired to a server with the given scope, exactly as the route builds it. */
 async function connect(scope: AgentScope): Promise<Client> {
   const server = new McpServer({ name: "zaatool", version: "1.0.0" });
-  registerNotebookTools(server, { publishRunEvent: () => {} }, scope);
+  registerNotebookTools(server, { publishRunEvent: () => {}, writer: "test-agent" }, scope);
   registerConventions(server);
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -358,7 +358,7 @@ console.log("\napproval");
 /** A client that can be asked, answering every elicitation the same way. */
 async function connectAnswering(answer: boolean | "decline"): Promise<Client> {
   const server = new McpServer({ name: "zaatool", version: "1.0.0" });
-  registerNotebookTools(server, { publishRunEvent: () => {} }, "author");
+  registerNotebookTools(server, { publishRunEvent: () => {}, writer: "test-agent" }, "author");
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);

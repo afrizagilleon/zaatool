@@ -1,6 +1,7 @@
 import { pool } from "../db/connection.js";
 import { v4 as uuidv4 } from "uuid";
 import { notebookTriggersService } from "./notebook-triggers.service.js";
+import { stampAuthors } from "../core/notebook-provenance.js";
 import type { NotebookJson, NotebookRuntime, NotebookSummary } from "@zaa-tool/shared";
 
 export interface NotebookRecord {
@@ -57,11 +58,22 @@ export class NotebooksService {
     return rows[0];
   }
 
-  async save(document: NotebookJson): Promise<{ id: string; name: string }> {
+  /**
+   * `writer` is who the engine authenticated, not who the request claims to be — it is
+   * stamped onto the cells that actually changed, so authorship cannot be forged by
+   * sending an `author` field.
+   */
+  async save(document: NotebookJson, writer = "unknown"): Promise<{ id: string; name: string }> {
     const id = document.id || uuidv4();
     const name = document.name || "Untitled Notebook";
     const runtime: NotebookRuntime = document.runtime === "python" ? "python" : "node";
-    const stored: NotebookJson = { ...document, id, name, runtime };
+
+    const existing = await this.getById(id);
+    const stored = stampAuthors(
+      existing ? this.parseDocument(existing) : null,
+      { ...document, id, name, runtime },
+      writer
+    );
 
     await pool.query(
       `INSERT INTO notebooks (id, name, runtime, document)
