@@ -234,9 +234,10 @@ export class NotebooksController {
 
   run = async (req: Request, res: Response) => {
     try {
-      // The editor runs the draft and follows along over the socket. A page is someone
-      // *using* the notebook, so it runs the deployed version and waits for the answer —
-      // there is nothing for a page to show while it polls.
+      // A page runs the deployed version; the editor runs the draft. Both come back with
+      // a run id straight away and follow the same socket — a page that waited for the
+      // whole run could not show the table its first cell had already produced while a
+      // later one was still working.
       const isPage = req.body?.mode === "deployed";
 
       const started = await notebookExecutionService.start(
@@ -250,25 +251,11 @@ export class NotebooksController {
         }
       );
 
-      if (!isPage) {
-        return res.status(200).json({ status: "started", runId: started.runId });
-      }
+      // Nothing awaits `completed` here, but it must not go unhandled: a failing run
+      // would otherwise reject a promise nobody is holding.
+      void started.completed.catch(() => {});
 
-      const outcome = await started.completed;
-      if (outcome.status === "failed") {
-        return res.status(200).json({
-          status: "failed",
-          runId: started.runId,
-          error: outcome.errors[0] ?? "Run failed",
-        });
-      }
-
-      res.status(200).json({
-        status: "success",
-        runId: started.runId,
-        ms: outcome.ms,
-        outputs: outcome.outputs,
-      });
+      res.status(200).json({ status: "started", runId: started.runId });
     } catch (err: unknown) {
       respondWithError(res, err);
     }

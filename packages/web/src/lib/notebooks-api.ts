@@ -45,15 +45,13 @@ export const notebooksApi = {
   pages: (): Promise<NotebookPage[]> => request("/api/notebooks/pages"),
 
   /**
-   * Runs the deployed version and waits for the answer.
+   * Starts the deployed version and hands back the run id to follow.
    *
-   * Unlike the editor's run, there is nothing to watch while it works — a page has one
-   * question and wants one answer.
+   * It used to wait for the whole run and return the outputs at once, which meant a
+   * notebook whose fifth cell was slow showed nothing at all until it finished — even
+   * though its first cell's table had been ready for twenty seconds.
    */
-  runDeployed: (
-    id: string,
-    args: Record<string, unknown>
-  ): Promise<{ status: string; runId: string; outputs?: Record<string, unknown>; error?: string }> =>
+  runDeployed: (id: string, args: Record<string, unknown>): Promise<RunStartedResponse> =>
     request(`/api/notebooks/${id}/run`, {
       method: "POST",
       body: JSON.stringify({ mode: "deployed", args }),

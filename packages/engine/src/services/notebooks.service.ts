@@ -203,7 +203,17 @@ export class NotebooksService {
     };
   }
 
+  /**
+   * Removes a notebook and everything that only existed because of it.
+   *
+   * Order matters and is not obvious: the notebook row points at a version, so that
+   * pointer has to be dropped before the versions are, and runs point back at the
+   * notebook, so they have to go before it. Getting this wrong leaves a row that cannot
+   * be deleted and no error anyone reads.
+   */
   async delete(id: string): Promise<{ success: boolean }> {
+    await pool.query("UPDATE notebooks SET deployed_version_id = NULL WHERE id = $1", [id]);
+    await pool.query("DELETE FROM notebook_runs WHERE notebook_id = $1", [id]);
     await pool.query("DELETE FROM notebook_versions WHERE notebook_id = $1", [id]);
     await notebookTriggersService.deleteByNotebook(id);
     await pool.query("DELETE FROM notebooks WHERE id = $1", [id]);

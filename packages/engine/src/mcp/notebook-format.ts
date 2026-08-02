@@ -57,9 +57,12 @@ return { rows };
 Rows of the same shape become the table and the chart. Nothing else is needed —
 no column list, no colours, no axis configuration.
 
+Note \`inputs.rows\`: the previous cell's value arrives the same way a declared
+input does.
+
 <!-- zaa:code -->
 \`\`\`js
-const months = rows.map((r) => ({
+const months = inputs.rows.map((r) => ({
   month: r.month,
   revenue: r.revenue,
   cost: r.cost,
@@ -74,8 +77,8 @@ return { months, profit };
 <!-- zaa:cell -->
 <!-- zaa:code -->
 \`\`\`js
-const total = months.reduce((sum, m) => sum + m.profit, 0);
-const best = months.reduce((a, b) => (b.profit > a.profit ? b : a));
+const total = inputs.months.reduce((sum, m) => sum + m.profit, 0);
+const best = inputs.months.reduce((a, b) => (b.profit > a.profit ? b : a));
 
 return {
   summary: [
@@ -101,11 +104,23 @@ A notebook is front matter plus cells. Front matter carries \`name\`, \`runtime\
 separated by \`<!-- zaa:cell -->\`, with \`<!-- zaa:code -->\` before a fenced block.
 Prose with one code block and no markers is read as a single cell.
 
-## Values between cells
+## Values between cells — read this before writing any code
 
-Whatever a cell returns is merged into a shared scope and read by later cells as a
-plain name. Declared inputs arrive under \`inputs\`: \`inputs.year\` in JavaScript,
-\`inputs["year"]\` in Python — never as a bare identifier.
+Whatever a cell returns is merged into a shared scope. **Every later cell reads that
+scope through \`inputs\`, and only through \`inputs\`.** A bare name is not defined and
+the cell will fail with \`x is not defined\`.
+
+The same is true of the notebook's declared inputs: they arrive in the same place.
+
+\`\`\`js
+// cell 1
+return { rows: [{ v: 1 }, { v: 2 }] };
+
+// cell 2 — inputs.rows, never rows
+return { total: inputs.rows.length, year: inputs.year };
+\`\`\`
+
+In Python it is subscript notation: \`inputs["rows"]\`, \`inputs["year"]\`.
 
 ## Inputs
 

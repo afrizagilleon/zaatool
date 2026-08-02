@@ -1,5 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Play, Spinner, AppWindow, ArrowLeft } from '@phosphor-icons/react';
+import {
+  Play,
+  Spinner,
+  AppWindow,
+  ArrowLeft,
+  WarningCircle,
+  CircleDashed,
+} from '@phosphor-icons/react';
 import type { NotebookPage, NotebookParam } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -7,6 +14,7 @@ import { Textarea } from '../ui/textarea';
 import { Switch } from '../ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { notebooksApi } from '../../lib/notebooks-api';
+import { usePageRun, type OutputStatus } from '../../hooks/usePageRun';
 import { choicesOf, hasChoices } from '../../lib/notebook-options';
 import { OutputView } from './render/OutputView';
 import { cn } from '../../lib/utils';
@@ -185,30 +193,39 @@ function Field({
   );
 }
 
+/** What an output looks like before it exists, and when it never will. */
+function Pending({ status }: { status: OutputStatus }) {
+  if (status === 'failed') {
+    return (
+      <span className="flex items-center gap-1.5 text-xs text-status-error">
+        <WarningCircle size={13} weight="fill" />
+        Failed
+      </span>
+    );
+  }
+  return (
+    <span className="flex items-center gap-1.5 text-xs text-muted-foreground/70">
+      {status === 'running' ? (
+        <>
+          <Spinner size={13} className="animate-spin" />
+          Working…
+        </>
+      ) : (
+        <>
+          <CircleDashed size={13} />
+          Waiting
+        </>
+      )}
+    </span>
+  );
+}
+
 function PageRunner({ page, onBack }: { page: NotebookPage; onBack: () => void }) {
   const [values, setValues] = useState<Record<string, string>>(() => initialValues(page.inputs));
-  const [isRunning, setIsRunning] = useState(false);
-  const [outputs, setOutputs] = useState<Record<string, unknown> | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { status, values: outputs, isRunning, error, start } = usePageRun(page.id, page.outputs);
 
-  const run = async () => {
-    setIsRunning(true);
-    setError(null);
-    try {
-      const result = await notebooksApi.runDeployed(page.id, toArgs(page.inputs, values));
-      if (result.status === 'failed') {
-        setError(result.error ?? 'It failed.');
-        setOutputs(null);
-      } else {
-        setOutputs(result.outputs ?? {});
-      }
-    } catch (err: unknown) {
-      setError((err as Error).message);
-      setOutputs(null);
-    } finally {
-      setIsRunning(false);
-    }
-  };
+  const hasResult = Object.keys(status).length > 0;
+  const run = () => void start(toArgs(page.inputs, values));
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -253,7 +270,7 @@ function PageRunner({ page, onBack }: { page: NotebookPage; onBack: () => void }
           </div>
         )}
 
-        {outputs && (
+        {hasResult && (
           <div className="space-y-3">
             <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
               Result
@@ -261,17 +278,40 @@ function PageRunner({ page, onBack }: { page: NotebookPage; onBack: () => void }
             {page.outputs.length === 0 && (
               <p className="text-xs text-muted-foreground">It declares no outputs.</p>
             )}
-            {page.outputs.map((output) => (
-              <div key={output.name} className="border border-border p-3 space-y-1.5">
-                <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                  {output.name}
+            {page.outputs.map((output) => {
+              const state = status[output.name] ?? 'waiting';
+              // Whatever we have is shown; only a value from this run is shown at full
+              // strength. Blanking on re-run makes the page jump, and showing a previous
+              // run's number as if it were current is worse than either.
+              const hasValue = output.name in outputs;
+              const isCurrent = state === 'ready';
+
+              return (
+                <div key={output.name} className="border border-border p-3 space-y-1.5">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                      {output.name}
+                    </span>
+                    {(state === 'running' || (state === 'stale' && isRunning)) && (
+                      <span className="flex items-center gap-1 text-[10px] text-muted-foreground/70">
+                        <Spinner size={10} className="animate-spin" />
+                        {state === 'running' ? 'Working' : 'From the last run'}
+                      </span>
+                    )}
+                  </div>
+                  {output.description && (
+                    <p className="text-[11px] text-muted-foreground/70">{output.description}</p>
+                  )}
+                  {hasValue ? (
+                    <div className={cn(!isCurrent && 'opacity-40')}>
+                      <OutputView output={output} value={outputs[output.name]} />
+                    </div>
+                  ) : (
+                    <Pending status={state} />
+                  )}
                 </div>
-                {output.description && (
-                  <p className="text-[11px] text-muted-foreground/70">{output.description}</p>
-                )}
-                <OutputView output={output} value={outputs[output.name]} />
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

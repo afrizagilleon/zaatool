@@ -22,6 +22,8 @@ import { OUTPUT_RENDERS, outputSpecs } from "../src/core/notebook-outputs.js";
 import { EXAMPLE } from "../src/mcp/notebook-format.js";
 import { fromMarkdown } from "../src/core/notebook-text.js";
 import { compileNotebook } from "../src/core/notebook-compiler.js";
+import { runNotebook } from "../src/core/notebook-runner.js";
+import { runJsNode } from "../src/core/js-runner.js";
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
 
@@ -83,6 +85,11 @@ await check("says what `auto` infers, so rows are known to be free", () => {
   assert.match(conventions, /array of objects is a table/i);
 });
 
+await check("states the scope rule that every cell after the first depends on", () => {
+  assert.match(conventions, /only through `inputs`/i);
+  assert.match(conventions, /is not defined/);
+});
+
 await check("says not to draw a chart out of text", () => {
   assert.match(conventions, /ASCII/i);
 });
@@ -122,16 +129,45 @@ await check("declares the renders it is demonstrating", () => {
   assert.equal(outputs[1].x, "month");
 });
 
-await check("compiles, so its cells are runnable as written", () => {
+await check("compiles", () => {
   const plan = compileNotebook(fromMarkdown(EXAMPLE));
   assert.deepEqual(plan.outputs, ["months", "profit", "summary"]);
 });
 
-await check("reads its declared input as `inputs.…`, the way it tells others to", () => {
+/**
+ * Compiling is a static check and it is not enough.
+ *
+ * An earlier version of this example passed a compile check while being wrong in the one
+ * way that matters: it read a previous cell's value as a bare name. Every cell after the
+ * first would have failed with `rows is not defined` for anyone who copied it — which is
+ * what documentation is for. Running it is the only assertion that catches that.
+ */
+await check("actually runs, which compiling does not prove", async () => {
+  const plan = compileNotebook(fromMarkdown(EXAMPLE));
+  const result = await runNotebook(
+    plan,
+    { input: { year: 2026 } } as never,
+    runJsNode as never
+  );
+
+  assert.equal(
+    result.status,
+    "success",
+    `the documented example fails when run: ${result.errors.join("; ")}`
+  );
+  assert.equal((result.outputs.months as unknown[]).length, 3);
+  assert.equal((result.outputs.profit as unknown[]).length, 3);
+  assert.match(String(result.outputs.summary), /Total profit/);
+});
+
+await check("reaches scope through `inputs`, the way it tells others to", () => {
   const code = fromMarkdown(EXAMPLE)
     .steps.map((step) => (step.kind === "cell" ? (step.code ?? "") : ""))
     .join("\n");
+
   assert.match(code, /inputs\.year/);
+  // The rule the example must demonstrate, not merely state.
+  assert.match(code, /inputs\.rows/);
 });
 
 // ── and in the description of the tool that writes ────────────────────────────
