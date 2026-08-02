@@ -8,9 +8,11 @@ import {
   EyeSlash,
   SlidersHorizontal,
   CaretDown,
+  AppWindow,
 } from '@phosphor-icons/react';
 import type { NotebookRuntime } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
+import { cn } from '../../lib/utils';
 import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { NodeSecretsProperties } from '../panels/properties/NodeSecretsProperties';
@@ -75,6 +77,9 @@ interface NotebookToolbarProps {
   contractPanel?: React.ReactNode;
   /** Shown as "in → out" so the shape is readable without opening the panel. */
   contractShape: { inputs: number; outputs: number };
+  /** Whether the body shows the page this contract makes instead of the cells. */
+  isPreviewing: boolean;
+  onTogglePreview: (previewing: boolean) => void;
   /** Which sections are folded across every cell, for the all-or-nothing toggles. */
   allCollapsed: Record<CellSection, boolean>;
   onToggleAllSections: (section: CellSection, isCollapsed: boolean) => void;
@@ -100,6 +105,8 @@ export function NotebookToolbar({
   triggerCount,
   contractPanel,
   contractShape,
+  isPreviewing,
+  onTogglePreview,
   allCollapsed,
   onToggleAllSections,
   onNameChange,
@@ -180,6 +187,22 @@ export function NotebookToolbar({
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
+
+      {/* Seeing your page used to mean deploying it, which turned the deploy gate into a
+          way of looking rather than a decision. */}
+      <Button
+        variant="ghost"
+        size="sm"
+        className={cn(
+          'h-7 px-2 text-[10px] font-semibold mr-1',
+          isPreviewing ? 'text-foreground bg-muted' : 'text-muted-foreground hover:text-foreground'
+        )}
+        onClick={() => onTogglePreview(!isPreviewing)}
+        title={isPreviewing ? 'Back to the cells' : 'See the page this contract makes'}
+      >
+        <AppWindow size={12} className="mr-1" />
+        Page
+      </Button>
 
       {runHistory}
 

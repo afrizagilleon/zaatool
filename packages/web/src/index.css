@@ -393,6 +393,10 @@
 }
 
 /* React Resizable and Grid Layout Styles */
+.page-grid-readonly .react-resizable-handle {
+    display: none;
+}
+
 .react-resizable {
   position: relative;
 }

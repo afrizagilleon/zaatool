@@ -153,5 +153,74 @@ check("a description on an output survives", () => {
   assert.deepEqual(back.outputs, [{ name: "total", description: "What it all came to" }]);
 });
 
+// ── the arrangement ───────────────────────────────────────────────────────────
+
+console.log("\nlayout");
+
+const laidOut = (layout: NotebookJson["layout"]): NotebookJson => ({
+  ...doc(["rows", "total"]),
+  layout,
+});
+
+check("an arrangement round-trips through the text form", () => {
+  const layout = [
+    { i: "rows", x: 0, y: 0, w: 6, h: 9 },
+    { i: "total", x: 6, y: 0, w: 6, h: 9 },
+  ];
+  assert.deepEqual(fromMarkdown(toMarkdown(laidOut(layout))).layout, layout);
+});
+
+check("a notebook nobody arranged carries no layout at all", () => {
+  assert.equal(fromMarkdown(toMarkdown(doc(["rows"]))).layout, undefined);
+});
+
+check("a tile with no name is refused rather than placed somewhere", () => {
+  const text = [
+    "---",
+    "name: Render",
+    "runtime: node",
+    "layout:",
+    "  - x: 0",
+    "    y: 0",
+    "    w: 6",
+    "    h: 4",
+    "---",
+    "",
+    "```js",
+    "return {};",
+    "```",
+  ].join("\n");
+  assert.throws(() => fromMarkdown(text), NotebookTextError);
+});
+
+check("a tile missing a coordinate is refused, not half-placed", () => {
+  const text = [
+    "---",
+    "name: Render",
+    "runtime: node",
+    "layout:",
+    "  - i: rows",
+    "    x: 0",
+    "    y: 0",
+    "    w: 6",
+    "---",
+    "",
+    "```js",
+    "return {};",
+    "```",
+  ].join("\n");
+  assert.throws(
+    () => fromMarkdown(text),
+    (err: unknown) =>
+      err instanceof NotebookTextError && err.issues.some((issue) => issue.includes("numeric"))
+  );
+});
+
+check("the arrangement is no concern of the compiled plan", () => {
+  const plan = compileNotebook(laidOut([{ i: "rows", x: 0, y: 0, w: 6, h: 9 }]));
+  assert.deepEqual(plan.outputs, ["rows", "total"]);
+  assert.equal("layout" in plan, false, "the runner was handed presentation");
+});
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed === 0 ? 0 : 1);

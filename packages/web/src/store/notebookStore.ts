@@ -18,6 +18,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   triggers: [],
   inputs: [],
   outputs: [],
+  layout: [],
   testArgs: {},
   steps: [],
 
@@ -41,6 +42,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
       triggers: [],
       inputs: [],
       outputs: [],
+      layout: [],
       testArgs: {},
       steps: [firstCell],
       isDirty: true,
@@ -63,6 +65,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
       triggers: document.triggers ?? [],
       inputs: document.inputs ?? [],
       outputs: document.outputs ?? [],
+      layout: document.layout ?? [],
       testArgs: {},
       steps: document.steps ?? [],
       isDirty: false,
@@ -79,8 +82,12 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   },
 
   getDocument: (): NotebookJson => {
-    const { id, name, runtime, secrets, triggers, inputs, outputs, steps } = get();
-    return { version: NOTEBOOK_VERSION, id, name, runtime, secrets, triggers, inputs, outputs, steps };
+    const { id, name, runtime, secrets, triggers, inputs, outputs, layout, steps } = get();
+    return {
+      version: NOTEBOOK_VERSION, id, name, runtime, secrets, triggers, inputs, outputs, steps,
+      // Omitted when nobody arranged it, so a notebook nobody laid out stays free of it.
+      ...(layout.length > 0 ? { layout } : {}),
+    };
   },
 
   /**
@@ -109,6 +116,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   },
 
   setOutputs: (outputs) => set({ outputs, isDirty: true }),
+  setLayout: (layout) => set({ layout, isDirty: true }),
 
   // Test values are authoring scratch, not document state — no dirty flag.
   setTestArg: (name, value) => set({ testArgs: { ...get().testArgs, [name]: value } }),

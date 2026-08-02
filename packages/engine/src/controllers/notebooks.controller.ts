@@ -97,6 +97,11 @@ export class NotebooksController {
           // each value, and it should not also have to know there are two ways to write
           // an output down.
           outputs: outputSpecs(document.outputs),
+          // Only tiles for names the contract still declares. An output removed since
+          // the arrangement was made leaves no orphan behind.
+          layout: (document.layout ?? []).filter((item) =>
+            outputSpecs(document.outputs).some((output) => output.name === item.i)
+          ),
         });
       }
 

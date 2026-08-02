@@ -108,6 +108,18 @@ export function ChartView({
   const hidden = columns.filter((column) => column !== xKey && !series.includes(column));
 
   const axis = { stroke: 'var(--muted-foreground)', fontSize: 10, tickLine: false };
+
+  /**
+   * Large numbers are abbreviated on the axis.
+   *
+   * A fixed axis width clipped the leading digit of seven-figure values — 1,400,000 read
+   * as "400000", which is not a smaller number, it is a wrong one. Widening the gutter
+   * only moves the point at which it happens; shortening the label removes it.
+   */
+  const tick = (value: number) =>
+    Math.abs(value) >= 10_000
+      ? new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(value)
+      : String(value);
   const tooltip = {
     contentStyle: {
       background: 'var(--card)',
@@ -160,7 +172,7 @@ export function ChartView({
         <LineChart data={data} margin={margin}>
           {grid}
           <XAxis dataKey={xKey} {...axis} />
-          <YAxis {...axis} width={44} />
+          <YAxis {...axis} width={52} tickFormatter={tick} />
           <Tooltip {...tooltip} />
           {series.length > 1 && <Legend {...legend} />}
           {series.map((key, index) => (
@@ -183,7 +195,7 @@ export function ChartView({
         <AreaChart data={data} margin={margin}>
           {grid}
           <XAxis dataKey={xKey} {...axis} />
-          <YAxis {...axis} width={44} />
+          <YAxis {...axis} width={52} tickFormatter={tick} />
           <Tooltip {...tooltip} />
           {series.length > 1 && <Legend {...legend} />}
           {series.map((key, index) => (
@@ -206,7 +218,7 @@ export function ChartView({
       <BarChart data={data} margin={margin}>
         {grid}
         <XAxis dataKey={xKey} {...axis} />
-        <YAxis {...axis} width={44} />
+        <YAxis {...axis} width={52} tickFormatter={tick} />
         <Tooltip {...tooltip} cursor={{ fill: 'var(--muted)', opacity: 0.4 }} />
         {series.length > 1 && <Legend {...legend} />}
         {series.map((key, index) => (
@@ -224,8 +236,8 @@ export function ChartView({
   };
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-end">
+    <div className="flex h-full min-h-0 flex-col gap-2">
+      <div className="flex shrink-0 items-center justify-end">
         <Button
           variant="ghost"
           size="sm"
@@ -239,7 +251,9 @@ export function ChartView({
       {asTable ? (
         <TableView rows={rows} />
       ) : (
-        <div className="h-72 w-full">
+        // Fills a grid tile when it has a height to fill, and falls back to its own when
+        // it does not — the gallery and an ungridded page have no height to give.
+        <div className="h-full min-h-72 w-full flex-1">
           <ResponsiveContainer width="100%" height="100%">
             {plot()}
           </ResponsiveContainer>

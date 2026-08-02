@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, StackSimple, ClockCounterClockwise } from '@phosphor-icons/react';
 import type { NotebookStep } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
@@ -8,6 +8,7 @@ import { useNotebookRun } from '../../hooks/useNotebookRun';
 import { computeStaleCells } from '../../lib/notebook-staleness';
 import * as tree from '../../lib/notebook-tree';
 import { NotebookToolbar } from './NotebookToolbar';
+import { PagePreview } from './PagePreview';
 import { NotebookCell } from './NotebookCell';
 import { ParallelGroup } from './ParallelGroup';
 import { RunHistory } from './RunHistory';
@@ -16,6 +17,7 @@ import { RunErrorBanner } from './RunErrorBanner';
 import { TriggerPanel } from './TriggerPanel';
 import { ContractPanel } from './ContractPanel';
 import { notebooksApi } from '../../lib/notebooks-api';
+import { cn } from '../../lib/utils';
 
 interface NotebookEditorProps {
   onBack: () => void;
@@ -72,6 +74,9 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
   const restoreRun = useNotebookStore((s) => s.restoreRun);
 
   const { run, runAll, save } = useNotebookRun();
+  // Kept here rather than in the store: which half of the editor you are looking at is
+  // a property of this screen, not of the notebook.
+  const [isPreviewing, setIsPreviewing] = useState(false);
 
   /**
    * Scrolls to a step and flashes it. A cell in a lane that is not the visible one
@@ -245,6 +250,8 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
           />
         }
         contractShape={{ inputs: inputs.length, outputs: outputs.length }}
+        isPreviewing={isPreviewing}
+        onTogglePreview={setIsPreviewing}
         contractPanel={
           <ContractPanel
             name={name}
@@ -298,7 +305,9 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
         />
       )}
 
-      <div className="flex-1 overflow-auto p-4">
+      {isPreviewing && <PagePreview onRun={() => void runAll()} isRunning={isRunning} />}
+
+      <div className={cn('flex-1 overflow-auto p-4', isPreviewing && 'hidden')}>
         <div className="max-w-4xl mx-auto space-y-2">
           {renderSteps(steps)}
 

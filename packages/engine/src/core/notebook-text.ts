@@ -4,6 +4,7 @@ import type {
   NotebookCell,
   NotebookJson,
   NotebookLane,
+  NotebookLayoutItem,
   NotebookOutput,
   NotebookOutputRender,
   NotebookParam,
@@ -73,6 +74,7 @@ export function toMarkdown(notebook: NotebookJson): string {
   if (notebook.inputs?.length) meta.inputs = notebook.inputs;
   if (notebook.outputs?.length) meta.outputs = notebook.outputs;
   if (notebook.triggers?.length) meta.triggers = notebook.triggers;
+  if (notebook.layout?.length) meta.layout = notebook.layout;
 
   const body: string[] = [];
   writeSteps(notebook.steps ?? [], notebook.runtime, body);
@@ -214,6 +216,9 @@ export function fromMarkdown(text: string, options?: FromMarkdownOptions): Noteb
   const inputs = readInputs(meta.inputs, issues);
   if (inputs.length > 0) notebook.inputs = inputs;
 
+  const layout = readLayout(meta.layout, issues);
+  if (layout.length > 0) notebook.layout = layout;
+
   const triggers = readTriggers(meta.triggers, issues, options?.previous?.triggers);
   if (triggers.length > 0) notebook.triggers = triggers;
 
@@ -276,6 +281,45 @@ function readStringList(value: unknown, field: string, issues: string[]): string
     else issues.push(`\`${field}\` must contain names, got ${JSON.stringify(entry)}`);
   }
   return list;
+}
+
+/**
+ * Reads the page arrangement.
+ *
+ * Every field is required and numeric, because a half-written tile has no sensible
+ * default position — silently placing it somewhere would look like the arrangement was
+ * kept when it was not.
+ */
+function readLayout(value: unknown, issues: string[]): NotebookLayoutItem[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    issues.push("`layout` must be a list");
+    return [];
+  }
+
+  const items: NotebookLayoutItem[] = [];
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      issues.push(`each layout item must be a mapping, got ${JSON.stringify(entry)}`);
+      continue;
+    }
+    const raw = entry as Record<string, unknown>;
+    const name = typeof raw.i === "string" ? raw.i.trim() : "";
+    if (!name) {
+      issues.push("each layout item needs `i`, the name of the output it places");
+      continue;
+    }
+
+    const numbers = (["x", "y", "w", "h"] as const).map((key) => raw[key]);
+    if (!numbers.every((one) => typeof one === "number" && Number.isFinite(one))) {
+      issues.push(`layout item "${name}" needs numeric x, y, w and h`);
+      continue;
+    }
+
+    const [x, y, w, h] = numbers as number[];
+    items.push({ i: name, x, y, w, h });
+  }
+  return items;
 }
 
 /**

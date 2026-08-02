@@ -198,6 +198,24 @@ export interface NotebookOutput {
   x?: string;
 }
 
+/**
+ * Where one output sits on the page.
+ *
+ * `i` is an output's *name*, never a widget id — so an output removed from the contract
+ * takes its tile with it, and there is no way to have a tile pointing at data that no
+ * longer exists. That was the dashboard builder's most common broken state.
+ *
+ * Only positions live here. Nothing says *what* to draw, because the contract already
+ * does. Twelve columns; the height unit is fixed by the renderer.
+ */
+export interface NotebookLayoutItem {
+  i: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface NotebookJson {
   version: string;
   id: string;
@@ -216,6 +234,18 @@ export interface NotebookJson {
    * `outputs: [sum, workings]`.
    */
   outputs?: Array<string | NotebookOutput>;
+  /**
+   * How the page arranges its outputs, when someone has arranged it.
+   *
+   * Absent means derived: one full-width tile per output, in declaration order. That is
+   * right for most notebooks, which is why it is the default rather than a step everyone
+   * has to take.
+   *
+   * Kept in the document rather than in a table of its own so an agent can write it,
+   * deploying pins it with the rest, and there is no arrangement left pointing at a
+   * notebook that has moved on.
+   */
+  layout?: NotebookLayoutItem[];
   steps: NotebookStep[];
 }
 
@@ -262,6 +292,8 @@ export interface NotebookPage {
   inputs: NotebookParam[];
   /** Always the full form here, whatever the document wrote — the page has to render it. */
   outputs: NotebookOutput[];
+  /** Empty when nobody arranged it; the page derives one instead. */
+  layout: NotebookLayoutItem[];
 }
 
 export interface NotebookSummary {
