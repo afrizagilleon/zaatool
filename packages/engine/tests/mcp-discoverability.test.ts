@@ -94,6 +94,17 @@ await check("says not to draw a chart out of text", () => {
   assert.match(conventions, /ASCII/i);
 });
 
+await check("says one output per cell, and why the page depends on it", () => {
+  assert.match(conventions, /One output per cell/i);
+  assert.match(conventions, /the moment the cell that produced it finishes/i);
+});
+
+await check("explains what a parallel group joins on", () => {
+  assert.match(conventions, /zaa:parallel/);
+  assert.match(conventions, /must not write the same name/i);
+  assert.match(conventions, /waits for the slowest lane/i);
+});
+
 await check("still carries the workspace's own house rules", () => {
   assert.match(conventions, /House rules/);
 });

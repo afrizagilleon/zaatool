@@ -122,6 +122,59 @@ return { total: inputs.rows.length, year: inputs.year };
 
 In Python it is subscript notation: \`inputs["rows"]\`, \`inputs["year"]\`.
 
+## One output per cell
+
+**A page reveals each output the moment the cell that produced it finishes.** So a cell
+that computes six outputs makes all six appear together, at the speed of the slowest
+thing in it — and a page that could have shown its table in half a second instead shows
+nothing for twenty.
+
+Split the work. One cell per output is the default; group only what genuinely cannot be
+computed apart.
+
+\`\`\`js
+// ✗ one cell — the table waits for the chart and the summary
+return { table, chart, summary };
+
+// ✓ three cells — the table appears first, then the chart, then the summary
+return { table };
+\`\`\`
+
+This costs nothing: later cells read earlier values through \`inputs\`, so splitting a
+cell never means computing anything twice.
+
+### Independent work goes in parallel lanes
+
+Two outputs that do not need each other should be computed at the same time. Lanes are
+written with markers, and a lane may itself contain another parallel group — nesting
+really does run concurrently.
+
+\`\`\`markdown
+<!-- zaa:parallel -->
+<!-- zaa:lane label="Revenue chart" -->
+<!-- zaa:cell -->
+<!-- zaa:code -->
+\`\`\`js
+return { revenueChart: inputs.rows.map(…) };
+\`\`\`
+<!-- zaa:lane label="Region chart" -->
+<!-- zaa:cell -->
+<!-- zaa:code -->
+\`\`\`js
+return { regionChart: inputs.rows.map(…) };
+\`\`\`
+<!-- zaa:end -->
+\`\`\`
+
+Two rules that follow from how lanes join:
+
+- **Two lanes must not write the same name.** That is a conflict, not a race, and the run
+  is refused.
+- **The first cell after a group waits for the slowest lane in it** — a 5-second lane
+  beside a 20-second one means the next cell starts at 20 seconds. The 5-second lane's
+  *output* is on the page long before that; it is only the next cell that waits. So put
+  work that needs everything after the group, and nothing else.
+
 ## Inputs
 
 Types: ${types}.

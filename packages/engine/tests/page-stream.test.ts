@@ -166,6 +166,109 @@ await check("a run that ends says so, so nothing waits forever", async () => {
   assert.equal(ended.length, 1, "a page waiting on run:done would hang");
 });
 
+console.log("\nlanes");
+
+await check("a fast lane's output is announced without waiting for a slow one", async () => {
+  const id = await store({
+    id: "",
+    name: "zz-stream-lanes",
+    runtime: "node",
+    outputs: ["quick", "slowly", "afterwards"],
+    steps: [
+      {
+        id: "fork",
+        kind: "parallel",
+        lanes: [
+          {
+            id: "l1",
+            label: "quick",
+            steps: [{ id: "q", kind: "cell", code: "return { quick: 1 };" }],
+          },
+          {
+            id: "l2",
+            label: "slow",
+            steps: [
+              {
+                id: "s",
+                kind: "cell",
+                code: "await new Promise((d) => setTimeout(d, 600)); return { slowly: 2 };",
+              },
+            ],
+          },
+        ],
+      },
+      { id: "join", kind: "cell", code: "return { afterwards: inputs.quick + inputs.slowly };" },
+    ],
+  });
+  await notebooksService.deploy(id, "test");
+
+  events.length = 0;
+  const startedAt = Date.now();
+  const started = await notebookExecutionService.start(id, collect, { triggerSource: "page" });
+  await started.completed;
+
+  const at = (cellId: string) =>
+    (events.find(
+      (event) => event.type === "cell:done" && (event as { cellId?: string }).cellId === cellId
+    )?.at ?? 0) - startedAt;
+
+  assert.ok(at("q") < 300, `the quick lane was announced at ${at("q")}ms`);
+  assert.ok(at("s") >= 550, "the slow lane did not actually take time");
+
+  // The rule the conventions state: the *next cell* waits for the slowest lane, while
+  // the fast lane's output has been on the page all along.
+  assert.ok(
+    at("join") >= at("s"),
+    "the cell after the group did not wait for the slowest lane"
+  );
+});
+
+await check("a lane may fork again, and the inner lanes really run at once", async () => {
+  const sleep = (ms: number, name: string) =>
+    `await new Promise((d) => setTimeout(d, ${ms})); return { ${name}: 1 };`;
+
+  const id = await store({
+    id: "",
+    name: "zz-stream-nested",
+    runtime: "node",
+    outputs: ["a", "b"],
+    steps: [
+      {
+        id: "outer",
+        kind: "parallel",
+        lanes: [
+          { id: "o1", label: "plain", steps: [{ id: "p", kind: "cell", code: "return {};" }] },
+          {
+            id: "o2",
+            label: "forks again",
+            steps: [
+              {
+                id: "inner",
+                kind: "parallel",
+                lanes: [
+                  { id: "i1", label: "A", steps: [{ id: "ca", kind: "cell", code: sleep(600, "a") }] },
+                  { id: "i2", label: "B", steps: [{ id: "cb", kind: "cell", code: sleep(600, "b") }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+  await notebooksService.deploy(id, "test");
+
+  const startedAt = Date.now();
+  const started = await notebookExecutionService.start(id, () => {}, { triggerSource: "page" });
+  const outcome = await started.completed;
+  const took = Date.now() - startedAt;
+
+  assert.equal(outcome.status, "success");
+  assert.deepEqual(outcome.outputs, { a: 1, b: 1 });
+  // Serially this would be ~1200ms. Nesting is real, not flattened.
+  assert.ok(took < 1_000, `took ${took}ms, so the inner lanes ran one after the other`);
+});
+
 console.log("\nwhen a cell fails");
 
 await check("what earlier cells produced is still announced", async () => {

@@ -454,6 +454,7 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
           "",
           "`auto` is the default and reads the value's shape: an array of objects is already a table, a string with newlines is markdown, a data: URI is an image. So return rows and you get a table for free; `render` is for overruling the guess, usually to ask for a chart.",
           "The four chart forms are four questions, not four skins: `bar` = which is bigger, `line` = how it changed over time, `area` = how a total filled up, `pie` = what share of a whole. A pie reads one measure and needs 6 rows or fewer — group first, or it is drawn as bars.",
+          "ONE OUTPUT PER CELL. The page reveals each output the moment its cell finishes, so a cell that returns six of them makes all six wait for the slowest thing in it. Split the work; later cells read earlier values through `inputs`, so nothing is computed twice. Outputs that do not need each other belong in parallel lanes.",
           "NEVER draw a chart or a table out of text. No ASCII bars, no box-drawing characters, no pipe-and-dash tables — the page renders real ones from the data. Return the rows.",
           "Read the `zaa://conventions` resource for the full format, the renderer rules and a complete worked example.",
           "",
