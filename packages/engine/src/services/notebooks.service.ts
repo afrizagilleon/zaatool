@@ -2,7 +2,13 @@ import { pool } from "../db/connection.js";
 import { v4 as uuidv4 } from "uuid";
 import { notebookTriggersService } from "./notebook-triggers.service.js";
 import { stampAuthors } from "../core/notebook-provenance.js";
-import type { NotebookJson, NotebookRuntime, NotebookSummary } from "@zaa-tool/shared";
+import { toolNameFor } from "../core/notebook-tool-name.js";
+import type {
+  NotebookDeployState,
+  NotebookJson,
+  NotebookRuntime,
+  NotebookSummary,
+} from "@zaa-tool/shared";
 
 export interface NotebookRecord {
   id: string;
@@ -117,6 +123,24 @@ export class NotebooksService {
     return { versionId };
   }
 
+  /**
+   * Takes a notebook out of production.
+   *
+   * The version rows stay: they are the record of what ran when, and deleting them to
+   * express "not deployed any more" would destroy history to store a boolean. Only the
+   * pointer moves, so re-deploying is a decision rather than a recovery.
+   */
+  async undeploy(id: string): Promise<{ wasDeployed: boolean } | null> {
+    const record = await this.getById(id);
+    if (!record) return null;
+
+    const { rowCount } = await pool.query(
+      "UPDATE notebooks SET deployed_version_id = NULL WHERE id = $1 AND deployed_version_id IS NOT NULL",
+      [id]
+    );
+    return { wasDeployed: (rowCount ?? 0) > 0 };
+  }
+
   /** What a trigger should run, or null when nothing has been deployed yet. */
   async getDeployedDocument(id: string): Promise<NotebookJson | null> {
     const { rows } = await pool.query(
@@ -138,12 +162,7 @@ export class NotebooksService {
    * The comparison is on the document itself rather than a timestamp: saving without
    * changing anything should not make a notebook look like it needs deploying.
    */
-  async getDeployState(id: string): Promise<{
-    isDeployed: boolean;
-    deployedAt: string | null;
-    deployedBy: string | null;
-    hasUndeployedChanges: boolean;
-  } | null> {
+  async getDeployState(id: string): Promise<NotebookDeployState | null> {
     const record = await this.getById(id);
     if (!record) return null;
 
@@ -160,11 +179,27 @@ export class NotebooksService {
     }
 
     const deployed = typeof rows[0].document === "string" ? rows[0].document : JSON.stringify(rows[0].document);
+    const document = JSON.parse(deployed) as NotebookJson;
+
     return {
       isDeployed: true,
       deployedAt: new Date(rows[0].created_at).toISOString(),
       deployedBy: rows[0].deployed_by ?? null,
       hasUndeployedChanges: deployed !== JSON.stringify(this.parseDocument(record)),
+      serving: {
+        toolName:
+          (document.inputs?.length ?? 0) > 0 || (document.outputs?.length ?? 0) > 0
+            ? toolNameFor(document.name) || null
+            : null,
+        hasPage: (document.inputs?.length ?? 0) > 0 || (document.outputs?.length ?? 0) > 0,
+        triggers: (document.triggers ?? [])
+          .filter((trigger) => trigger.enabled !== false)
+          .map((trigger) =>
+            trigger.kind === "cron"
+              ? { kind: "cron" as const, label: trigger.cron }
+              : { kind: "webhook" as const, label: `/hooks/${trigger.slug}` }
+          ),
+      },
     };
   }
 

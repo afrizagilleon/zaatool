@@ -142,12 +142,30 @@ outputs:
 |---|---|---|
 | \`auto\` | inferred from the value — the default | anything |
 | \`table\` | sortable, searchable, paged | an array of objects |
-| \`chart\` | bars, or a line when the x axis is a date | an array of objects |
-| \`markdown\` | formatted prose | a string |
+| \`chart\` | picks a form for you | an array of objects |
+| \`bar\` | which is bigger | an array of objects |
+| \`line\` | how it changed over time | an array of objects |
+| \`area\` | how a total filled up | an array of objects |
+| \`pie\` | what share of a whole | an array of objects, **6 rows or fewer** |
+| \`markdown\` | formatted prose, GFM tables included | a string |
 | \`image\` | an image | a \`data:\` URI or an image URL |
 | \`file\` | a download link | \`{ name, path }\` |
 | \`json\` | a formatted dump | anything |
 | \`text\` | one plain value | a string or number |
+
+### Choosing a chart
+
+The four forms are four different questions, so pick by what the reader must do:
+
+- **\`bar\`** — compare things side by side. The safe default for named categories.
+- **\`line\`** — show change over time. Use when the x axis is a date or a period.
+- **\`area\`** — same as line, but the filled total is the point.
+- **\`pie\`** — show shares of one whole. **Group down to six rows or fewer first**;
+  past that it is drawn as bars instead, because nobody can read a twelve-slice pie.
+  A pie reads one measure, so return two columns: a name and a number.
+
+\`chart\` on its own means "you choose" — a date-like x axis becomes a line, anything
+else becomes bars.
 
 ### What \`auto\` decides on its own
 

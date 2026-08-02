@@ -15,6 +15,7 @@ import { fromMarkdown, toMarkdown, NotebookTextError } from "../core/notebook-te
 import { requestApproval } from "./approval.js";
 import { buildNotebookMap, renderNotebookMap } from "../core/notebook-map.js";
 import { outputNames } from "../core/notebook-outputs.js";
+import { abridge, wasAbridged } from "./abridge.js";
 import type { NotebookPlan } from "../core/notebook-compiler.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 import type { AgentScope } from "../services/agent-tokens.service.js";
@@ -156,13 +157,27 @@ async function describeRun(
   const detail = await notebookRunsService.getById(runId);
   const cells = detail?.cell_results ?? {};
 
+  const selectedCells = only ? { [only]: cells[only] ?? null } : cells;
+
+  // Shortened deliberately. What you need to decide the next step is the shape and the
+  // size; the rows themselves are the notebook's answer to whoever opens its page, and
+  // sending them here spends your context on data you just caused to exist.
+  const outputs = abridge(outcome.outputs);
+  const shortened =
+    wasAbridged(outcome.outputs, outputs) || wasAbridged(selectedCells, abridge(selectedCells));
+
   return {
     runId,
     status: outcome.status,
     ms: outcome.ms,
     ...(outcome.errors.length > 0 ? { errors: outcome.errors } : {}),
-    ...(Object.keys(outcome.outputs).length > 0 ? { outputs: outcome.outputs } : {}),
-    cells: only ? { [only]: cells[only] ?? null } : cells,
+    ...(Object.keys(outcome.outputs).length > 0 ? { outputs } : {}),
+    cells: abridge(selectedCells),
+    ...(shortened
+      ? {
+          note: "Large values are abridged: `summary` gives the true size, `first` a sample. The full result is on the notebook's page, and a caller receives it in full.",
+        }
+      : {}),
   };
 }
 
@@ -288,21 +303,21 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
     {
       title: "Inspect a run",
       description:
-        "One run in full: per cell, the code that actually ran, its output, its logs and its error. This is how you debug a failure you did not witness — a cron that failed at 3am left this behind.",
+        "One run in full: per cell, the code that actually ran, its output, its logs and its error. This is how you debug a failure you did not witness — a cron that failed at 3am left this behind. Large values are abridged to their size and a sample, so a run over a lot of data is still readable here.",
       inputSchema: {
         run: z.string().describe("A run id, or a notebook name/id to take its latest run."),
       },
     },
     async ({ run }) => {
       const direct = await notebookRunsService.getById(run.trim());
-      if (direct) return asJson(direct);
+      if (direct) return asJson(abridge(direct));
 
       const resolved = await resolveNotebook(run);
       if ("error" in resolved) {
         return refuse(`No run and no notebook matches "${run}".`);
       }
       const latest = await notebookRunsService.getLatestForNotebook(resolved.record.id);
-      return latest ? asJson(latest) : reply(`"${resolved.record.name}" has never run.`);
+      return latest ? asJson(abridge(latest)) : reply(`"${resolved.record.name}" has never run.`);
     }
   );
 
@@ -427,7 +442,7 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
           "      options: [usd_to_idr, idr_to_usd]",
           "      default: usd_to_idr",
           "",
-          "OUTPUTS DECIDE HOW THE PAGE LOOKS. An output is a bare name, or a mapping that also says how to show it — `render` is one of auto, text, markdown, table, chart, image, file, json:",
+          "OUTPUTS DECIDE HOW THE PAGE LOOKS. An output is a bare name, or a mapping that also says how to show it — `render` is one of auto, text, markdown, table, chart, bar, line, area, pie, image, file, json:",
           "",
           "  outputs:",
           "    - total",
@@ -438,6 +453,7 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
           "      x: month",
           "",
           "`auto` is the default and reads the value's shape: an array of objects is already a table, a string with newlines is markdown, a data: URI is an image. So return rows and you get a table for free; `render` is for overruling the guess, usually to ask for a chart.",
+          "The four chart forms are four questions, not four skins: `bar` = which is bigger, `line` = how it changed over time, `area` = how a total filled up, `pie` = what share of a whole. A pie reads one measure and needs 6 rows or fewer — group first, or it is drawn as bars.",
           "NEVER draw a chart or a table out of text. No ASCII bars, no box-drawing characters, no pipe-and-dash tables — the page renders real ones from the data. Return the rows.",
           "Read the `zaa://conventions` resource for the full format, the renderer rules and a complete worked example.",
           "",

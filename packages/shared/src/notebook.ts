@@ -168,6 +168,13 @@ export interface NotebookParam {
  * A table's columns come from the data; its paging, search and sorting are always on
  * because nobody ever wanted them off. The old dashboard's `tableConfig`/`chartConfig`
  * are what happens when presentation becomes a second thing to declare and keep in step.
+ *
+ * The exception, and the reason it is one: `bar`, `line`, `area` and `pie` are not four
+ * skins on a chart, they are four different questions. Pie asks what share of a whole,
+ * line asks how something changed, bar asks which is bigger. Only the person writing the
+ * notebook knows which they are asking — so the *form* is declarable while every
+ * appearance choice around it (colour, axes, grid, labels) stays fixed. `chart` remains
+ * as "you pick for me".
  */
 export type NotebookOutputRender =
   | "auto"
@@ -175,6 +182,10 @@ export type NotebookOutputRender =
   | "markdown"
   | "table"
   | "chart"
+  | "bar"
+  | "line"
+  | "area"
+  | "pie"
   | "image"
   | "file"
   | "json";
@@ -219,6 +230,23 @@ export interface NotebookDeployState {
   deployedAt: string | null;
   deployedBy: string | null;
   hasUndeployedChanges: boolean;
+  /**
+   * What taking this out of production would switch off.
+   *
+   * Computed from the deployed document rather than the draft, because that is what is
+   * actually serving. Sent with the state so the question "what breaks if I undeploy"
+   * is answered before it is asked rather than after.
+   */
+  serving?: NotebookServing;
+}
+
+export interface NotebookServing {
+  /** The MCP tool agents currently see, if the contract earned one. */
+  toolName: string | null;
+  /** Whether it appears under Apps as a page. */
+  hasPage: boolean;
+  /** Triggers that would start refusing: cron expressions and webhook slugs. */
+  triggers: Array<{ kind: "cron" | "webhook"; label: string }>;
 }
 
 /**

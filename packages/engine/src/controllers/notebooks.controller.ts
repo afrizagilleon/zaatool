@@ -170,6 +170,26 @@ export class NotebooksController {
     }
   };
 
+  /**
+   * Takes a notebook out of production.
+   *
+   * Separate from deleting: the draft, the history and the versions all survive. What
+   * stops is everything that was running unattended — the agent tool, the page, and the
+   * triggers, which start answering 409 rather than failing silently.
+   */
+  undeploy = async (req: Request, res: Response) => {
+    try {
+      const result = await notebooksService.undeploy(String(req.params.id));
+      if (!result) return res.status(404).json({ error: "Notebook not found" });
+
+      // An agent holding a session must not keep offering a tool that no longer runs.
+      notifyCatalogChanged();
+      res.json(result);
+    } catch (err: unknown) {
+      respondWithError(res, err);
+    }
+  };
+
   remove = async (req: Request, res: Response) => {
     try {
       const result = await notebooksService.delete(String(req.params.id));

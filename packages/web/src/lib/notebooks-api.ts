@@ -70,6 +70,10 @@ export const notebooksApi = {
   deploy: (id: string): Promise<{ versionId: string }> =>
     request(`/api/notebooks/${id}/deploy`, { method: "POST" }),
 
+  /** Stops production without touching the draft, its history or its versions. */
+  undeploy: (id: string): Promise<{ wasDeployed: boolean }> =>
+    request(`/api/notebooks/${id}/deploy`, { method: "DELETE" }),
+
   listRuns: (id: string): Promise<NotebookRunSummary[]> => request(`/api/notebooks/${id}/runs`),
 
   clearRuns: (id: string): Promise<{ deleted: number }> =>

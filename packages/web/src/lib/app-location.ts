@@ -11,9 +11,23 @@
  */
 
 /** What the URL calls each section. `deploys` is a legacy id; the URL says dashboard. */
-export type LocationTab = 'workflows' | 'map' | 'editor' | 'notebooks' | 'resources' | 'dashboard';
+export type LocationTab =
+  | 'workflows'
+  | 'map'
+  | 'editor'
+  | 'notebooks'
+  | 'resources'
+  | 'dashboard'
+  | 'gallery';
 
-export type UiTab = 'workflows' | 'map' | 'editor' | 'notebooks' | 'resources' | 'deploys';
+export type UiTab =
+  | 'workflows'
+  | 'map'
+  | 'editor'
+  | 'notebooks'
+  | 'resources'
+  | 'deploys'
+  | 'gallery';
 
 export interface AppLocation {
   tab: LocationTab;
@@ -21,7 +35,19 @@ export interface AppLocation {
   notebookId?: string;
 }
 
-const TABS: LocationTab[] = ['workflows', 'map', 'editor', 'notebooks', 'resources', 'dashboard'];
+/**
+ * `gallery` is deliberately absent from the navbar: it is a workbench for checking
+ * every renderer against awkward values, reachable only by typing `#/gallery`.
+ */
+const TABS: LocationTab[] = [
+  'workflows',
+  'map',
+  'editor',
+  'notebooks',
+  'resources',
+  'dashboard',
+  'gallery',
+];
 
 /**
  * The canvas has no navbar tab any more — the Map took its place. It stays reachable by

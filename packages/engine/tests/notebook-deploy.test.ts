@@ -314,6 +314,75 @@ await check("running that same caller by hand reaches the callee's draft", async
   assert.deepEqual(result.outputs, { got: "draft" });
 });
 
+// ── coming back out ───────────────────────────────────────────────────────────
+
+console.log("\nundeploy");
+
+await check("the deploy state names what production is serving", async () => {
+  const id = await store({
+    id: "",
+    name: "zz-dep-serving",
+    runtime: "node",
+    inputs: [{ name: "a", type: "number" }],
+    outputs: ["doubled"],
+    triggers: [{ id: "t1", kind: "cron", cron: "0 6 * * *", enabled: true }],
+    steps: [{ id: "c1", kind: "cell", code: "return { doubled: inputs.a * 2 };" }],
+  });
+  await notebooksService.deploy(id, "test");
+
+  const state = await notebooksService.getDeployState(id);
+  assert.equal(state?.serving?.toolName, "run_zz_dep_serving");
+  assert.equal(state?.serving?.hasPage, true);
+  assert.deepEqual(state?.serving?.triggers, [{ kind: "cron", label: "0 6 * * *" }]);
+});
+
+await check("undeploying stops production and leaves the draft alone", async () => {
+  const found = await notebooksService.findByIdOrName("zz-dep-serving");
+  assert.ok(found && found !== "ambiguous");
+
+  const result = await notebooksService.undeploy(found.id);
+  assert.equal(result?.wasDeployed, true);
+
+  const state = await notebooksService.getDeployState(found.id);
+  assert.equal(state?.isDeployed, false);
+  assert.equal(await notebooksService.getDeployedDocument(found.id), null);
+
+  // The point of it being separate from delete.
+  const record = await notebooksService.getById(found.id);
+  assert.ok(record, "undeploying removed the notebook");
+  assert.equal(notebooksService.parseDocument(record).name, "zz-dep-serving");
+});
+
+await check("a trigger on an undeployed notebook refuses rather than running the draft", async () => {
+  const found = await notebooksService.findByIdOrName("zz-dep-serving");
+  assert.ok(found && found !== "ambiguous");
+
+  await assert.rejects(
+    notebookExecutionService.start(found.id, () => {}, { triggerSource: "cron" }),
+    (err: unknown) => (err as Error).name === "NotebookNotDeployedError"
+  );
+});
+
+await check("undeploying twice is not an error, and says it changed nothing", async () => {
+  const found = await notebooksService.findByIdOrName("zz-dep-serving");
+  assert.ok(found && found !== "ambiguous");
+  assert.deepEqual(await notebooksService.undeploy(found.id), { wasDeployed: false });
+});
+
+await check("a notebook that never existed is not found", async () => {
+  assert.equal(await notebooksService.undeploy("no-such-notebook"), null);
+});
+
+await check("redeploying brings it back", async () => {
+  const found = await notebooksService.findByIdOrName("zz-dep-serving");
+  assert.ok(found && found !== "ambiguous");
+
+  await notebooksService.deploy(found.id, "test");
+  const state = await notebooksService.getDeployState(found.id);
+  assert.equal(state?.isDeployed, true);
+  assert.equal(state?.serving?.toolName, "run_zz_dep_serving");
+});
+
 for (const id of created) await notebooksService.delete(id).catch(() => {});
 await pool.end();
 server.close();

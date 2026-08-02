@@ -8,6 +8,7 @@ import type { RunEventSink } from "../core/run-emitter.js";
 import type { NotebookJson, NotebookParam } from "@zaa-tool/shared";
 import { optionValues } from "../core/notebook-contract.js";
 import { outputNames } from "../core/notebook-outputs.js";
+import { toolNameFor } from "../core/notebook-tool-name.js";
 
 /**
  * Deployed notebooks, offered to an agent as tools it can simply call.
@@ -41,16 +42,9 @@ export const notifyCatalogChanged = (): void => {
   catalogChanges.emit("changed");
 };
 
-/** MCP tool names are identifiers, and a notebook's name is a title. */
-export function toolNameFor(notebookName: string): string {
-  const slug = notebookName
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 48);
-  return slug ? `run_${slug}` : "";
-}
+// Re-exported: the deploy screen needs the same rule, so it lives in core/ and the
+// existing import path here keeps working.
+export { toolNameFor };
 
 function schemaFor(param: NotebookParam): z.ZodTypeAny {
   const permitted = optionValues(param);

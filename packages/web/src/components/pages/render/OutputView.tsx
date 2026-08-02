@@ -4,7 +4,7 @@ import { DownloadSimple } from '@phosphor-icons/react';
 import type { NotebookOutput } from '@zaa-tool/shared';
 import { asRows, renderFor } from '../../../lib/notebook-outputs';
 import { TableView } from './TableView';
-import { ChartView } from './ChartView';
+import { ChartView, type ChartForm } from './ChartView';
 
 /**
  * Shows one output.
@@ -57,6 +57,17 @@ export function OutputView({ output, value }: { output: NotebookOutput; value: u
 
     case 'chart':
       return rows ? <ChartView rows={rows} x={output.x} /> : <Json value={value} />;
+
+    // Four questions rather than four skins — see ChartView.
+    case 'bar':
+    case 'line':
+    case 'area':
+    case 'pie':
+      return rows ? (
+        <ChartView rows={rows} x={output.x} form={renderFor(output, value) as ChartForm} />
+      ) : (
+        <Json value={value} />
+      );
 
     case 'image':
       return typeof value === 'string' ? (

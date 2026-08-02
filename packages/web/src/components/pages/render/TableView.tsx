@@ -18,7 +18,18 @@ import { cn } from '../../../lib/utils';
  * notebook actually built rather than a list someone has to maintain alongside it.
  */
 
-const PAGE_SIZE = 25;
+const PAGE_SIZES = [10, 25, 50, 100];
+
+/**
+ * The point past which the page stops pretending.
+ *
+ * A notebook returning a million rows is already broken well before this renderer sees
+ * them: scope crosses cell boundaries as JSON, the whole value is copied into the run
+ * record, and all of it is sent over HTTP. Paging here would only hide that. So the rows
+ * that arrived are shown, the true count is stated, and the fix is named — narrow it in
+ * the notebook, which has a database and can say LIMIT.
+ */
+const MAX_ROWS = 5_000;
 
 /** What a cell shows. Objects are collapsed rather than expanded — a table is a grid. */
 function cellText(value: unknown): string {
@@ -42,11 +53,15 @@ function compare(a: unknown, b: unknown): number {
   return left.localeCompare(right);
 }
 
-export function TableView({ rows }: { rows: Record<string, unknown>[] }) {
-  const columns = useMemo(() => columnsOf(rows), [rows]);
+export function TableView({ rows: given }: { rows: Record<string, unknown>[] }) {
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<{ column: string; ascending: boolean } | null>(null);
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(PAGE_SIZES[0]);
+
+  const truncated = given.length > MAX_ROWS;
+  const rows = useMemo(() => (truncated ? given.slice(0, MAX_ROWS) : given), [given, truncated]);
+  const columns = useMemo(() => columnsOf(rows), [rows]);
 
   const found = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -62,9 +77,9 @@ export function TableView({ rows }: { rows: Record<string, unknown>[] }) {
     return sort.ascending ? sorted : sorted.reverse();
   }, [found, sort]);
 
-  const pageCount = Math.max(1, Math.ceil(ordered.length / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(ordered.length / pageSize));
   const current = Math.min(page, pageCount - 1);
-  const visible = ordered.slice(current * PAGE_SIZE, current * PAGE_SIZE + PAGE_SIZE);
+  const visible = ordered.slice(current * pageSize, current * pageSize + pageSize);
 
   const toggleSort = (column: string) =>
     setSort((previous) =>
@@ -73,9 +88,17 @@ export function TableView({ rows }: { rows: Record<string, unknown>[] }) {
         : { column, ascending: true }
     );
 
+  // Nothing to search, sort or page through — and an empty grid with no headers reads
+  // as a broken component rather than as an empty result.
+  if (rows.length === 0) {
+    return (
+      <p className="border border-border p-3 text-xs italic text-muted-foreground">No rows.</p>
+    );
+  }
+
   return (
     <div className="space-y-2">
-      {rows.length > PAGE_SIZE && (
+      {rows.length > PAGE_SIZES[0] && (
         <div className="relative">
           <MagnifyingGlass
             size={12}
@@ -138,33 +161,67 @@ export function TableView({ rows }: { rows: Record<string, unknown>[] }) {
         <p className="py-3 text-center text-xs text-muted-foreground">Nothing matches “{query}”.</p>
       )}
 
-      {pageCount > 1 && (
-        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-          <span>
-            {current * PAGE_SIZE + 1}–{Math.min((current + 1) * PAGE_SIZE, ordered.length)} of{' '}
-            {ordered.length}
-          </span>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 px-2 text-[10px]"
-              disabled={current === 0}
-              onClick={() => setPage(current - 1)}
+      {/* Always, not only when it pages: how many rows there are is part of reading the
+          answer, and it is the fact a caller most often wants back. */}
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-muted-foreground">
+        <span>
+          {ordered.length === 0
+            ? 'No rows'
+            : pageCount > 1
+              ? `${current * pageSize + 1}–${Math.min((current + 1) * pageSize, ordered.length)} of ${ordered.length}`
+              : `${ordered.length} ${ordered.length === 1 ? 'row' : 'rows'}`}
+          {query && ordered.length !== rows.length && ` (filtered from ${rows.length})`}
+        </span>
+
+        <div className="flex items-center gap-1">
+          {rows.length > PAGE_SIZES[0] && (
+            <select
+              value={pageSize}
+              onChange={(event) => {
+                setPageSize(Number(event.target.value));
+                setPage(0);
+              }}
+              className="h-6 border border-border bg-card px-1 text-[10px] text-muted-foreground"
+              title="Rows per page"
             >
-              Previous
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 px-2 text-[10px]"
-              disabled={current >= pageCount - 1}
-              onClick={() => setPage(current + 1)}
-            >
-              Next
-            </Button>
-          </div>
+              {PAGE_SIZES.map((size) => (
+                <option key={size} value={size}>
+                  {size} / page
+                </option>
+              ))}
+            </select>
+          )}
+          {pageCount > 1 && (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-[10px]"
+                disabled={current === 0}
+                onClick={() => setPage(current - 1)}
+              >
+                Previous
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-[10px]"
+                disabled={current >= pageCount - 1}
+                onClick={() => setPage(current + 1)}
+              >
+                Next
+              </Button>
+            </>
+          )}
         </div>
+      </div>
+
+      {truncated && (
+        <p className="border border-amber-500/40 bg-amber-500/5 p-2 text-[10px] leading-normal text-amber-600 dark:text-amber-400">
+          Showing the first {MAX_ROWS.toLocaleString()} of {given.length.toLocaleString()} rows.
+          Everything past that never left the notebook usefully — it was copied through
+          scope, into the run record and over the wire. Narrow it there instead.
+        </p>
       )}
     </div>
   );

@@ -3,7 +3,8 @@ import { persist } from 'zustand/middleware';
 import { fromUiTab, parseLocation } from '../lib/app-location.js';
 
 interface UiState {
-  activeTab: 'map' | 'editor' | 'notebooks' | 'resources' | 'deploys' | 'workflows';
+  /** `gallery` has no navbar entry — see app-location. */
+  activeTab: 'map' | 'editor' | 'notebooks' | 'resources' | 'deploys' | 'workflows' | 'gallery';
   isDarkMode: boolean;
   isNodePaletteOpen: boolean;
   isCodePanelOpen: boolean;

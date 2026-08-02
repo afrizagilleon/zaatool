@@ -4,6 +4,7 @@ import type { NotebookDeployState } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { notebooksApi } from '../../lib/notebooks-api';
 import { DeployReviewDialog } from './DeployReviewDialog';
+import { ProductionDialog } from './ProductionDialog';
 import { cn } from '../../lib/utils';
 
 /**
@@ -38,6 +39,7 @@ function summary(state: NotebookDeployState | null, hasTriggers: boolean): strin
 export function DeployButton({ notebookId, refreshKey, hasTriggers, isDirty }: DeployButtonProps) {
   const [state, setState] = useState<NotebookDeployState | null>(null);
   const [isReviewing, setIsReviewing] = useState(false);
+  const [isInspecting, setIsInspecting] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!notebookId) return;
@@ -72,9 +74,17 @@ export function DeployButton({ notebookId, refreshKey, hasTriggers, isDirty }: D
           ? 'border-amber-500/40 text-amber-600 dark:text-amber-500 hover:bg-amber-500/10'
           : 'text-muted-foreground hover:text-foreground'
       )}
-      title={blockedByUnsaved ? 'Save before deploying' : summary(state, hasTriggers)}
-      disabled={!needsDeploy || blockedByUnsaved}
-      onClick={() => setIsReviewing(true)}
+      title={
+        blockedByUnsaved
+          ? 'Save before deploying'
+          : needsDeploy
+            ? summary(state, hasTriggers)
+            : `${summary(state, hasTriggers)} — click to see what it serves`
+      }
+      // Once deployed and unchanged there is nothing to deploy, but there is still
+      // something to answer: what is this running, and how do I stop it.
+      disabled={needsDeploy && blockedByUnsaved}
+      onClick={() => (needsDeploy ? setIsReviewing(true) : setIsInspecting(true))}
     >
       {needsDeploy ? (
         <RocketLaunch size={13} className="mr-1.5" />
@@ -91,6 +101,15 @@ export function DeployButton({ notebookId, refreshKey, hasTriggers, isDirty }: D
       open={isReviewing}
       onOpenChange={setIsReviewing}
       onDeployed={() => void refresh()}
+    />
+
+    <ProductionDialog
+      notebookId={notebookId}
+      serving={state?.serving}
+      deployedAt={state?.deployedAt ?? null}
+      open={isInspecting}
+      onOpenChange={setIsInspecting}
+      onUndeployed={() => void refresh()}
     />
     </>
   );

@@ -22,6 +22,10 @@ export const RENDERS: NotebookOutputRender[] = [
   'markdown',
   'table',
   'chart',
+  'bar',
+  'line',
+  'area',
+  'pie',
   'image',
   'file',
   'json',
@@ -49,9 +53,15 @@ export function toDeclaration(spec: NotebookOutput): string | NotebookOutput {
   return declaration;
 }
 
-/** Rows of the same shape — the one structure worth its own renderer. */
+/**
+ * Rows of the same shape — the one structure worth its own renderer.
+ *
+ * An empty array counts. A query that matched nothing is still a table, and showing it
+ * as `[]` tells the reader about JavaScript rather than about their data.
+ */
 export function asRows(value: unknown): Record<string, unknown>[] | null {
-  if (!Array.isArray(value) || value.length === 0) return null;
+  if (!Array.isArray(value)) return null;
+  if (value.length === 0) return [];
 
   const rows = value.filter(
     (item): item is Record<string, unknown> =>
