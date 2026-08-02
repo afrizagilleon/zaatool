@@ -1,4 +1,5 @@
 import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { DownloadSimple } from '@phosphor-icons/react';
 import type { NotebookOutput } from '@zaa-tool/shared';
 import { asRows, renderFor } from '../../../lib/notebook-outputs';
@@ -69,8 +70,11 @@ export function OutputView({ output, value }: { output: NotebookOutput; value: u
 
     case 'markdown':
       return (
-        <div className="prose-sm max-w-none space-y-2 text-sm [&_code]:font-mono [&_code]:text-xs [&_h1]:text-base [&_h1]:font-bold [&_h2]:text-sm [&_h2]:font-bold [&_li]:ml-4 [&_li]:list-disc [&_pre]:overflow-x-auto [&_pre]:bg-muted/40 [&_pre]:p-2">
-          <Markdown>{String(value)}</Markdown>
+        // A markdown output that is a table is a *table*, and plain CommonMark has no
+        // such thing — without GFM the pipes collapse into one long paragraph, which is
+        // exactly what an agent's summary looked like.
+        <div className="prose-sm max-w-none space-y-2 text-sm [&_code]:font-mono [&_code]:text-xs [&_h1]:text-base [&_h1]:font-bold [&_h2]:text-sm [&_h2]:font-bold [&_li]:ml-4 [&_li]:list-disc [&_pre]:overflow-x-auto [&_pre]:bg-muted/40 [&_pre]:p-2 [&_table]:w-full [&_table]:border-collapse [&_td]:border-b [&_td]:border-border/60 [&_td]:px-2 [&_td]:py-1 [&_th]:border-b [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:text-[10px] [&_th]:font-semibold [&_th]:uppercase [&_th]:tracking-wide [&_th]:text-muted-foreground">
+          <Markdown remarkPlugins={[remarkGfm]}>{String(value)}</Markdown>
         </div>
       );
 
