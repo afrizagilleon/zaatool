@@ -199,6 +199,43 @@ export interface NotebookOutput {
 }
 
 /**
+ * A button on a page.
+ *
+ * Three kinds, and the list is meant to stay three. Each one is a verb someone can
+ * already perform another way — run this again, run something else, go there — so a
+ * button never introduces behaviour, only a shorter path to it. That is the line that
+ * keeps this from becoming a widget language.
+ *
+ * `run` is deliberately fire-and-forget: it reports that the other notebook succeeded or
+ * failed and shows nothing it returned. A button that displayed results would need
+ * somewhere to put them, and then a page would be showing two notebooks at once with no
+ * way to say which value came from where.
+ */
+export type NotebookActionKind = "rerun" | "run" | "link";
+
+export interface NotebookAction {
+  /** What the button says. Required — an unlabelled button is a guess. */
+  label: string;
+  do: NotebookActionKind;
+  /**
+   * `run` only: the notebook to call, by name or id. It must be deployed, for the same
+   * reason a page serves the deployed version — a button is not a way into a draft.
+   */
+  notebook?: string;
+  /**
+   * `run` only: fixed arguments.
+   *
+   * Whatever the target also declares and this page has an input for is passed through
+   * by name, and these win over that. Matching by name rather than through an expression
+   * language is the whole design: both contracts already name their fields, so there is
+   * nothing left to invent.
+   */
+  args?: Record<string, unknown>;
+  /** `link` only: where to go. */
+  url?: string;
+}
+
+/**
  * Where one output sits on the page.
  *
  * `i` is an output's *name*, never a widget id — so an output removed from the contract
@@ -246,6 +283,8 @@ export interface NotebookJson {
    * notebook that has moved on.
    */
   layout?: NotebookLayoutItem[];
+  /** Buttons on the page. Absent means the page has only its Run button. */
+  actions?: NotebookAction[];
   steps: NotebookStep[];
 }
 
@@ -294,6 +333,8 @@ export interface NotebookPage {
   outputs: NotebookOutput[];
   /** Empty when nobody arranged it; the page derives one instead. */
   layout: NotebookLayoutItem[];
+  /** Buttons beside Run. Empty is the normal case. */
+  actions: NotebookAction[];
 }
 
 /**

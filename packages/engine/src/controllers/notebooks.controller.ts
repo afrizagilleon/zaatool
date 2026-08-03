@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { notebooksService } from "../services/notebooks.service.js";
 import { buildNotebookMap } from "../core/notebook-map.js";
 import { outputSpecs } from "../core/notebook-outputs.js";
+import { actionSpecs } from "../core/notebook-actions.js";
 import { notebookSharesService } from "../services/notebook-shares.service.js";
 import { notifyCatalogChanged } from "../mcp/notebook-catalog.js";
 import { notebookRunsService } from "../services/notebook-runs.service.js";
@@ -103,6 +104,7 @@ export class NotebooksController {
           layout: (document.layout ?? []).filter((item) =>
             outputSpecs(document.outputs).some((output) => output.name === item.i)
           ),
+          actions: actionSpecs(document.actions),
         });
       }
 
@@ -191,6 +193,71 @@ export class NotebooksController {
       // An agent holding a session must not keep offering a tool that no longer runs.
       notifyCatalogChanged();
       res.json(result);
+    } catch (err: unknown) {
+      respondWithError(res, err);
+    }
+  };
+
+  /**
+   * Presses a `run` button on a page.
+   *
+   * Resolved from the *deployed* document, by index into the actions it declares — the
+   * browser names a position, never a notebook. That is what stops a page from being a
+   * way to run anything you can name: if it is not on the button, it cannot be pressed.
+   *
+   * Fire and forget by design. The reply says whether the other notebook succeeded, and
+   * nothing it returned: a page showing two notebooks' values at once has no way to say
+   * which came from where, and that ambiguity is worse than the missing feature.
+   */
+  runAction = async (req: Request, res: Response) => {
+    try {
+      const document = await notebooksService.getDeployedDocument(String(req.params.id));
+      if (!document) return res.status(409).json({ error: "This page is not deployed." });
+
+      const index = Number(req.params.index);
+      const action = actionSpecs(document.actions)[index];
+      if (!action) return res.status(404).json({ error: "No such action on this page." });
+      if (action.do !== "run" || !action.notebook) {
+        return res.status(400).json({ error: `"${action.label}" is not a run action.` });
+      }
+
+      const target = await notebooksService.findByIdOrName(action.notebook);
+      if (target === null) {
+        return res.status(404).json({ error: `"${action.notebook}" does not exist.` });
+      }
+      if (target === "ambiguous") {
+        return res
+          .status(409)
+          .json({ error: `More than one notebook is named "${action.notebook}".` });
+      }
+
+      // Only what the target actually declares is passed on, so a page cannot smuggle
+      // fields into another notebook's arguments. What the button fixes wins over what
+      // the person typed — that is what "fixed arguments" means.
+      const deployedTarget = await notebooksService.getDeployedDocument(target.id);
+      if (!deployedTarget) {
+        return res.status(409).json({ error: `"${target.name}" is not deployed.` });
+      }
+      const declared = new Set((deployedTarget.inputs ?? []).map((input) => input.name));
+      const passed = Object.fromEntries(
+        Object.entries((req.body?.args ?? {}) as Record<string, unknown>).filter(([name]) =>
+          declared.has(name)
+        )
+      );
+
+      const started = await notebookExecutionService.start(target.id, this.publishRunEvent, {
+        args: { ...passed, ...(action.args ?? {}) },
+        triggerSource: "page",
+      });
+
+      const outcome = await started.completed;
+      res.json({
+        runId: started.runId,
+        notebook: target.name,
+        status: outcome.status,
+        ms: outcome.ms,
+        ...(outcome.errors.length > 0 ? { errors: outcome.errors } : {}),
+      });
     } catch (err: unknown) {
       respondWithError(res, err);
     }

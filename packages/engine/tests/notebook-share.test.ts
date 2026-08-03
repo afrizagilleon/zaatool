@@ -233,6 +233,45 @@ await check("a link cannot be turned into a compute farm", async () => {
   assert.ok(refused >= 1, "the link ran 34 times in a row without complaint");
 });
 
+console.log("\nbuttons");
+
+await check("a link keeps `rerun` and `link` buttons but never a `run` one", async () => {
+  const id = await store({
+    ...notebook("zz-share-actions"),
+    actions: [
+      { label: "Again", do: "rerun" },
+      { label: "Email it", do: "run", notebook: "zz-share-secret-target" },
+      { label: "Docs", do: "link", url: "https://example.com" },
+    ],
+  });
+  await notebooksService.deploy(id, "test");
+  const share = await notebookSharesService.create(id, "afriza");
+
+  const page = await (await open(share.token!)).json();
+  assert.deepEqual(
+    page.actions.map((action: { do: string }) => action.do),
+    ["rerun", "link"],
+    "a `run` button survived onto a shared page"
+  );
+});
+
+await check("and the name of the notebook it would have run never leaves the server", async () => {
+  const id = await store({
+    ...notebook("zz-share-actions-leak"),
+    actions: [{ label: "Email it", do: "run", notebook: "zz-share-secret-target" }],
+  });
+  await notebooksService.deploy(id, "test");
+  const share = await notebookSharesService.create(id, "afriza");
+
+  // The whole response, not just `actions`: filtering in the browser would have left the
+  // target's name in the payload, which is a list of what else exists in the workspace.
+  const body = await (await open(share.token!)).text();
+  assert.ok(
+    !body.includes("zz-share-secret-target"),
+    "the shared page named a notebook the recipient was not given"
+  );
+});
+
 for (const id of created) await notebooksService.delete(id).catch(() => {});
 await pool.query("DELETE FROM notebook_shares WHERE created_by = 'afriza'").catch(() => {});
 await pool.end();

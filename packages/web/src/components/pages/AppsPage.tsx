@@ -16,6 +16,7 @@ import { OutputView } from './render/OutputView';
 import { PageGrid } from './render/PageGrid';
 import { ShareDialog } from './ShareDialog';
 import { InputField, initialValues, toArgs } from './render/InputField';
+import { PageActions } from './render/PageActions';
 import { cn } from '../../lib/utils';
 
 /**
@@ -72,12 +73,23 @@ function PageRunner({ page, onBack }: { page: NotebookPage; onBack: () => void }
           <Button variant="ghost" size="icon" className="w-7 h-7 mt-0.5" onClick={onBack} title="Back">
             <ArrowLeft size={14} />
           </Button>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <h1 className="text-xl font-bold tracking-tight">{page.name}</h1>
             {page.description && (
               <p className="text-sm text-muted-foreground mt-1">{page.description}</p>
             )}
           </div>
+          {/* Sharing is about the page, not about this run, so it sits with the title
+              rather than in the row of buttons that do things. */}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 shrink-0 px-3 text-xs text-muted-foreground"
+            onClick={() => setIsSharing(true)}
+          >
+            <ShareNetwork size={14} className="mr-1.5" />
+            Share
+          </Button>
         </div>
 
         {page.inputs.length > 0 && (
@@ -93,8 +105,10 @@ function PageRunner({ page, onBack }: { page: NotebookPage; onBack: () => void }
           </div>
         )}
 
-        <div className="flex items-center gap-2">
-          <Button onClick={() => void run()} disabled={isRunning} className="h-9 px-5">
+        {/* Not `flex-wrap`: the declared buttons wrap inside their own block, so Run
+            keeps its place when one of them has something to report. */}
+        <div className="flex items-start gap-2">
+          <Button onClick={() => void run()} disabled={isRunning} className="h-9 shrink-0 px-5">
             {isRunning ? (
               <Spinner size={15} className="animate-spin mr-2" />
             ) : (
@@ -102,15 +116,12 @@ function PageRunner({ page, onBack }: { page: NotebookPage; onBack: () => void }
             )}
             Run
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-9 px-3 text-xs text-muted-foreground"
-            onClick={() => setIsSharing(true)}
-          >
-            <ShareNetwork size={14} className="mr-1.5" />
-            Share
-          </Button>
+          <PageActions
+            actions={page.actions}
+            disabled={isRunning}
+            onRerun={run}
+            onRun={(index) => notebooksApi.runAction(page.id, index, toArgs(page.inputs, values))}
+          />
         </div>
 
         <ShareDialog

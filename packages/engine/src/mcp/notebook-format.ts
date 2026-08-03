@@ -1,3 +1,4 @@
+import { ACTION_KINDS } from "../core/notebook-actions.js";
 import { OUTPUT_RENDERS } from "../core/notebook-outputs.js";
 import { PARAM_TYPES } from "../core/notebook-text.js";
 
@@ -295,6 +296,44 @@ and \`-\`. The page draws real ones from the data. Return the rows.
 - **A chart wants few columns.** Return a second, narrower array for it rather than
   charting a fifteen-column table.
 - **Numbers must be numbers.** \`"1,204"\` is a string and will not plot.
+
+## Buttons on the page
+
+A page always has a Run button. \`actions\` adds others, and there are exactly ${ACTION_KINDS.length}
+kinds — this vocabulary is not meant to grow:
+
+\`\`\`yaml
+actions:
+  - label: Check again
+    do: rerun                    # runs this notebook again with the form as it stands
+  - label: Email the report
+    do: run                      # runs a *different* deployed notebook
+    notebook: send-report
+    args:
+      channel: finance           # fixed here; anything else it declares comes from this page's inputs
+  - label: Source data
+    do: link
+    url: https://example.com/ledger
+\`\`\`
+
+| field | applies to | meaning |
+|---|---|---|
+| \`label\` | all | what the button says — required |
+| \`do\` | all | ${ACTION_KINDS.map((kind) => `\`${kind}\``).join(", ")} |
+| \`notebook\` | \`run\` | the notebook to call, by name or id. It must be deployed |
+| \`args\` | \`run\` | fixed arguments, on top of this page's matching input values |
+| \`url\` | \`link\` | \`http://\`, \`https://\`, \`/\`, \`#\` or \`mailto:\` |
+
+What \`run\` does **not** do: show what the other notebook returned. It reports that it
+ran or that it failed, and nothing else. A page displaying two notebooks' values at once
+cannot say which value came from where, so the button is a verb, not a query. If the
+reader needs to *see* the other notebook, use \`link\` to its page.
+
+\`run\` buttons are removed from a shared link. A link grants one notebook, not a path
+through the workspace.
+
+An action that could not work — no label, an unknown \`do\`, a \`run\` with no
+\`notebook\` — is refused when the notebook is written, not silently dropped later.
 
 ## A complete example
 

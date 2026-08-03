@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import type {
+  NotebookAction,
   NotebookCell,
   NotebookJson,
   NotebookLane,
@@ -15,6 +16,7 @@ import type {
   ParallelStep,
 } from "@zaa-tool/shared";
 import { OUTPUT_RENDERS } from "./notebook-outputs.js";
+import { actionProblems, actionSpecs } from "./notebook-actions.js";
 
 /**
  * The notebook's text form: the same document, written as markdown.
@@ -75,6 +77,7 @@ export function toMarkdown(notebook: NotebookJson): string {
   if (notebook.outputs?.length) meta.outputs = notebook.outputs;
   if (notebook.triggers?.length) meta.triggers = notebook.triggers;
   if (notebook.layout?.length) meta.layout = notebook.layout;
+  if (notebook.actions?.length) meta.actions = notebook.actions;
 
   const body: string[] = [];
   writeSteps(notebook.steps ?? [], notebook.runtime, body);
@@ -219,6 +222,9 @@ export function fromMarkdown(text: string, options?: FromMarkdownOptions): Noteb
   const layout = readLayout(meta.layout, issues);
   if (layout.length > 0) notebook.layout = layout;
 
+  const actions = readActions(meta.actions, issues);
+  if (actions.length > 0) notebook.actions = actions;
+
   const triggers = readTriggers(meta.triggers, issues, options?.previous?.triggers);
   if (triggers.length > 0) notebook.triggers = triggers;
 
@@ -320,6 +326,26 @@ function readLayout(value: unknown, issues: string[]): NotebookLayoutItem[] {
     items.push({ i: name, x, y, w, h });
   }
   return items;
+}
+
+/**
+ * Buttons on the page.
+ *
+ * Read strictly and reported loudly, unlike the renderer's own reading. Someone writing
+ * a notebook should learn here that `do: opne` is not a kind, rather than deploying and
+ * finding a button missing with nothing said about why.
+ */
+function readActions(value: unknown, issues: string[]): NotebookAction[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    issues.push("`actions` must be a list");
+    return [];
+  }
+
+  for (const problem of actionProblems(value as NotebookAction[])) {
+    issues.push(problem);
+  }
+  return actionSpecs(value as NotebookAction[]);
 }
 
 /**

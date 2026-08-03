@@ -58,6 +58,24 @@ export const notebooksApi = {
       body: JSON.stringify({ mode: "deployed", args }),
     }),
 
+  /**
+   * Presses a `run` button on a page.
+   *
+   * The action is named by its position, never by its target: the server reads which
+   * notebook that is out of the deployed document, so a page can only reach what its own
+   * buttons already point at. Unlike a page run this waits, because the whole answer is
+   * whether the other notebook worked.
+   */
+  runAction: (
+    id: string,
+    index: number,
+    args: Record<string, unknown>
+  ): Promise<{ runId: string; notebook: string; status: string; errors?: string[] }> =>
+    request(`/api/notebooks/${id}/actions/${index}`, {
+      method: "POST",
+      body: JSON.stringify({ args }),
+    }),
+
   /** What production runs, and whether the draft has moved on since. */
   deployState: (id: string): Promise<NotebookDeployState> => request(`/api/notebooks/${id}/deploy`),
 

@@ -7,6 +7,7 @@ import { Input } from '../ui/input';
 import { InputField, initialValues, toArgs } from './render/InputField';
 import { OutputView } from './render/OutputView';
 import { PageGrid } from './render/PageGrid';
+import { PageActions } from './render/PageActions';
 import { connectRunSocket, subscribeToRun } from '../../lib/run-socket';
 import { cn } from '../../lib/utils';
 
@@ -268,14 +269,19 @@ export function SharedPage({ token }: { token: string }) {
           </div>
         )}
 
-        <Button onClick={() => void run()} disabled={isRunning} className="h-9 px-5">
-          {isRunning ? (
-            <Spinner size={15} className="mr-2 animate-spin" />
-          ) : (
-            <Play size={15} weight="fill" className="mr-2" />
-          )}
-          Run
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button onClick={() => void run()} disabled={isRunning} className="h-9 px-5">
+            {isRunning ? (
+              <Spinner size={15} className="mr-2 animate-spin" />
+            ) : (
+              <Play size={15} weight="fill" className="mr-2" />
+            )}
+            Run
+          </Button>
+          {/* No `onRun`: the server strips every `run` action from a shared page, so
+              there is nothing here that could reach another notebook. */}
+          <PageActions actions={page.actions} disabled={isRunning} onRerun={() => void run()} />
+        </div>
 
         {error && (
           <div className="border border-status-error/40 bg-status-error/5 p-3 text-xs text-status-error">

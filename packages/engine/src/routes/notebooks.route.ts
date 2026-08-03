@@ -18,6 +18,7 @@ export function createNotebooksRouter(publishRunEvent: RunEventSink): Router {
   router.get("/:id", controller.getById);
   router.delete("/:id", controller.remove);
   router.post("/:id/run", controller.run);
+  router.post("/:id/actions/:index", controller.runAction);
   router.get("/:id/deploy", controller.deployState);
   router.get("/:id/deployed", controller.deployedDocument);
   router.post("/:id/deploy", controller.deploy);

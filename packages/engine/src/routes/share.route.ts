@@ -10,6 +10,7 @@ import {
 import { ContractError } from "../core/notebook-contract.js";
 import { NotebookCompileError } from "../core/notebook-compiler.js";
 import { outputSpecs } from "../core/notebook-outputs.js";
+import { actionSpecs } from "../core/notebook-actions.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 import type { NotebookJson, NotebookPage } from "@zaa-tool/shared";
 
@@ -75,6 +76,10 @@ function pageOf(id: string, document: NotebookJson): NotebookPage {
     layout: (document.layout ?? []).filter((item) =>
       outputs.some((output) => output.name === item.i)
     ),
+    // A link grants one notebook, not a path to the others. `run` actions are dropped
+    // here rather than hidden in the browser, so the target's name never leaves the
+    // server — otherwise a share link would publish what else exists in the workspace.
+    actions: actionSpecs(document.actions).filter((action) => action.do !== "run"),
   };
 }
 

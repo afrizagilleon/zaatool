@@ -19,6 +19,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { registerNotebookTools } from "../src/mcp/notebook-tools.js";
 import { registerConventions } from "../src/mcp/conventions.js";
 import { OUTPUT_RENDERS, outputSpecs } from "../src/core/notebook-outputs.js";
+import { ACTION_KINDS } from "../src/core/notebook-actions.js";
 import { EXAMPLE } from "../src/mcp/notebook-format.js";
 import { fromMarkdown } from "../src/core/notebook-text.js";
 import { compileNotebook } from "../src/core/notebook-compiler.js";
@@ -210,6 +211,94 @@ await check("forbids ASCII charts where the agent is already reading", () => {
 
 await check("points at the resource holding the rest", () => {
   assert.match(String(write?.description ?? ""), /zaa:\/\/conventions/);
+});
+
+// ── buttons ───────────────────────────────────────────────────────────────────
+
+console.log("\npage actions");
+
+await check("every action kind is named in the conventions", () => {
+  for (const kind of ACTION_KINDS) {
+    assert.ok(
+      conventions.includes(`\`${kind}\``),
+      `the conventions never mention the "${kind}" action`
+    );
+  }
+});
+
+await check("shows the shape rather than describing it", () => {
+  assert.match(conventions, /actions:/);
+  assert.match(conventions, /do: run/);
+  assert.match(conventions, /notebook: send-report/);
+});
+
+await check("says what `run` deliberately does not do", () => {
+  // The constraint most likely to be designed around if it is not stated: a `run`
+  // button reports an outcome, it does not display the other notebook's values.
+  assert.match(conventions, /reports that it\s+ran or that it failed/);
+});
+
+await check("warns that a shared link drops `run` buttons", () => {
+  assert.match(conventions, /removed from a shared link/);
+});
+
+await check("the write tool mentions actions without needing the resource", () => {
+  const description = String(write?.description ?? "");
+  assert.match(description, /actions:/);
+  for (const kind of ACTION_KINDS) {
+    assert.match(description, new RegExp(`\`${kind}\``));
+  }
+});
+
+await check("a documented action example is accepted by the parser", () => {
+  const document = fromMarkdown(
+    [
+      "---",
+      "name: zz-action-shape",
+      "runtime: node",
+      "outputs: [ok]",
+      "actions:",
+      "  - label: Check again",
+      "    do: rerun",
+      "  - label: Email the report",
+      "    do: run",
+      "    notebook: send-report",
+      "  - label: Source data",
+      "    do: link",
+      "    url: https://example.com/ledger",
+      "---",
+      "",
+      "```js",
+      "return { ok: true };",
+      "```",
+    ].join("\n")
+  );
+
+  assert.equal(document.actions?.length, 3);
+  assert.equal(document.actions?.[1].notebook, "send-report");
+});
+
+await check("an action that could not work is refused at write time, with the reason", () => {
+  assert.throws(
+    () =>
+      fromMarkdown(
+        [
+          "---",
+          "name: zz-action-bad",
+          "runtime: node",
+          "actions:",
+          "  - label: Go",
+          "    do: link",
+          "    url: javascript:alert(1)",
+          "---",
+          "",
+          "```js",
+          "return {};",
+          "```",
+        ].join("\n")
+      ),
+    /url.*must start with/i
+  );
 });
 
 await check("the resource is described by what it answers, not just its name", async () => {
