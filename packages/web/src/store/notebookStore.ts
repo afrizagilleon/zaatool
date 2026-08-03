@@ -191,6 +191,12 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
     });
   },
 
+  /** A parallel group inside a lane — the nesting the compiler always accepted. */
+  addGroupToLane: (groupId, laneId) => {
+    const group = tree.newParallelGroup();
+    set({ steps: tree.appendToLane(get().steps, groupId, laneId, group), isDirty: true });
+  },
+
   addLane: (groupId) => set({ steps: tree.addLane(get().steps, groupId), isDirty: true }),
 
   removeLane: (groupId, laneId) =>

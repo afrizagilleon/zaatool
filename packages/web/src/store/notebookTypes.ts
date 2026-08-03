@@ -101,6 +101,7 @@ export interface NotebookState {
   moveCell: (cellId: string, direction: -1 | 1) => void;
 
   addParallelGroup: (afterStepId?: string) => void;
+  addGroupToLane: (groupId: string, laneId: string) => void;
   addLane: (groupId: string) => void;
   removeLane: (groupId: string, laneId: string) => void;
   setLaneLabel: (groupId: string, laneId: string, label: string) => void;

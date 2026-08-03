@@ -244,6 +244,14 @@ export function setLaneLabel(
   }));
 }
 
+/**
+ * Appends a step to a lane — a cell, or another parallel group.
+ *
+ * The second case is what makes nesting reachable from the editor. It was always
+ * reachable through the document (agents write it, the compiler accepts it, and it
+ * really does run concurrently), which is the worst combination: a structure that
+ * exists but that the tool appears to forbid.
+ */
 export function appendToLane(
   steps: NotebookStep[],
   groupId: string,

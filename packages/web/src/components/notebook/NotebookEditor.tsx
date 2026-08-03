@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, StackSimple, ClockCounterClockwise } from '@phosphor-icons/react';
+import { Plus, ArrowsSplit, ClockCounterClockwise } from '@phosphor-icons/react';
 import type { NotebookStep } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { useUiStore } from '../../store/uiStore';
@@ -64,6 +64,7 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
   const setAllSections = useNotebookStore((s) => s.setAllSections);
   const addCellToLane = useNotebookStore((s) => s.addCellToLane);
   const addParallelGroup = useNotebookStore((s) => s.addParallelGroup);
+  const addGroupToLane = useNotebookStore((s) => s.addGroupToLane);
   const addLane = useNotebookStore((s) => s.addLane);
   const removeLane = useNotebookStore((s) => s.removeLane);
   const setLaneLabel = useNotebookStore((s) => s.setLaneLabel);
@@ -142,18 +143,22 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
    * notebook, because that is the order it actually runs in.
    */
   const renderSteps = useCallback(
-    (list: NotebookStep[]): React.ReactNode =>
+    (list: NotebookStep[], depth = 0): React.ReactNode =>
       list.map((step, index) =>
         step.kind === 'parallel' ? (
           <ParallelGroup
             key={step.id}
             group={step}
+            depth={depth}
             onAddLane={() => addLane(step.id)}
             onRemoveLane={(laneId) => removeLane(step.id, laneId)}
             onRenameLane={(laneId, label) => setLaneLabel(step.id, laneId, label)}
             onRemoveGroup={() => removeGroup(step.id)}
             onAddCell={(laneId) => addCellToLane(step.id, laneId)}
-            renderLane={(lane) => <div className="space-y-2">{renderSteps(lane.steps)}</div>}
+            onAddGroup={(laneId) => addGroupToLane(step.id, laneId)}
+            renderLane={(lane) => (
+              <div className="space-y-2">{renderSteps(lane.steps, depth + 1)}</div>
+            )}
           />
         ) : (
           <NotebookCell
@@ -186,6 +191,7 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
       isRunning,
       addCell,
       addCellToLane,
+      addGroupToLane,
       addLane,
       moveCell,
       removeCell,
@@ -326,8 +332,9 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
               size="sm"
               className="h-7 px-2.5 text-[11px] text-muted-foreground"
               onClick={() => addParallelGroup()}
+              title="Two or more lanes that start together and join before the next step"
             >
-              <StackSimple size={11} className="mr-1.5" />
+              <ArrowsSplit size={11} className="mr-1.5" />
               Add parallel group
             </Button>
           </div>
