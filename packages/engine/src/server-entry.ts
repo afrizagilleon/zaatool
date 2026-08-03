@@ -4,12 +4,8 @@ import { createApp } from "./server/app.js";
 import { WebSocketManager } from "./server/websocket-manager.js";
 import { RunEventHub } from "./server/run-event-hub.js";
 import { schedulerService } from "./services/scheduler.service.js";
-import { registerDefaultExecutors } from "./core/executor-bootstrap.js";
 
 export async function startServer(port = 4000) {
-  // Register all node executors (composition root — only place wiring happens)
-  registerDefaultExecutors();
-
   // Initialize Database
   try {
     await initDb();

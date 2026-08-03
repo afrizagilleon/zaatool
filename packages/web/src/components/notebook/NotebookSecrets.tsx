@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { MagnifyingGlass, Warning, X } from '@phosphor-icons/react';
-import { Checkbox } from '../../ui/checkbox';
-import { Input } from '../../ui/input';
-import { Label } from '../../ui/label';
-import { useSecrets } from '../../../hooks/useSecrets';
+import { Checkbox } from '../ui/checkbox';
+import { Input } from '../ui/input';
+import { Label } from '../ui/label';
+import { useSecrets } from '../../hooks/useSecrets';
 
-interface NodeSecretsPropertiesProps {
-  /** Keys currently declared on the node (`data.config.secrets`). */
+interface NotebookSecretsProps {
+  /** Keys currently declared in the notebook's front matter. */
   selectedKeys: string[];
   onChange: (keys: string[]) => void;
 }
@@ -15,10 +15,10 @@ interface NodeSecretsPropertiesProps {
 const SEARCHABLE_FROM = 6;
 
 /**
- * Picks which secrets a code node may read. Nothing is exposed to a node that
- * declares none, so this list is the whole of what its `process.env` will hold.
+ * Picks which secrets this notebook's cells may read. Nothing is exposed to a notebook
+ * that declares none, so this list is the whole of what a cell's `process.env` will hold.
  */
-export function NodeSecretsProperties({ selectedKeys, onChange }: NodeSecretsPropertiesProps) {
+export function NotebookSecrets({ selectedKeys, onChange }: NotebookSecretsProps) {
   const { secrets, isLoading, fetchSecrets } = useSecrets();
   const [hasLoaded, setHasLoaded] = useState(false);
   const [query, setQuery] = useState('');
@@ -35,8 +35,8 @@ export function NodeSecretsProperties({ selectedKeys, onChange }: NodeSecretsPro
   }, [secrets, query]);
 
   /**
-   * Declared keys with nothing behind them — a secret deleted after this node was
-   * configured. They are invisible in the list above, so the node would quietly run
+   * Declared keys with nothing behind them — a secret deleted after this notebook was
+   * configured. They are invisible in the list above, so the notebook would quietly run
    * without an environment variable it asks for. Only judged once the list is in.
    */
   const orphaned = useMemo(() => {
@@ -49,18 +49,9 @@ export function NodeSecretsProperties({ selectedKeys, onChange }: NodeSecretsPro
   };
 
   return (
+    // No heading of its own: the Setup panel already labels this section and shows the
+    // count, and two "SECRETS" one above the other reads like a rendering mistake.
     <div className="space-y-1.5">
-      <div className="flex items-baseline gap-2">
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-          Secrets
-        </span>
-        {selectedKeys.length > 0 && (
-          <span className="text-[9px] text-muted-foreground/70">
-            {selectedKeys.length} selected
-          </span>
-        )}
-      </div>
-
       {isLoading && <p className="text-[9px] text-muted-foreground">Loading secrets…</p>}
 
       {!isLoading && secrets.length === 0 && (
@@ -133,7 +124,7 @@ export function NodeSecretsProperties({ selectedKeys, onChange }: NodeSecretsPro
       )}
 
       <p className="text-[9px] text-muted-foreground leading-normal">
-        Only the checked keys are exposed to this node as environment variables.
+        Only the checked keys are exposed to this notebook as environment variables.
       </p>
     </div>
   );

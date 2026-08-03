@@ -1,38 +1,21 @@
 import { useEffect } from 'react';
-import { ReactFlowProvider } from '@xyflow/react';
 import { Navbar } from './components/layout/Navbar.js';
 import { SystemMap } from './components/map/SystemMap.js';
-import { NodePalette } from './components/layout/NodePalette.js';
-import { FlowCanvas } from './components/canvas/FlowCanvas.js';
-import { PropertiesPanel } from './components/panels/PropertiesPanel.js';
-import { RunConsole } from './components/panels/RunConsole.js';
 import { ResourcesPage } from './components/pages/ResourcesPage.js';
-import { WorkflowsPage } from './components/pages/WorkflowsPage.js';
 import { NotebooksPage } from './components/pages/NotebooksPage.js';
 import { Login } from './components/pages/Login.js';
-import { PublishedDashboard } from './components/pages/PublishedDashboard.js';
 import { AppsPage } from './components/pages/AppsPage.js';
 import { SharedPage } from './components/pages/SharedPage.js';
 import { RendererGallery } from './components/pages/RendererGallery.js';
-import { CodeEditorDialog } from './components/panels/CodeEditorDialog.js';
 import { useUiStore } from './store/uiStore.js';
 import { useAuthStore } from './store/authStore.js';
 import { useAppLocation } from './hooks/useAppLocation.js';
 
 function App() {
-  const isNodePaletteOpen = useUiStore((s) => s.isNodePaletteOpen);
-  const isCodePanelOpen = useUiStore((s) => s.isCodePanelOpen);
-  const isConsolePanelOpen = useUiStore((s) => s.isConsolePanelOpen);
   const activeTab = useUiStore((s) => s.activeTab);
 
   // The URL owns which section is showing and which notebook is open.
   const { notebookId, openNotebook, closeNotebook } = useAppLocation();
-
-  const isCodeEditorOpen = useUiStore((s) => s.isCodeEditorOpen);
-  const codeEditorNodeId = useUiStore((s) => s.codeEditorNodeId);
-  const closeCodeEditor = useUiStore((s) => s.closeCodeEditor);
-
-  console.log("[App] Render, isCodeEditorOpen:", isCodeEditorOpen, "codeEditorNodeId:", codeEditorNodeId);
 
   const token = useAuthStore((s) => s.token);
   const checkAuth = useAuthStore((s) => s.checkAuth);
@@ -44,20 +27,11 @@ function App() {
     }
   }, [token, checkAuth]);
 
-  // Pathname routing
-  const path = window.location.pathname;
   // A shared notebook page, opened by someone with no account. Checked before the login
-  // gate, like the old dashboard share, because the token in the URL *is* the account.
+  // gate, because the token in the URL *is* the account.
+  const path = window.location.pathname;
   const sharedToken = path.startsWith('/a/') ? path.slice(3) : null;
   if (sharedToken) return <SharedPage token={sharedToken} />;
-
-  const isSharePage = path.startsWith('/share/');
-  const shareFlowId = isSharePage ? path.split('/').pop() : null;
-
-  // Render public shared dashboard if URL matches
-  if (isSharePage && shareFlowId) {
-    return <PublishedDashboard flowId={shareFlowId} />;
-  }
 
   // Enforce authentication for the manager app
   if (!token) {
@@ -71,27 +45,8 @@ function App() {
 
       {/* Main content area */}
       <main className="flex-1 flex overflow-hidden relative">
+        {activeTab === 'apps' && <AppsPage />}
         {activeTab === 'map' && <SystemMap onOpenNotebook={openNotebook} />}
-
-        {/* No navbar tab reaches this any more; opening a saved workflow does. */}
-        {activeTab === 'editor' && (
-          <ReactFlowProvider>
-            {isNodePaletteOpen && <NodePalette />}
-            <div className="flex-1 flex flex-col min-w-0 min-h-0 relative">
-              <FlowCanvas />
-              {isConsolePanelOpen && <RunConsole />}
-            </div>
-            {isCodePanelOpen && <PropertiesPanel />}
-            {isCodeEditorOpen && codeEditorNodeId && (
-              <CodeEditorDialog
-                open={isCodeEditorOpen}
-                onOpenChange={(open) => !open && closeCodeEditor()}
-                nodeId={codeEditorNodeId}
-              />
-            )}
-          </ReactFlowProvider>
-        )}
-
         {activeTab === 'notebooks' && (
           <NotebooksPage
             notebookId={notebookId}
@@ -100,8 +55,6 @@ function App() {
           />
         )}
         {activeTab === 'resources' && <ResourcesPage />}
-        {activeTab === 'workflows' && <WorkflowsPage />}
-        {activeTab === 'deploys' && <AppsPage />}
         {activeTab === 'gallery' && <RendererGallery />}
       </main>
     </div>

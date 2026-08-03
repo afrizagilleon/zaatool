@@ -51,7 +51,7 @@ async function watch(): Promise<{ messages: Record<string, unknown>[]; close: ()
 }
 
 const event = (over: Partial<RunEvent>): RunEvent =>
-  ({ type: "cell:start", runId: "r1", flowId: "nb1", ...over }) as RunEvent;
+  ({ type: "cell:start", runId: "r1", notebookId: "nb1", ...over }) as RunEvent;
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 60));
 
@@ -63,7 +63,7 @@ await check("a run in progress is announced as running", async () => {
   await settle();
 
   assert.deepEqual(watcher.messages, [
-    { type: "run:activity", runId: "r1", flowId: "nb1", status: "running" },
+    { type: "run:activity", runId: "r1", notebookId: "nb1", status: "running" },
   ]);
   watcher.close();
 });
@@ -98,7 +98,7 @@ await check("even the announced events carry nothing but identity and status", a
   hub.publish(event({ type: "run:error", runId: "r4", error: "database password is wrong" }));
   await settle();
 
-  assert.deepEqual(Object.keys(watcher.messages[0]).sort(), ["flowId", "runId", "status", "type"]);
+  assert.deepEqual(Object.keys(watcher.messages[0]).sort(), ["notebookId", "runId", "status", "type"]);
   watcher.close();
 });
 

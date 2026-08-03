@@ -197,7 +197,7 @@ export class NotebookExecutionService {
     // Published under the callee's own run id, so a client following the *caller* still
     // never sees another notebook's cells — but the workspace does, which is how a call
     // chain lights up across the map.
-    const ee = createRunEmitter({ runId, flowId: found.id }, (event) => {
+    const ee = createRunEmitter({ runId, notebookId: found.id }, (event) => {
       context.publish(event);
       recorder.handle(event);
     });
@@ -292,7 +292,7 @@ export class NotebookExecutionService {
     // Recording is composed into the sink, so every event that reaches a client
     // also reaches storage and no emit site has to remember to persist.
     const recorder = new NotebookRunRecorder(runId, sourcesOf(plan));
-    const ee = createRunEmitter({ runId, flowId: notebookId }, (event) => {
+    const ee = createRunEmitter({ runId, notebookId }, (event) => {
       publish(event);
       recorder.handle(event);
     });

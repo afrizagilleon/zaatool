@@ -20,12 +20,7 @@ interface RunChannel {
   expiresAt: number | null;
 }
 
-const TERMINAL_EVENTS = new Set<RunEvent["type"]>([
-  "flow:done",
-  "flow:error",
-  "run:done",
-  "run:error",
-]);
+const TERMINAL_EVENTS = new Set<RunEvent["type"]>(["run:done", "run:error"]);
 
 function isTerminal(event: RunEvent): boolean {
   return TERMINAL_EVENTS.has(event.type);
@@ -36,7 +31,7 @@ function isTerminal(event: RunEvent): boolean {
  *
  * Replaces the previous global broadcast: a listener only ever sees events for
  * run ids it explicitly asked for, so concurrent runs — and runs belonging to
- * other flows or other users — can no longer bleed into each other.
+ * other notebooks or other users — can no longer bleed into each other.
  */
 export class RunEventHub {
   private channels = new Map<string, RunChannel>();

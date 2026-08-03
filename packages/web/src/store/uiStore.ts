@@ -1,53 +1,31 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { fromUiTab, parseLocation } from '../lib/app-location.js';
+import { parseLocation, type LocationTab } from '../lib/app-location.js';
 
 interface UiState {
   /** `gallery` has no navbar entry — see app-location. */
-  activeTab: 'map' | 'editor' | 'notebooks' | 'resources' | 'deploys' | 'workflows' | 'gallery';
+  activeTab: LocationTab;
   isDarkMode: boolean;
-  isNodePaletteOpen: boolean;
-  isCodePanelOpen: boolean;
-  isConsolePanelOpen: boolean;
-
-  layoutDirection: 'LR' | 'TB';
-
-  isCodeEditorOpen: boolean;
-  codeEditorNodeId: string | null;
 
   /** Switches section and puts it in the URL, so the change is linkable and goes in history. */
-  setActiveTab: (tab: UiState['activeTab']) => void;
+  setActiveTab: (tab: LocationTab) => void;
   /** Applies a section that came *from* the URL; does not write back. */
-  applyTabFromUrl: (tab: UiState['activeTab']) => void;
+  applyTabFromUrl: (tab: LocationTab) => void;
   toggleDarkMode: () => void;
-  toggleNodePalette: () => void;
-  toggleCodePanel: () => void;
-  toggleConsolePanel: () => void;
-  setCodePanelOpen: (open: boolean) => void;
-  setLayoutDirection: (dir: 'LR' | 'TB') => void;
-  openCodeEditor: (nodeId: string) => void;
-  closeCodeEditor: () => void;
 }
 
 export const useUiStore = create<UiState>()(
   persist(
     (set) => ({
-      activeTab: 'workflows',
+      activeTab: 'apps',
       isDarkMode: true,
-      isNodePaletteOpen: true,
-      isCodePanelOpen: true,
-      isConsolePanelOpen: true,
-      layoutDirection: 'LR',
-      isCodeEditorOpen: false,
-      codeEditorNodeId: null,
 
       // The hash write is what actually navigates; `hashchange` applies it back here.
       // Setting state too keeps the switch instant rather than waiting for the event.
       setActiveTab: (tab) => {
         set({ activeTab: tab });
-        const wanted = fromUiTab(tab);
-        if (parseLocation(window.location.hash).tab !== wanted) {
-          window.location.hash = `#/${wanted}`;
+        if (parseLocation(window.location.hash).tab !== tab) {
+          window.location.hash = `#/${tab}`;
         }
       },
 
@@ -63,28 +41,6 @@ export const useUiStore = create<UiState>()(
           }
           return { isDarkMode: next };
         }),
-
-      toggleNodePalette: () =>
-        set((state) => ({ isNodePaletteOpen: !state.isNodePaletteOpen })),
-
-      toggleCodePanel: () =>
-        set((state) => ({ isCodePanelOpen: !state.isCodePanelOpen })),
-
-      toggleConsolePanel: () =>
-        set((state) => ({ isConsolePanelOpen: !state.isConsolePanelOpen })),
-
-      setCodePanelOpen: (open) => set({ isCodePanelOpen: open }),
-
-      setLayoutDirection: (dir) => set({ layoutDirection: dir }),
-
-      openCodeEditor: (nodeId) => {
-        console.log("[uiStore] openCodeEditor called with nodeId:", nodeId);
-        set({ isCodeEditorOpen: true, codeEditorNodeId: nodeId });
-      },
-      closeCodeEditor: () => {
-        console.log("[uiStore] closeCodeEditor called");
-        set({ isCodeEditorOpen: false, codeEditorNodeId: null });
-      },
     }),
     {
       name: 'zaa-ui-storage',

@@ -30,26 +30,15 @@ function parseMessage(raw: unknown): RunClientMessage | null {
  * Deliberately excludes `cell:log` and `cell:done`: the watch channel is not scoped to
  * a run the client proved it started, so nothing carrying a value may travel on it.
  */
-const ACTIVITY_EVENTS = new Set<RunEvent["type"]>([
-  "cell:start",
-  "node:start",
-  "run:done",
-  "run:error",
-  "flow:done",
-  "flow:error",
-]);
+const ACTIVITY_EVENTS = new Set<RunEvent["type"]>(["cell:start", "run:done", "run:error"]);
 
 function toActivity(event: RunEvent): RunActivityEvent | null {
   if (!ACTIVITY_EVENTS.has(event.type)) return null;
 
   const status: RunActivityEvent["status"] =
-    event.type === "run:done" || event.type === "flow:done"
-      ? "success"
-      : event.type === "run:error" || event.type === "flow:error"
-        ? "failed"
-        : "running";
+    event.type === "run:done" ? "success" : event.type === "run:error" ? "failed" : "running";
 
-  return { type: "run:activity", runId: event.runId, flowId: event.flowId, status };
+  return { type: "run:activity", runId: event.runId, notebookId: event.notebookId, status };
 }
 
 /**

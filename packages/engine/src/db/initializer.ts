@@ -5,17 +5,6 @@ export async function initDb() {
   try {
     await client.query("BEGIN");
 
-    // Flow storage
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS flows (
-        id VARCHAR(255) PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        graph_json TEXT NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-
     // Skills
     await client.query(`
       CREATE TABLE IF NOT EXISTS skills (
@@ -211,56 +200,6 @@ export async function initDb() {
       );
     `);
 
-    // Triggers table
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS triggers (
-        id VARCHAR(255) PRIMARY KEY,
-        flow_id VARCHAR(255) NOT NULL,
-        type VARCHAR(50) NOT NULL,
-        config TEXT NOT NULL,
-        enabled BOOLEAN DEFAULT TRUE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-
-    // Add dashboard_layout column to flows table
-    await client.query(`
-      DO $$
-      BEGIN
-        ALTER TABLE flows ADD COLUMN dashboard_layout TEXT;
-      EXCEPTION
-        WHEN duplicate_column THEN null;
-      END $$;
-    `);
-
-    // Add dashboard_password columns to flows table
-    await client.query(`
-      DO $$
-      BEGIN
-        ALTER TABLE flows ADD COLUMN dashboard_password_hash TEXT;
-      EXCEPTION
-        WHEN duplicate_column THEN null;
-      END $$;
-    `);
-
-    await client.query(`
-      DO $$
-      BEGIN
-        ALTER TABLE flows ADD COLUMN dashboard_password_lock_until TIMESTAMP;
-      EXCEPTION
-        WHEN duplicate_column THEN null;
-      END $$;
-    `);
-
-    await client.query(`
-      DO $$
-      BEGIN
-        ALTER TABLE flows ADD COLUMN dashboard_password_failed_attempts INTEGER DEFAULT 0;
-      EXCEPTION
-        WHEN duplicate_column THEN null;
-      END $$;
-    `);
-
     // Add role column to users table
     await client.query(`
       DO $$
@@ -271,25 +210,12 @@ export async function initDb() {
       END $$;
     `);
 
-    // Add is_published column to flows table
-    await client.query(`
-      DO $$
-      BEGIN
-        ALTER TABLE flows ADD COLUMN is_published BOOLEAN DEFAULT TRUE;
-      EXCEPTION
-        WHEN duplicate_column THEN null;
-      END $$;
-    `);
-
-    // Add share_slug column to flows table
-    await client.query(`
-      DO $$
-      BEGIN
-        ALTER TABLE flows ADD COLUMN share_slug VARCHAR(255) UNIQUE;
-      EXCEPTION
-        WHEN duplicate_column THEN null;
-      END $$;
-    `);
+    // The canvas's tables — `flows` and `triggers` — are no longer created, and nothing
+    // reads them. They are deliberately not dropped here: an install that has them holds
+    // someone's old work, and a migration that deletes data without being asked is not a
+    // migration. Drop them by hand when you are sure:
+    //
+    //   DROP TABLE IF EXISTS triggers; DROP TABLE IF EXISTS flows;
 
     await client.query("COMMIT");
     console.log("✅ Database initialized successfully.");

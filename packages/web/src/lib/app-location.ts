@@ -2,7 +2,7 @@
  * Where you are in the app, expressed in the URL.
  *
  * The section you are looking at, and the notebook you have open, used to live only in
- * memory: a reload dropped you back on Workflows, and there was no way to link a
+ * memory: a reload dropped you back on the first tab, and there was no way to link a
  * colleague to a notebook. Both are now in the hash, so the back button, a bookmark and
  * a pasted link all mean something.
  *
@@ -10,24 +10,7 @@
  * a path-based route would 404 on a hard refresh without server rewrites.
  */
 
-/** What the URL calls each section. `deploys` is a legacy id; the URL says dashboard. */
-export type LocationTab =
-  | 'workflows'
-  | 'map'
-  | 'editor'
-  | 'notebooks'
-  | 'resources'
-  | 'dashboard'
-  | 'gallery';
-
-export type UiTab =
-  | 'workflows'
-  | 'map'
-  | 'editor'
-  | 'notebooks'
-  | 'resources'
-  | 'deploys'
-  | 'gallery';
+export type LocationTab = 'apps' | 'map' | 'notebooks' | 'resources' | 'gallery';
 
 export interface AppLocation {
   tab: LocationTab;
@@ -39,31 +22,23 @@ export interface AppLocation {
  * `gallery` is deliberately absent from the navbar: it is a workbench for checking
  * every renderer against awkward values, reachable only by typing `#/gallery`.
  */
-const TABS: LocationTab[] = [
-  'workflows',
-  'map',
-  'editor',
-  'notebooks',
-  'resources',
-  'dashboard',
-  'gallery',
-];
+const TABS: LocationTab[] = ['apps', 'map', 'notebooks', 'resources', 'gallery'];
 
 /**
- * The canvas has no navbar tab any more — the Map took its place. It stays reachable by
- * opening a saved workflow, so old flows can still be read until notebooks cover their
- * ground and they are deleted for good.
+ * Hashes that used to mean something, kept working.
+ *
+ * `dashboard` was what the URL called Apps while the tab was still internally named
+ * `deploys`; `workflows` and `editor` were the canvas, which is gone. All three land on
+ * Apps rather than on an error, because a stale bookmark is not a mistake worth
+ * punishing — see `parseLocation`.
  */
+const RETIRED: Record<string, LocationTab> = {
+  dashboard: 'apps',
+  workflows: 'apps',
+  editor: 'apps',
+};
 
-export const DEFAULT_LOCATION: AppLocation = { tab: 'workflows' };
-
-export function toUiTab(tab: LocationTab): UiTab {
-  return tab === 'dashboard' ? 'deploys' : tab;
-}
-
-export function fromUiTab(tab: UiTab): LocationTab {
-  return tab === 'deploys' ? 'dashboard' : tab;
-}
+export const DEFAULT_LOCATION: AppLocation = { tab: 'apps' };
 
 /**
  * Reads `#/notebooks/<id>`. An unrecognised hash falls back to the default rather
@@ -73,6 +48,7 @@ export function parseLocation(hash: string): AppLocation {
   const segments = hash.replace(/^#\/?/, '').split('/').filter(Boolean);
   const [tab, detail] = segments;
 
+  if (tab && RETIRED[tab]) return { tab: RETIRED[tab] };
   if (!TABS.includes(tab as LocationTab)) return DEFAULT_LOCATION;
   if (tab === 'notebooks' && detail) return { tab: 'notebooks', notebookId: detail };
   return { tab: tab as LocationTab };

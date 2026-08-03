@@ -6,13 +6,6 @@ import type { RunEvent, RunEventType } from "@zaa-tool/shared";
  * so it can be consumed from both a CJS and an ESM context.
  */
 const RUN_EVENT_TYPES: readonly RunEventType[] = [
-  "node:start",
-  "node:log",
-  "node:done",
-  "node:error",
-  "node:skip",
-  "flow:done",
-  "flow:error",
   "cell:start",
   "cell:log",
   "cell:done",
@@ -23,18 +16,17 @@ const RUN_EVENT_TYPES: readonly RunEventType[] = [
 
 export interface RunIdentity {
   runId: string;
-  flowId: string;
+  notebookId: string;
 }
 
 export type RunEventSink = (event: RunEvent) => void;
 
 /**
- * Builds the EventEmitter handed to `runFlow`, stamping run identity onto every
- * event before it reaches the sink.
+ * Builds the EventEmitter handed to the notebook runner, stamping run identity onto
+ * every event before it reaches the sink.
  *
- * Executors and the runner stay unaware of runs — they emit plain
- * `{ type, nodeId, … }` payloads as before, and identity is attached in exactly
- * one place so no emit site can forget it.
+ * The runner stays unaware of runs — it emits plain `{ type, cellId, … }` payloads,
+ * and identity is attached in exactly one place so no emit site can forget it.
  */
 export function createRunEmitter(identity: RunIdentity, sink: RunEventSink): EventEmitter {
   const emitter = new EventEmitter();
@@ -45,7 +37,7 @@ export function createRunEmitter(identity: RunIdentity, sink: RunEventSink): Eve
         ...data,
         type: (data.type as RunEventType) ?? type,
         runId: identity.runId,
-        flowId: identity.flowId,
+        notebookId: identity.notebookId,
       });
     });
   }

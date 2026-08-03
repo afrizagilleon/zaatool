@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useUiStore } from '../store/uiStore.js';
-import { formatLocation, parseLocation, toUiTab } from '../lib/app-location.js';
+import { formatLocation, parseLocation } from '../lib/app-location.js';
 
 /**
  * Reads the app's location out of the URL and applies it.
@@ -21,19 +21,24 @@ export function useAppLocation() {
   useEffect(() => {
     const apply = () => {
       const location = parseLocation(window.location.hash);
-      const wanted = toUiTab(location.tab);
-      if (useUiStore.getState().activeTab !== wanted) {
-        useUiStore.getState().applyTabFromUrl(wanted);
+
+      // An empty, malformed or retired hash is replaced by the real one, so the address
+      // bar always holds something worth copying. Done on every change and not only on
+      // mount, because `#/workflows` is still typed and pasted — it points at a section
+      // that no longer exists, and leaving it in the bar while showing Apps means the
+      // URL and the screen disagree. Rewriting raises `hashchange`, which lands here
+      // again and finds nothing left to change.
+      const canonical = formatLocation(location);
+      if (window.location.hash !== canonical) {
+        window.location.hash = canonical;
+        return;
+      }
+
+      if (useUiStore.getState().activeTab !== location.tab) {
+        useUiStore.getState().applyTabFromUrl(location.tab);
       }
       setNotebookId(location.notebookId);
     };
-
-    // An empty or malformed hash is replaced by the real one, so the address bar
-    // always holds something worth copying.
-    const canonical = formatLocation(parseLocation(window.location.hash));
-    if (window.location.hash !== canonical) {
-      window.location.hash = canonical;
-    }
 
     apply();
     window.addEventListener('hashchange', apply);

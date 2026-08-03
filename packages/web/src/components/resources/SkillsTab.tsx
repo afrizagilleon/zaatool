@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from '../ui/dialog';
 import { API_BASE_URL } from '../../lib/api';
-import { SkillEditorDialog, type Skill } from '../panels/SkillEditorDialog';
+import { SkillEditorDialog, type Skill } from './SkillEditorDialog';
 
 interface SkillsTabProps {
   skills: Skill[];

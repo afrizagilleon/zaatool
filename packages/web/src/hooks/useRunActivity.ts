@@ -37,11 +37,11 @@ export function useRunActivity(enabled: boolean): Record<string, NotebookActivit
     const socket = new WebSocket(WS_BASE_URL);
     const pending = timers.current;
 
-    const forget = (flowId: string) => {
-      const existing = pending.get(flowId);
+    const forget = (notebookId: string) => {
+      const existing = pending.get(notebookId);
       if (existing) {
         window.clearTimeout(existing);
-        pending.delete(flowId);
+        pending.delete(notebookId);
       }
     };
 
@@ -57,14 +57,14 @@ export function useRunActivity(enabled: boolean): Record<string, NotebookActivit
       } catch {
         return;
       }
-      if (parsed.type !== 'run:activity' || !parsed.flowId) return;
+      if (parsed.type !== 'run:activity' || !parsed.notebookId) return;
 
       if (parsed.status === 'running') {
-        forget(parsed.flowId);
+        forget(parsed.notebookId);
         setActivity((current) =>
-          current[parsed.flowId]?.status === 'running' && current[parsed.flowId]?.runId === parsed.runId
+          current[parsed.notebookId]?.status === 'running' && current[parsed.notebookId]?.runId === parsed.runId
             ? current
-            : { ...current, [parsed.flowId]: { status: 'running', runId: parsed.runId } }
+            : { ...current, [parsed.notebookId]: { status: 'running', runId: parsed.runId } }
         );
         return;
       }
@@ -72,18 +72,18 @@ export function useRunActivity(enabled: boolean): Record<string, NotebookActivit
       const settled: NotebookActivity = parsed.status === 'success' ? 'done' : 'error';
       setActivity((current) => ({
         ...current,
-        [parsed.flowId]: { status: settled, runId: parsed.runId },
+        [parsed.notebookId]: { status: settled, runId: parsed.runId },
       }));
 
-      forget(parsed.flowId);
+      forget(parsed.notebookId);
       pending.set(
-        parsed.flowId,
+        parsed.notebookId,
         window.setTimeout(() => {
           setActivity((current) => {
-            const { [parsed.flowId]: _removed, ...rest } = current;
+            const { [parsed.notebookId]: _removed, ...rest } = current;
             return rest;
           });
-          pending.delete(parsed.flowId);
+          pending.delete(parsed.notebookId);
         }, SETTLE_MS)
       );
     };

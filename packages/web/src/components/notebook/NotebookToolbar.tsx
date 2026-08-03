@@ -15,7 +15,7 @@ import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
 import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { NodeSecretsProperties } from '../panels/properties/NodeSecretsProperties';
+import { NotebookSecrets } from './NotebookSecrets';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import {
   DropdownMenu,
@@ -237,7 +237,7 @@ export function NotebookToolbar({
           </SetupSection>
           <SetupSection label="Secrets" hint={secrets.length > 0 ? `${secrets.length} allowed` : 'none'}>
             <div className="p-3">
-              <NodeSecretsProperties selectedKeys={secrets} onChange={onSecretsChange} />
+              <NotebookSecrets selectedKeys={secrets} onChange={onSecretsChange} />
             </div>
           </SetupSection>
         </PopoverContent>

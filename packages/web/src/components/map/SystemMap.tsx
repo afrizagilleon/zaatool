@@ -8,6 +8,10 @@ import {
   useReactFlow,
   type Node,
 } from '@xyflow/react';
+// The map is the only thing left that draws with xyflow, so it owns the stylesheet.
+// It used to arrive through the canvas, and went with it — leaving the zoom controls
+// unpositioned and stretched across the top of the map.
+import '@xyflow/react/dist/style.css';
 import { ArrowClockwise, ArrowSquareOut, CaretLeft, MapTrifold } from '@phosphor-icons/react';
 import type { NotebookJson, NotebookRunDetail } from '@zaa-tool/shared';
 import { Button } from '../ui/button';

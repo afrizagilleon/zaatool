@@ -1,5 +1,5 @@
 /**
- * Contract for a single flow execution ("run") and the events it streams.
+ * Contract for a single notebook execution ("run") and the events it streams.
  *
  * A run is identified by an unguessable `runId` issued by the engine when
  * execution starts. Possession of that id is what authorizes a client to
@@ -8,15 +8,6 @@
  */
 
 export type RunEventType =
-  // Graph runs (canvas)
-  | "node:start"
-  | "node:log"
-  | "node:done"
-  | "node:error"
-  | "node:skip"
-  | "flow:done"
-  | "flow:error"
-  // Notebook runs
   | "cell:start"
   | "cell:log"
   | "cell:done"
@@ -26,14 +17,13 @@ export type RunEventType =
 
 /**
  * Every event leaving the engine carries the identity of the run that produced
- * it. Payload fields beyond these are event-specific (output, error, ms, …).
+ * it, and of the notebook being run. Payload fields beyond these are
+ * event-specific (output, written, error, ms, …).
  */
 export interface RunEvent {
   type: RunEventType;
   runId: string;
-  /** Id of the document being executed — a flow id for graphs, a notebook id for notebooks. */
-  flowId: string;
-  nodeId?: string;
+  notebookId: string;
   cellId?: string;
   [key: string]: unknown;
 }
@@ -58,7 +48,7 @@ export interface RunWatchMessage {
 export type RunClientMessage = RunSubscribeMessage | RunWatchMessage;
 
 /**
- * Lifecycle only — which document is busy and how it ended.
+ * Lifecycle only — which notebook is busy and how it ended.
  *
  * Carries no output, no logs and no cell identity, because this channel is not scoped
  * to a run the client can prove it started. Anything a watcher should not see must not
@@ -67,8 +57,7 @@ export type RunClientMessage = RunSubscribeMessage | RunWatchMessage;
 export interface RunActivityEvent {
   type: "run:activity";
   runId: string;
-  /** Notebook id, or flow id for a graph run. */
-  flowId: string;
+  notebookId: string;
   status: "running" | "success" | "failed";
 }
 
@@ -77,13 +66,3 @@ export interface RunStartedResponse {
   status: "started";
   runId: string;
 }
-
-/**
- * Outputs seeded into a run's scope before execution, keyed by node id.
- *
- * This exists only so the editor can re-run part of a graph without re-running
- * everything upstream. It is supplied explicitly per request by the client that
- * owns those values — it is never read from the persisted graph, so a published
- * dashboard can never serve outputs left over from a design-time session.
- */
-export type SeedOutputs = Record<string, Record<string, unknown>>;

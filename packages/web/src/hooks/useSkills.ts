@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { API_BASE_URL } from '../lib/api.js';
-import type { Skill } from '../components/panels/SkillEditorDialog.js';
+import type { Skill } from '../components/resources/SkillEditorDialog.js';
 
 export function useSkills() {
   const [skills, setSkills] = useState<Skill[]>([]);
