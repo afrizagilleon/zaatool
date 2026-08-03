@@ -12,6 +12,7 @@ import { NotebooksPage } from './components/pages/NotebooksPage.js';
 import { Login } from './components/pages/Login.js';
 import { PublishedDashboard } from './components/pages/PublishedDashboard.js';
 import { AppsPage } from './components/pages/AppsPage.js';
+import { SharedPage } from './components/pages/SharedPage.js';
 import { RendererGallery } from './components/pages/RendererGallery.js';
 import { CodeEditorDialog } from './components/panels/CodeEditorDialog.js';
 import { useUiStore } from './store/uiStore.js';
@@ -45,6 +46,11 @@ function App() {
 
   // Pathname routing
   const path = window.location.pathname;
+  // A shared notebook page, opened by someone with no account. Checked before the login
+  // gate, like the old dashboard share, because the token in the URL *is* the account.
+  const sharedToken = path.startsWith('/a/') ? path.slice(3) : null;
+  if (sharedToken) return <SharedPage token={sharedToken} />;
+
   const isSharePage = path.startsWith('/share/');
   const shareFlowId = isSharePage ? path.split('/').pop() : null;
 

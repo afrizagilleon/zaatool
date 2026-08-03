@@ -175,6 +175,31 @@ export async function initDb() {
       );
     `);
 
+    // A page handed to someone without an account.
+    //
+    // The token is the credential, like a webhook's slug, so it is unguessable and
+    // hashed at rest — a leaked database row must not become a working link. Revoking
+    // is a timestamp rather than a delete, so "who could reach this, and when did it
+    // stop" stays answerable.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS notebook_shares (
+        id VARCHAR(255) PRIMARY KEY,
+        notebook_id VARCHAR(255) NOT NULL,
+        token_hash VARCHAR(64) NOT NULL UNIQUE,
+        password_hash VARCHAR(255),
+        created_by VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_used_at TIMESTAMP,
+        run_count INTEGER NOT NULL DEFAULT 0,
+        revoked_at TIMESTAMP
+      );
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS notebook_shares_notebook_idx
+      ON notebook_shares (notebook_id, created_at DESC);
+    `);
+
     // Users table
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (

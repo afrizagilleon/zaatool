@@ -296,6 +296,26 @@ export interface NotebookPage {
   layout: NotebookLayoutItem[];
 }
 
+/**
+ * A page handed to someone who has no account here.
+ *
+ * The token never comes back from the server after it is created — it is hashed at rest,
+ * so a link that is lost has to be revoked and reissued rather than looked up. That is
+ * the same trade as an API key, and for the same reason: a readable credential in a
+ * database is a credential everyone with the database has.
+ */
+export interface NotebookShare {
+  id: string;
+  notebookId: string;
+  hasPassword: boolean;
+  createdBy: string | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+  runCount: number;
+  /** Returned only in the reply that creates it. */
+  token?: string;
+}
+
 export interface NotebookSummary {
   id: string;
   name: string;

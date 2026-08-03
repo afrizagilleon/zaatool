@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { notebooksService } from "../services/notebooks.service.js";
 import { buildNotebookMap } from "../core/notebook-map.js";
 import { outputSpecs } from "../core/notebook-outputs.js";
+import { notebookSharesService } from "../services/notebook-shares.service.js";
 import { notifyCatalogChanged } from "../mcp/notebook-catalog.js";
 import { notebookRunsService } from "../services/notebook-runs.service.js";
 import {
@@ -190,6 +191,48 @@ export class NotebooksController {
       // An agent holding a session must not keep offering a tool that no longer runs.
       notifyCatalogChanged();
       res.json(result);
+    } catch (err: unknown) {
+      respondWithError(res, err);
+    }
+  };
+
+  /** Links that let someone without an account use this notebook's page. */
+  listShares = async (req: Request, res: Response) => {
+    try {
+      res.json(await notebookSharesService.listByNotebook(String(req.params.id)));
+    } catch (err: unknown) {
+      respondWithError(res, err);
+    }
+  };
+
+  createShare = async (req: Request, res: Response) => {
+    try {
+      const notebook = await notebooksService.getById(String(req.params.id));
+      if (!notebook) return res.status(404).json({ error: "Notebook not found" });
+
+      // A link to something not in production would 409 for whoever you sent it to,
+      // which looks like a broken link rather than a decision you had not made yet.
+      const deployed = await notebooksService.getDeployedDocument(String(req.params.id));
+      if (!deployed) {
+        return res.status(409).json({ error: "Deploy it before sharing it." });
+      }
+
+      const user = (req as Request & { user?: { username?: string } }).user;
+      res.json(
+        await notebookSharesService.create(
+          String(req.params.id),
+          user?.username ?? "unknown",
+          typeof req.body?.password === "string" ? req.body.password : undefined
+        )
+      );
+    } catch (err: unknown) {
+      respondWithError(res, err);
+    }
+  };
+
+  revokeShare = async (req: Request, res: Response) => {
+    try {
+      res.json(await notebookSharesService.revoke(String(req.params.shareId)));
     } catch (err: unknown) {
       respondWithError(res, err);
     }

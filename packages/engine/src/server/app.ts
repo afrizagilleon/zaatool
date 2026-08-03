@@ -13,6 +13,7 @@ import { flowsRouter } from "../routes/flows.route.js";
 import { createNotebooksRouter } from "../routes/notebooks.route.js";
 import { createHooksRouter } from "../routes/hooks.route.js";
 import { createMcpRouter } from "../routes/mcp.route.js";
+import { createShareRouter } from "../routes/share.route.js";
 import { authRouter } from "../routes/auth.route.js";
 import { triggersRouter } from "../routes/triggers.route.js";
 import { flowsController } from "../controllers/flows.controller.js";
@@ -48,6 +49,10 @@ export function createApp(publishRunEvent: RunEventSink) {
   // Agents authenticate with their own revocable token rather than a browser session,
   // so this sits outside /api and guards itself.
   app.use("/mcp", createMcpRouter(publishRunEvent));
+
+  // A shared page's token is its credential, the same bargain as a webhook slug, so
+  // these are reachable without a session and guard themselves.
+  app.use("/api/shared", createShareRouter(publishRunEvent));
 
   app.use("/api", authMiddleware);
 

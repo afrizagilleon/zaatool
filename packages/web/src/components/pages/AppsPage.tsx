@@ -4,6 +4,7 @@ import {
   Spinner,
   AppWindow,
   ArrowLeft,
+  ShareNetwork,
   WarningCircle,
   CircleDashed,
 } from '@phosphor-icons/react';
@@ -13,6 +14,7 @@ import { usePageRun, type OutputStatus } from '../../hooks/usePageRun';
 import { notebooksApi } from '../../lib/notebooks-api';
 import { OutputView } from './render/OutputView';
 import { PageGrid } from './render/PageGrid';
+import { ShareDialog } from './ShareDialog';
 import { InputField, initialValues, toArgs } from './render/InputField';
 import { cn } from '../../lib/utils';
 
@@ -60,6 +62,7 @@ function PageRunner({ page, onBack }: { page: NotebookPage; onBack: () => void }
   const { status, values: outputs, isRunning, error, start } = usePageRun(page.id, page.outputs);
 
   const hasResult = Object.keys(status).length > 0;
+  const [isSharing, setIsSharing] = useState(false);
   const run = () => void start(toArgs(page.inputs, values));
 
   return (
@@ -90,14 +93,32 @@ function PageRunner({ page, onBack }: { page: NotebookPage; onBack: () => void }
           </div>
         )}
 
-        <Button onClick={() => void run()} disabled={isRunning} className="h-9 px-5">
-          {isRunning ? (
-            <Spinner size={15} className="animate-spin mr-2" />
-          ) : (
-            <Play size={15} weight="fill" className="mr-2" />
-          )}
-          Run
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button onClick={() => void run()} disabled={isRunning} className="h-9 px-5">
+            {isRunning ? (
+              <Spinner size={15} className="animate-spin mr-2" />
+            ) : (
+              <Play size={15} weight="fill" className="mr-2" />
+            )}
+            Run
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-9 px-3 text-xs text-muted-foreground"
+            onClick={() => setIsSharing(true)}
+          >
+            <ShareNetwork size={14} className="mr-1.5" />
+            Share
+          </Button>
+        </div>
+
+        <ShareDialog
+          notebookId={page.id}
+          notebookName={page.name}
+          open={isSharing}
+          onOpenChange={setIsSharing}
+        />
 
         {error && (
           <div className="border border-status-error/40 bg-status-error/5 p-3 text-xs text-status-error">

@@ -50,6 +50,16 @@ function render(skills: SkillRow[]): string {
   return [renderFormatReference(), "---", houseRules].join("\n\n");
 }
 
+/**
+ * The exact text an agent receives.
+ *
+ * Exported so the Skills screen can show it. A person editing house rules should be able
+ * to read what those rules turn into, rather than trusting that they arrive somewhere.
+ */
+export async function renderConventions(): Promise<string> {
+  return render((await skillsService.getAll()) as SkillRow[]);
+}
+
 export function registerConventions(server: McpServer): void {
   server.registerResource(
     "conventions",

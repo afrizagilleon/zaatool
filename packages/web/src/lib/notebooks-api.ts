@@ -6,6 +6,7 @@ import type {
   NotebookPage,
   NotebookRunDetail,
   NotebookRunSummary,
+  NotebookShare,
   NotebookSummary,
   RunStartedResponse,
 } from "@zaa-tool/shared";
@@ -67,6 +68,19 @@ export const notebooksApi = {
   /** Pins the current draft as what triggers run. */
   deploy: (id: string): Promise<{ versionId: string }> =>
     request(`/api/notebooks/${id}/deploy`, { method: "POST" }),
+
+  /** Links that let someone without an account use this notebook's page. */
+  shares: (id: string): Promise<NotebookShare[]> => request(`/api/notebooks/${id}/shares`),
+
+  /** The reply is the only time the token is readable — it is hashed at rest. */
+  createShare: (id: string, password?: string): Promise<NotebookShare> =>
+    request(`/api/notebooks/${id}/shares`, {
+      method: "POST",
+      body: JSON.stringify({ password }),
+    }),
+
+  revokeShare: (id: string, shareId: string): Promise<{ revoked: boolean }> =>
+    request(`/api/notebooks/${id}/shares/${shareId}`, { method: "DELETE" }),
 
   /** Stops production without touching the draft, its history or its versions. */
   undeploy: (id: string): Promise<{ wasDeployed: boolean }> =>
