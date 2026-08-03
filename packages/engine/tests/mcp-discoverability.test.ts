@@ -213,6 +213,37 @@ await check("points at the resource holding the rest", () => {
   assert.match(String(write?.description ?? ""), /zaa:\/\/conventions/);
 });
 
+// ── what a rewrite is allowed to forget ───────────────────────────────────────
+
+console.log("\nomission is not deletion");
+
+await check("the conventions say which fields survive being left out", () => {
+  // `\s+` rather than a space: the reference is wrapped prose, and a sentence that moves
+  // one word onto the next line should not fail a check about what it says.
+  assert.match(conventions, /Leave them out of a\s+rewrite and the stored ones are kept/i);
+  assert.match(conventions, /actions: \[\]/);
+});
+
+await check("and are explicit that the rest are not like that", () => {
+  // The dangerous half: an agent that generalises "omitting is safe" would delete a
+  // notebook's inputs by writing a document that only talks about code.
+  assert.match(conventions, /omit them and they are gone/i);
+});
+
+await check("the write tool says it too, without needing the resource", () => {
+  const description = String(write?.description ?? "");
+  assert.match(description, /DO NOT HAVE TO REPRODUCE/);
+  assert.match(description, /layout/);
+  assert.match(description, /actions/);
+});
+
+await check("warns that a wrong `render` is worse than none", () => {
+  assert.match(conventions, /Overruling `auto` badly is worse than not overruling it/i);
+  // The exact mistake an agent made: multi-line markdown declared as text.
+  assert.match(conventions, /render: text/);
+  assert.match(conventions, /multi-line is always markdown/i);
+});
+
 // ── buttons ───────────────────────────────────────────────────────────────────
 
 console.log("\npage actions");

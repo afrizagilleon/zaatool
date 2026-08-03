@@ -19,6 +19,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   inputs: [],
   outputs: [],
   layout: [],
+  actions: [],
   testArgs: {},
   steps: [],
 
@@ -43,6 +44,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
       inputs: [],
       outputs: [],
       layout: [],
+      actions: [],
       testArgs: {},
       steps: [firstCell],
       isDirty: true,
@@ -66,6 +68,9 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
       inputs: document.inputs ?? [],
       outputs: document.outputs ?? [],
       layout: document.layout ?? [],
+      // Held rather than edited: there is no UI for buttons yet, and a store that drops
+      // what it does not render would delete them the next time anyone pressed Save.
+      actions: document.actions ?? [],
       testArgs: {},
       steps: document.steps ?? [],
       isDirty: false,
@@ -82,11 +87,13 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   },
 
   getDocument: (): NotebookJson => {
-    const { id, name, runtime, secrets, triggers, inputs, outputs, layout, steps } = get();
+    const { id, name, runtime, secrets, triggers, inputs, outputs, layout, actions, steps } =
+      get();
     return {
       version: NOTEBOOK_VERSION, id, name, runtime, secrets, triggers, inputs, outputs, steps,
       // Omitted when nobody arranged it, so a notebook nobody laid out stays free of it.
       ...(layout.length > 0 ? { layout } : {}),
+      ...(actions.length > 0 ? { actions } : {}),
     };
   },
 

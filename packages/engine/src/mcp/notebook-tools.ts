@@ -11,7 +11,7 @@ import {
 } from "../services/notebook-execution.service.js";
 import { compileNotebook, NotebookCompileError } from "../core/notebook-compiler.js";
 import { ContractError } from "../core/notebook-contract.js";
-import { fromMarkdown, toMarkdown, NotebookTextError } from "../core/notebook-text.js";
+import { fromMarkdown, toMarkdown, mentionsKey, NotebookTextError } from "../core/notebook-text.js";
 import { requestApproval } from "./approval.js";
 import { buildNotebookMap, renderNotebookMap } from "../core/notebook-map.js";
 import { outputNames } from "../core/notebook-outputs.js";
@@ -486,6 +486,8 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
           "To reuse another notebook, call `await notebooks.run('its-name', { arg: 1 })` from a cell; you get back only that notebook's declared outputs.",
           "",
           "Read first and keep the ids you were given: run history and freshness are keyed by cell id, so dropping them starts the record over.",
+          "",
+          "YOU DO NOT HAVE TO REPRODUCE `layout` OR `actions`. Leave them out entirely and the stored ones are kept — they are arranged by a person in the browser, and a rewrite that forgets them would delete their work. Write them only when you mean to change them; `actions: []` clears every button. Everything else you omit *is* removed, so keep writing `inputs`, `outputs`, `secrets` and `triggers` in full.",
           "Saving changes the draft. Triggers run the version a person deployed, so nothing you write here reaches production on its own, and it does not become a callable tool until then either.",
         ].join("\n"),
       inputSchema: {
@@ -524,6 +526,20 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
         `Contract: ${contractLine(document)}`,
       ];
       for (const trigger of triggerLines(document)) lines.push(`Trigger: ${trigger}`);
+
+      // Said out loud, because a silent carry-over is the same shape of surprise as a
+      // silent delete — and because an agent that sees this once stops trying to
+      // reproduce a twelve-column grid it has no way to get right.
+      const kept: string[] = [];
+      if (before?.layout?.length && !mentionsKey(text, "layout")) {
+        kept.push(`the ${before.layout.length}-tile arrangement`);
+      }
+      if (before?.actions?.length && !mentionsKey(text, "actions")) {
+        kept.push(`${before.actions.length} button(s)`);
+      }
+      if (kept.length > 0) {
+        lines.push(`Kept from the stored version: ${kept.join(" and ")} — you did not mention them.`);
+      }
 
       // What an agent most needs to know after writing: this is not live. Triggers run
       // the deployed version, and deploying is a person's decision.

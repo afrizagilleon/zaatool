@@ -444,5 +444,87 @@ check("a hand-written document compiles", () => {
   assert.ok(plan.steps.length > 0, "the plan has steps");
 });
 
+/**
+ * What a person arranged must survive what an agent rewrites.
+ *
+ * Every MCP write replaces the whole document, because that is the only verb an agent
+ * has. A small model reproducing five thousand tokens to change one field will drop
+ * whatever it was not thinking about — and it did: asked to add a button, it deleted two
+ * others and a hand-arranged grid, and said nothing. These checks are the rule that
+ * stops that: absent means keep, empty means clear.
+ */
+console.log("\nomission is not deletion");
+
+const arranged = doc({
+  outputs: ["total"],
+  layout: [{ i: "total", x: 0, y: 0, w: 6, h: 4 }],
+  actions: [
+    { label: "Again", do: "rerun" },
+    { label: "Docs", do: "link", url: "https://example.com" },
+  ],
+  steps: [{ id: "c1", kind: "cell", code: "return { total: 1 };" }],
+});
+
+/** What an agent writes when it is thinking about the code and nothing else. */
+const rewriteWithoutThem = [
+  "---",
+  "name: Test",
+  "runtime: node",
+  "id: nb-1",
+  "outputs: [total]",
+  "---",
+  "",
+  "```js",
+  "return { total: 2 };",
+  "```",
+].join("\n");
+
+check("a hand-arranged layout survives a rewrite that never mentions it", () => {
+  const after = fromMarkdown(rewriteWithoutThem, { previous: arranged });
+  assert.deepEqual(after.layout, arranged.layout);
+});
+
+check("declared buttons survive a rewrite that never mentions them", () => {
+  const after = fromMarkdown(rewriteWithoutThem, { previous: arranged });
+  assert.deepEqual(after.actions, arranged.actions);
+});
+
+check("and the rewrite still takes effect everywhere it did speak", () => {
+  const after = fromMarkdown(rewriteWithoutThem, { previous: arranged });
+  const cell = after.steps[0] as { code: string };
+  assert.match(cell.code, /total: 2/, "the code it did write was not applied");
+});
+
+check("an explicit empty list clears them — that is how an agent removes one", () => {
+  const text = rewriteWithoutThem.replace(
+    "outputs: [total]",
+    "outputs: [total]\nactions: []\nlayout: []"
+  );
+  const after = fromMarkdown(text, { previous: arranged });
+  assert.equal(after.actions, undefined, "`actions: []` did not clear them");
+  assert.equal(after.layout, undefined, "`layout: []` did not clear it");
+});
+
+check("saying something replaces, rather than merges", () => {
+  const text = rewriteWithoutThem.replace(
+    "outputs: [total]",
+    "outputs: [total]\nactions:\n  - label: Only this\n    do: rerun"
+  );
+  const after = fromMarkdown(text, { previous: arranged });
+  assert.deepEqual(after.actions, [{ label: "Only this", do: "rerun" }]);
+});
+
+check("nothing is invented for a notebook that never had any", () => {
+  const after = fromMarkdown(rewriteWithoutThem);
+  assert.equal(after.actions, undefined);
+  assert.equal(after.layout, undefined);
+});
+
+check("a round trip through the text form keeps both", () => {
+  const after = roundTrip(arranged);
+  assert.deepEqual(after.layout, arranged.layout);
+  assert.deepEqual(after.actions, arranged.actions);
+});
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed === 0 ? 0 : 1);

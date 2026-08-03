@@ -1,5 +1,6 @@
 import type {
   NotebookJson,
+  NotebookAction,
   NotebookLayoutItem,
   NotebookOutput,
   NotebookParam,
@@ -65,6 +66,8 @@ export interface NotebookState {
   outputs: Array<string | NotebookOutput>;
   /** Where each output sits on the page. Empty means derived. */
   layout: NotebookLayoutItem[];
+  /** Carried through load and save. No editor UI yet — dropping them would delete them. */
+  actions: NotebookAction[];
   /**
    * Values for a test run from the editor. Never saved: they are how the author
    * exercises the contract, not part of what the notebook is.

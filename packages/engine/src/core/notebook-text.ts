@@ -180,12 +180,50 @@ export interface FromMarkdownOptions {
   /**
    * The stored document this text is replacing.
    *
-   * Identity the text does not spell out is adopted from here rather than reinvented.
-   * That matters most for a webhook's slug: the slug *is* the credential, so a rewrite
-   * that omits it must keep the existing URL working instead of quietly issuing a new
-   * one and breaking every caller.
+   * Anything the text does not spell out is adopted from here rather than reinvented.
+   * That matters most for a webhook's slug — the slug *is* the credential, so a rewrite
+   * that omits it must keep the existing URL working instead of quietly issuing a new one
+   * and breaking every caller — and for `layout` and `actions`, which a person arranges
+   * by hand. See `carriedOver`.
    */
   previous?: NotebookJson;
+}
+
+/**
+ * Keeps what a rewrite did not mention.
+ *
+ * Front matter has two kinds of field. Most describe the notebook and belong to whoever
+ * wrote the text: leaving `outputs` out means there are no outputs. But `layout` and
+ * `actions` are arranged by a *person*, in the browser, and an agent editing a cell has
+ * no opinion about them — it simply reproduced the document from memory and dropped the
+ * parts it was not thinking about.
+ *
+ * That is not hypothetical. Asked to add a button, an agent rewrote the whole notebook
+ * and deleted two others plus a hand-arranged grid, silently, because "write the whole
+ * text" was the only verb it had. The document already adopts a webhook's slug from the
+ * stored version for exactly this reason — losing it breaks callers who were never told.
+ * The same argument covers anything a person edits by hand.
+ *
+ * So: **absent means keep, empty means clear.** `actions: []` still removes every button,
+ * which is how an agent deliberately takes one away.
+ */
+function carriedOver<T>(raw: unknown, parsed: T[], previous: T[] | undefined): T[] {
+  if (raw === undefined || raw === null) return previous ?? [];
+  return parsed;
+}
+
+/**
+ * Whether the front matter says anything about a key at all.
+ *
+ * `fromMarkdown` folds "absent" and "explicitly empty" into the same result, which is
+ * right for building the document and useless for reporting. This is how the write tool
+ * can say "I kept your layout because you did not mention it" — a carry-over nobody is
+ * told about is the same shape of surprise as the delete it replaced.
+ */
+export function mentionsKey(text: string, key: string): boolean {
+  const issues: string[] = [];
+  const { meta } = readFrontMatter(text.replace(/\r\n/g, "\n"), issues);
+  return issues.length === 0 && meta[key] !== undefined && meta[key] !== null;
 }
 
 export function fromMarkdown(text: string, options?: FromMarkdownOptions): NotebookJson {
@@ -219,10 +257,15 @@ export function fromMarkdown(text: string, options?: FromMarkdownOptions): Noteb
   const inputs = readInputs(meta.inputs, issues);
   if (inputs.length > 0) notebook.inputs = inputs;
 
-  const layout = readLayout(meta.layout, issues);
+  // Omission is not deletion. See `carriedOver` below.
+  const layout = carriedOver(meta.layout, readLayout(meta.layout, issues), options?.previous?.layout);
   if (layout.length > 0) notebook.layout = layout;
 
-  const actions = readActions(meta.actions, issues);
+  const actions = carriedOver(
+    meta.actions,
+    readActions(meta.actions, issues),
+    options?.previous?.actions
+  );
   if (actions.length > 0) notebook.actions = actions;
 
   const triggers = readTriggers(meta.triggers, issues, options?.previous?.triggers);

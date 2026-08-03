@@ -278,8 +278,27 @@ else becomes bars.
 An array of objects is a table. A \`data:image/…\` string is an image. A string with
 newlines is markdown. Anything else object-shaped is JSON, and a short string or a
 number is text. **So a table costs you nothing** — return rows and the page renders
-them. \`render\` is only needed to overrule the guess, most often to ask for a chart
-where rows would otherwise become a table.
+them.
+
+**Overruling \`auto\` badly is worse than not overruling it.** \`auto\` reads the value it
+was actually given; a \`render\` you wrote earlier is a guess about a value that did not
+exist yet. The way this goes wrong in practice:
+
+\`\`\`yaml
+# ✗ the page shows literal ** and \\n, because text means text
+- name: summary
+  render: text        # …but the cell returns "**USD → IDR**\\n\\n**16.240**"
+
+# ✓ either say what it is
+- name: summary
+  render: markdown
+
+# ✓ or say nothing and let the value decide — multi-line is always markdown
+- summary
+\`\`\`
+
+Declare \`render\` when you know something the value does not show: that rows are meant
+to be a chart, that a string is a file path. When in doubt, leave it out.
 
 ### Do not draw pictures out of text
 
@@ -334,6 +353,20 @@ through the workspace.
 
 An action that could not work — no label, an unknown \`do\`, a \`run\` with no
 \`notebook\` — is refused when the notebook is written, not silently dropped later.
+
+## What you do not have to write back
+
+\`layout\` and \`actions\` are arranged by a person, in the browser. **Leave them out of a
+rewrite and the stored ones are kept.** You are not expected to reproduce a twelve-column
+grid you cannot see, and a rewrite that forgot it used to delete an afternoon's work
+without saying so.
+
+- omit → kept
+- \`actions: []\` → every button removed
+- write them out → replaced by exactly what you wrote
+
+**Everything else is not like this.** \`inputs\`, \`outputs\`, \`secrets\` and \`triggers\`
+belong to whoever writes the text: omit them and they are gone. Write those in full.
 
 ## A complete example
 
