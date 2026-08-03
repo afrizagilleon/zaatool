@@ -393,8 +393,20 @@
 }
 
 /* React Resizable and Grid Layout Styles */
+/* A deployed page cannot be rearranged, so it must not show a grip that does nothing. */
 .page-grid-readonly .react-resizable-handle {
     display: none;
+}
+
+/* The move affordance. A drag handle nobody notices is a feature nobody has: the grip
+   sits quiet until the pointer is over the tile, then it is unmistakable. */
+.tile-handle {
+    transition: background-color 0.12s ease, color 0.12s ease;
+}
+.react-grid-item:hover > * > .tile-handle,
+.react-grid-item:hover .tile-handle {
+    background-color: var(--muted);
+    color: var(--foreground);
 }
 
 .react-resizable {
@@ -422,8 +434,8 @@
   right: 4px !important;
   bottom: 4px !important;
   cursor: se-resize !important;
-  border-right: 2.5px solid hsl(var(--muted-foreground) / 0.55) !important;
-  border-bottom: 2.5px solid hsl(var(--muted-foreground) / 0.55) !important;
+  border-right: 2.5px solid color-mix(in oklch, var(--muted-foreground) 55%, transparent) !important;
+  border-bottom: 2.5px solid color-mix(in oklch, var(--muted-foreground) 55%, transparent) !important;
 }
 .react-grid-item > .react-resizable-handle.react-resizable-handle-sw {
   width: 14px !important;
@@ -431,16 +443,16 @@
   left: 4px !important;
   bottom: 4px !important;
   cursor: sw-resize !important;
-  border-left: 2.5px solid hsl(var(--muted-foreground) / 0.55) !important;
-  border-bottom: 2.5px solid hsl(var(--muted-foreground) / 0.55) !important;
+  border-left: 2.5px solid color-mix(in oklch, var(--muted-foreground) 55%, transparent) !important;
+  border-bottom: 2.5px solid color-mix(in oklch, var(--muted-foreground) 55%, transparent) !important;
 }
 .react-grid-item:hover > .react-resizable-handle.react-resizable-handle-se {
-  border-right-color: hsl(var(--primary)) !important;
-  border-bottom-color: hsl(var(--primary)) !important;
+  border-right-color: var(--primary) !important;
+  border-bottom-color: var(--primary) !important;
 }
 .react-grid-item:hover > .react-resizable-handle.react-resizable-handle-sw {
-  border-left-color: hsl(var(--primary)) !important;
-  border-bottom-color: hsl(var(--primary)) !important;
+  border-left-color: var(--primary) !important;
+  border-bottom-color: var(--primary) !important;
 }
 .react-grid-item.react-grid-placeholder {
   background: hsl(var(--primary) / 0.1) !important;

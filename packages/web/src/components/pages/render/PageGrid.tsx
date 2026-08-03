@@ -109,7 +109,9 @@ export function PageGrid({ outputs, layout, onLayoutChange, renderTile }: PageGr
       containerPadding={[8, 0]}
       // v2 groups these rather than taking isDraggable/draggableHandle separately.
       dragConfig={{ enabled: editable, handle: '.tile-handle' }}
-      resizeConfig={{ enabled: editable }}
+      // Both bottom corners: a tile pushed to the right edge cannot be reached from
+      // the left one alone.
+      resizeConfig={{ enabled: editable, handles: ['se', 'sw'] }}
       onBreakpointChange={(next: string) => {
         breakpoint.current = next;
       }}

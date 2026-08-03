@@ -99,6 +99,18 @@ await check("says one output per cell, and why the page depends on it", () => {
   assert.match(conventions, /the moment the cell that produced it finishes/i);
 });
 
+await check("warns that a repeated output name silently replaces the first", () => {
+  assert.match(conventions, /written twice replaces the first/i);
+});
+
+await check("says when parallel is worth it, not only how to write it", () => {
+  assert.match(conventions, /Do not reach for lanes by default/i);
+  assert.match(conventions, /genuinely independent/i);
+  // The part an agent most needs told: restructuring someone's notebook is not a
+  // free optimisation.
+  assert.match(conventions, /Ask before restructuring/i);
+});
+
 await check("explains what a parallel group joins on", () => {
   assert.match(conventions, /zaa:parallel/);
   assert.match(conventions, /must not write the same name/i);

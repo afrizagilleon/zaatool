@@ -192,7 +192,7 @@ export function PagePreview({ onRun, isRunning }: PagePreviewProps) {
                 </Button>
               ) : (
                 <span className="text-[10px] text-muted-foreground/60">
-                  Drag a tile's handle to arrange it
+                  Drag a tile by its header · resize from either bottom corner
                 </span>
               )}
             </div>
@@ -207,8 +207,11 @@ export function PagePreview({ onRun, isRunning }: PagePreviewProps) {
 
                 return (
                   <>
-                    <div className="tile-handle flex shrink-0 cursor-move items-center gap-1.5 border-b border-border/60 px-3 py-1.5">
-                      <DotsSixVertical size={11} className="text-muted-foreground/50" />
+                    <div
+                      className="tile-handle flex shrink-0 cursor-move items-center gap-1.5 border-b border-border/60 px-3 py-1.5"
+                      title="Drag to move · drag either bottom corner to resize"
+                    >
+                      <DotsSixVertical size={14} weight="bold" className="text-muted-foreground/70" />
                       <span className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                         {output.name}
                       </span>

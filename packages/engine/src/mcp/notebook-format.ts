@@ -143,6 +143,43 @@ return { table };
 This costs nothing: later cells read earlier values through \`inputs\`, so splitting a
 cell never means computing anything twice.
 
+### A name written twice replaces the first one, silently
+
+Scope is one namespace. If an early cell returns \`{ rows }\` and a later cell also
+returns \`{ rows }\`, the second wins and the first is gone — and on the page the reader
+watches the value change under them.
+
+This is easy to do by accident inside lanes. Give each cell its own output name unless
+you *mean* "replace this".
+
+\`\`\`js
+// ✗ the branch quietly replaces the full table with a filtered one
+return { table_data: highScorers };
+
+// ✓ a different question deserves a different name
+return { high_scorers: highScorers };
+\`\`\`
+
+### When parallel is worth it — and when it is not
+
+**Do not reach for lanes by default.** Sequential is easier to read, easier to debug, and
+what most notebooks should be. Each lane costs a worker or a Python process, and the
+group is only as fast as its slowest lane.
+
+Use a parallel group when **both** are true:
+
+1. The work is genuinely independent — neither lane reads what the other writes.
+2. Each lane actually waits on something: a network call, a query, a slow API. Two lanes
+   of arithmetic finish in the same millisecond either way and only make the notebook
+   harder to follow.
+
+Sequential is right when a cell needs the previous cell's value — which is most of the
+time. **Ask before restructuring an existing notebook into lanes**: it is a change to how
+someone's notebook reads, not just how fast it runs.
+
+Nesting a group inside a lane is allowed and really does run concurrently, but it earns
+its complexity rarely. Two levels is almost always one more than the work needs.
+
 ### Independent work goes in parallel lanes
 
 Two outputs that do not need each other should be computed at the same time. Lanes are
