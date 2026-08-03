@@ -105,10 +105,12 @@ function PageRunner({ page, onBack }: { page: NotebookPage; onBack: () => void }
           </div>
         )}
 
-        {/* Not `flex-wrap`: the declared buttons wrap inside their own block, so Run
-            keeps its place when one of them has something to report. */}
-        <div className="flex items-start gap-2">
-          <Button onClick={() => void run()} disabled={isRunning} className="h-9 shrink-0 px-5">
+        {/* Stacked on a phone, side by side from `sm` up. Sharing one row at 320px left
+            every declared button about 170px, which turns "Verify open.er-api.com" into
+            "Verify open.er-…". Not `flex-wrap` on the wide layout: the buttons wrap inside
+            their own block, so Run keeps its place when one of them reports back. */}
+        <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-start">
+          <Button onClick={() => void run()} disabled={isRunning} className="h-9 px-5 sm:shrink-0">
             {isRunning ? (
               <Spinner size={15} className="animate-spin mr-2" />
             ) : (

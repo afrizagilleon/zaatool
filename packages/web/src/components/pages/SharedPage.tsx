@@ -269,8 +269,8 @@ export function SharedPage({ token }: { token: string }) {
           </div>
         )}
 
-        <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={() => void run()} disabled={isRunning} className="h-9 px-5">
+        <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-start">
+          <Button onClick={() => void run()} disabled={isRunning} className="h-9 px-5 sm:shrink-0">
             {isRunning ? (
               <Spinner size={15} className="mr-2 animate-spin" />
             ) : (

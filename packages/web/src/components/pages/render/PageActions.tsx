@@ -82,27 +82,31 @@ export function PageActions({ actions, onRerun, onRun, disabled }: PageActionsPr
             key={`${action.do}-${action.label}-${index}`}
             variant="outline"
             size="sm"
-            className="h-8 px-3 text-xs"
+            // `max-w-full` plus a truncating label: a button is `whitespace-nowrap`, so
+            // "Verify open.er-api.com" on a phone used to run 44px past the edge of its
+            // own row and get clipped. Labels are written by an agent and can be any
+            // length, so the button has to survive one rather than assume it is short.
+            className="h-8 max-w-full min-w-0 shrink px-3 text-xs"
             disabled={disabled || isRunning}
             onClick={() => void press(action, index)}
             title={
               action.do === 'link'
-                ? action.url
+                ? `${action.label} — ${action.url}`
                 : action.do === 'run'
-                  ? `Runs ${action.notebook}`
-                  : 'Runs this page again'
+                  ? `${action.label} — runs ${action.notebook}`
+                  : `${action.label} — runs this page again`
             }
           >
             {isRunning ? (
-              <Spinner size={13} className="animate-spin mr-1.5" />
+              <Spinner size={13} className="mr-1.5 shrink-0 animate-spin" />
             ) : action.do === 'rerun' ? (
-              <ArrowClockwise size={13} className="mr-1.5" />
+              <ArrowClockwise size={13} className="mr-1.5 shrink-0" />
             ) : action.do === 'link' ? (
-              <ArrowSquareOut size={13} className="mr-1.5" />
+              <ArrowSquareOut size={13} className="mr-1.5 shrink-0" />
             ) : (
-              <Play size={13} weight="fill" className="mr-1.5" />
+              <Play size={13} weight="fill" className="mr-1.5 shrink-0" />
             )}
-            {action.label}
+            <span className="truncate">{action.label}</span>
           </Button>
         );
       })}
