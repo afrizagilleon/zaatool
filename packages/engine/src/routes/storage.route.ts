@@ -1,30 +1,64 @@
-import { Router } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
+import multer from "multer";
+import fs from "fs";
 import { storageController } from "../controllers/storage.controller.js";
 import { STORAGE_DIR } from "../services/storage.service.js";
-import multer from "multer";
-import path from "path";
-import fs from "fs";
+import { resolveInside, safeFilename } from "../core/storage-paths.js";
+import { requireRole } from "../middleware/require-role.js";
+import { maxUploadBytes } from "../config.js";
 
+/**
+ * Where an upload lands, decided here rather than by the request.
+ *
+ * It used to be `path.join(STORAGE_DIR, req.query.dir)` with the filename taken verbatim,
+ * which is two holes in one line: `?dir=../../..` chose the folder and a name like
+ * `../../server.js` chose the file. Both are now resolved and checked against the root
+ * before anything is written, and a rejected `dir` fails the request instead of quietly
+ * landing somewhere else.
+ */
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const dir = req.query.dir ? String(req.query.dir) : "";
-    const targetDir = path.join(STORAGE_DIR, dir);
+  destination: (req, _file, cb) => {
+    const targetDir = resolveInside(req.query.dir, STORAGE_DIR);
+    if (targetDir === null) {
+      return cb(new Error("That folder is outside storage."), "");
+    }
     if (!fs.existsSync(targetDir)) {
       fs.mkdirSync(targetDir, { recursive: true });
     }
     cb(null, targetDir);
   },
-  filename: (req, file, cb) => {
-    cb(null, file.originalname);
+  filename: (_req, file, cb) => {
+    cb(null, safeFilename(file.originalname));
   },
 });
 
-const upload = multer({ storage });
+const upload = multer({ storage, limits: { fileSize: maxUploadBytes(), files: 1 } });
+
+/**
+ * Multer's refusals arrive as errors, not as responses.
+ *
+ * Without this the size limit produces a 500 with a stack trace in the log and nothing
+ * useful on screen — a limit nobody can tell they hit is a limit that gets reported as a
+ * bug.
+ */
+function uploadOne(req: Request, res: Response, next: NextFunction) {
+  upload.single("file")(req, res, (err: unknown) => {
+    if (!err) return next();
+    const code = (err as { code?: string }).code;
+    if (code === "LIMIT_FILE_SIZE") {
+      return res.status(413).json({
+        error: `That file is larger than the ${Math.round(maxUploadBytes() / (1024 * 1024))} MB limit.`,
+      });
+    }
+    res.status(400).json({ error: (err as Error).message });
+  });
+}
 
 export const storageRouter = Router();
+const creator = requireRole("creator");
 
 storageRouter.get("/files", storageController.getAll);
-storageRouter.post("/files", upload.single("file"), storageController.uploadFile);
-storageRouter.patch("/files/:id", storageController.renameItem);
-storageRouter.delete("/files/:id", storageController.deleteItem);
-storageRouter.post("/folders", storageController.createFolder);
+storageRouter.post("/files", creator, uploadOne, storageController.uploadFile);
+storageRouter.patch("/files/:id", creator, storageController.renameItem);
+storageRouter.delete("/files/:id", creator, storageController.deleteItem);
+storageRouter.post("/folders", creator, storageController.createFolder);

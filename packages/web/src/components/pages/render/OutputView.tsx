@@ -3,6 +3,7 @@ import remarkGfm from 'remark-gfm';
 import { DownloadSimple } from '@phosphor-icons/react';
 import type { NotebookOutput } from '@zaa-tool/shared';
 import { asRows, renderFor } from '../../../lib/notebook-outputs';
+import { API_BASE_URL } from '../../../lib/api';
 import { TableView } from './TableView';
 import { ChartView, type ChartForm } from './ChartView';
 
@@ -29,13 +30,21 @@ function Json({ value }: { value: unknown }) {
   );
 }
 
+/**
+ * A file a cell produced.
+ *
+ * The link has to come from the engine — it is signed, and it is what makes the file
+ * readable to a shared page whose reader has no account. Building `/storage/<path>` here
+ * used to point at the dev server rather than the engine, and now would not be served at
+ * all, so a value without a `url` is shown as the value it is instead of as a dead link.
+ */
 function FileLink({ value }: { value: unknown }) {
-  const file = value as { name?: string; path?: string };
-  if (!file?.path) return <Json value={value} />;
+  const file = value as { name?: string; path?: string; url?: string };
+  if (!file?.url) return <Json value={value} />;
 
   return (
     <a
-      href={`/storage/${file.path}`}
+      href={`${API_BASE_URL}${file.url}`}
       target="_blank"
       rel="noreferrer"
       className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"

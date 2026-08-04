@@ -1,9 +1,25 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { resolveInside, safeFilename, safeSubPath } from "../core/storage-paths.js";
+import { signStorageLink } from "../core/storage-links.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const STORAGE_DIR = path.resolve(__dirname, "../../../storage");
+
+/**
+ * A path that pointed outside the storage folder.
+ *
+ * Its own type so the controller can answer 400 rather than 500: the request was wrong,
+ * not the server. It carries no path back — an attacker learns whether their probe was
+ * refused, and nothing about the shape of the disk.
+ */
+export class OutsideStorageError extends Error {
+  constructor() {
+    super("That path is outside storage.");
+    this.name = "OutsideStorageError";
+  }
+}
 
 const MIME_TYPES: Record<string, string> = {
   ".png": "image/png",
@@ -48,6 +64,8 @@ type StorageItem = {
   mime_type: string;
   size_bytes: number;
   created_at: Date;
+  /** Signed, time-limited, and absent for folders. See `core/storage-links.ts`. */
+  url?: string;
 };
 
 function sortItems(items: StorageItem[]) {
@@ -59,6 +77,13 @@ function sortItems(items: StorageItem[]) {
   return items;
 }
 
+/** Every path from outside passes through here before it reaches the filesystem. */
+function inside(raw: unknown): string {
+  const relative = safeSubPath(raw, STORAGE_DIR);
+  if (relative === null) throw new OutsideStorageError();
+  return relative;
+}
+
 export class StorageService {
   constructor() {
     if (!fs.existsSync(STORAGE_DIR)) {
@@ -66,12 +91,14 @@ export class StorageService {
     }
   }
 
+  /** The absolute path to write to, with the folder made if it is missing. */
   resolvePath(subDir: string, filename = "") {
-    const targetDir = path.join(STORAGE_DIR, subDir);
+    const targetDir = resolveInside(subDir, STORAGE_DIR);
+    if (targetDir === null) throw new OutsideStorageError();
     if (!fs.existsSync(targetDir)) {
       fs.mkdirSync(targetDir, { recursive: true });
     }
-    return path.join(targetDir, filename);
+    return path.join(targetDir, safeFilename(filename));
   }
 
   private toStorageItem(relativePath: string, isDirectory: boolean, stats: fs.Stats): StorageItem {
@@ -82,11 +109,13 @@ export class StorageService {
       mime_type: isDirectory ? "inode/directory" : getMimeType(relativePath),
       size_bytes: stats.size,
       created_at: stats.birthtime,
+      ...(isDirectory ? {} : { url: signStorageLink(relativePath) }),
     };
   }
 
   listItems(dir: string) {
-    const targetPath = path.join(STORAGE_DIR, dir);
+    const relative = inside(dir);
+    const targetPath = path.join(STORAGE_DIR, relative);
     if (!fs.existsSync(targetPath)) {
       return [];
     }
@@ -95,15 +124,16 @@ export class StorageService {
     const result = items.map((item) => {
       const itemFullPath = path.join(targetPath, item.name);
       const stats = fs.statSync(itemFullPath);
-      const relativePath = path.join(dir, item.name).replace(/\\/g, "/");
-      return this.toStorageItem(relativePath, item.isDirectory(), stats);
+      const relativeItemPath = path.join(relative, item.name).replace(/\\/g, "/");
+      return this.toStorageItem(relativeItemPath, item.isDirectory(), stats);
     });
 
     return sortItems(result);
   }
 
   searchItems(query: string, dir: string = "") {
-    const targetPath = path.join(STORAGE_DIR, dir);
+    const root = inside(dir);
+    const targetPath = path.join(STORAGE_DIR, root);
     if (!fs.existsSync(targetPath)) {
       return [];
     }
@@ -127,32 +157,41 @@ export class StorageService {
       }
     };
 
-    walk(dir);
+    walk(root);
 
     return sortItems(results);
   }
 
   createFolder(name: string, dir: string) {
-    const folderPath = path.join(STORAGE_DIR, dir, name);
+    const parent = inside(dir);
+    const folderName = safeFilename(name);
+    const folderPath = path.join(STORAGE_DIR, parent, folderName);
     if (!fs.existsSync(folderPath)) {
       fs.mkdirSync(folderPath, { recursive: true });
     }
 
-    const relativePath = path.join(dir, name).replace(/\\/g, "/");
+    const relativePath = path.join(parent, folderName).replace(/\\/g, "/");
     const stats = fs.statSync(folderPath);
 
     return this.toStorageItem(relativePath, true, stats);
   }
 
   renameItem(base64Id: string, newName: string) {
-    const relativePath = Buffer.from(base64Id, "base64").toString("utf-8");
+    // The id is a path the client sends back, so it is input like any other.
+    const relativePath = inside(Buffer.from(base64Id, "base64").toString("utf-8"));
+    if (relativePath === "") throw new OutsideStorageError();
+
     const oldFullPath = path.join(STORAGE_DIR, relativePath);
     if (!fs.existsSync(oldFullPath)) {
       throw new Error("Item not found");
     }
 
     const parentDir = path.dirname(relativePath);
-    const newRelativePath = (parentDir === "." ? newName : path.join(parentDir, newName)).replace(/\\/g, "/");
+    const cleanName = safeFilename(newName);
+    const newRelativePath = (parentDir === "." ? cleanName : path.join(parentDir, cleanName)).replace(
+      /\\/g,
+      "/"
+    );
     const newFullPath = path.join(STORAGE_DIR, newRelativePath);
 
     fs.renameSync(oldFullPath, newFullPath);
@@ -162,7 +201,10 @@ export class StorageService {
   }
 
   deleteItem(base64Id: string) {
-    const relativePath = Buffer.from(base64Id, "base64").toString("utf-8");
+    const relativePath = inside(Buffer.from(base64Id, "base64").toString("utf-8"));
+    // An empty path is the storage root itself, and no request gets to delete that.
+    if (relativePath === "") throw new OutsideStorageError();
+
     const fullPath = path.join(STORAGE_DIR, relativePath);
 
     if (fs.existsSync(fullPath)) {

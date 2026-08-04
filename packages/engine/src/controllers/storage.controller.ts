@@ -1,6 +1,15 @@
 import { Request, Response } from "express";
-import { storageService } from "../services/storage.service.js";
 import fs from "fs";
+import { storageService, OutsideStorageError } from "../services/storage.service.js";
+import { signStorageLink } from "../core/storage-links.js";
+import { safeSubPath } from "../core/storage-paths.js";
+import { STORAGE_DIR } from "../services/storage.service.js";
+
+/** A refused path is the caller's mistake, not the server's. */
+function fail(res: Response, err: unknown) {
+  const status = err instanceof OutsideStorageError ? 400 : 500;
+  res.status(status).json({ error: (err as Error).message });
+}
 
 export class StorageController {
   getAll(req: Request, res: Response) {
@@ -9,8 +18,8 @@ export class StorageController {
       const search = req.query.search ? String(req.query.search) : "";
       const items = search ? storageService.searchItems(search, dir) : storageService.listItems(dir);
       res.json(items);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      fail(res, err);
     }
   }
 
@@ -20,12 +29,11 @@ export class StorageController {
         return res.status(400).json({ error: "No file provided" });
       }
 
-      const dir = req.query.dir ? String(req.query.dir) : "";
-      const filename = req.file.originalname;
-      const targetPath = storageService.resolvePath(dir, filename);
-      
-      // Since multer diskStorage already saved it to destination, we read stats from the saved file path
+      // Multer already wrote it, under the name and into the folder the route decided —
+      // so the answer describes what is on disk, not what the request asked for.
       const stats = fs.statSync(req.file.path);
+      const dir = safeSubPath(req.query.dir, STORAGE_DIR) ?? "";
+      const filename = req.file.filename;
       const relativePath = `${dir ? dir + "/" : ""}${filename}`;
 
       res.json({
@@ -35,9 +43,10 @@ export class StorageController {
         mime_type: req.file.mimetype,
         size_bytes: stats.size,
         created_at: stats.birthtime,
+        url: signStorageLink(relativePath),
       });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      fail(res, err);
     }
   }
 
@@ -49,19 +58,17 @@ export class StorageController {
       }
 
       const currentDir = dir ? String(dir) : "";
-      const result = storageService.createFolder(name, currentDir);
-      res.json(result);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.json(storageService.createFolder(name, currentDir));
+    } catch (err) {
+      fail(res, err);
     }
   }
 
   deleteItem(req: Request, res: Response) {
     try {
-      const result = storageService.deleteItem(String(req.params.id));
-      res.json(result);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.json(storageService.deleteItem(String(req.params.id)));
+    } catch (err) {
+      fail(res, err);
     }
   }
 
@@ -71,10 +78,9 @@ export class StorageController {
       if (!name) {
         return res.status(400).json({ error: "New name is required" });
       }
-      const result = storageService.renameItem(String(req.params.id), name);
-      res.json(result);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.json(storageService.renameItem(String(req.params.id), name));
+    } catch (err) {
+      fail(res, err);
     }
   }
 }

@@ -30,7 +30,9 @@ export function FilePreviewDialog({ file, open, onOpenChange }: FilePreviewDialo
   const [textContent, setTextContent] = useState<string | null>(null);
   const [isLoadingText, setIsLoadingText] = useState(false);
 
-  const fileUrl = file ? `${API_BASE_URL}/storage/${file.path.replace(/^\/+/, '')}` : '';
+  // The engine mints this with the listing and signs it. Built by hand it would be a bare
+  // path, which `/storage` no longer serves to anyone.
+  const fileUrl = file?.url ? `${API_BASE_URL}${file.url}` : '';
 
   useEffect(() => {
     if (!open || !file || !isTextLike(file.mime_type)) {

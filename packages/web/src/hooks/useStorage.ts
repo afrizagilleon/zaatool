@@ -8,6 +8,14 @@ export interface FileEntry {
   mime_type: string;
   size_bytes: number;
   created_at: string;
+  /**
+   * Signed and time-limited, minted by the engine with the listing.
+   *
+   * Absent for folders, and absent from anything older than this listing — which is why
+   * nothing here builds a storage URL by hand any more. `/storage` no longer serves a
+   * path just because it exists.
+   */
+  url?: string;
 }
 
 export function useStorage() {

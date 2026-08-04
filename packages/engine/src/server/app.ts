@@ -11,6 +11,7 @@ import { createMcpRouter } from "../routes/mcp.route.js";
 import { createShareRouter } from "../routes/share.route.js";
 import { authRouter } from "../routes/auth.route.js";
 import { authMiddleware } from "../middleware/auth.middleware.js";
+import { storageAccess } from "../middleware/storage-access.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 
 export function createApp(publishRunEvent: RunEventSink) {
@@ -36,7 +37,11 @@ export function createApp(publishRunEvent: RunEventSink) {
   app.use("/api/resources/skills", skillsRouter);
   app.use("/api/resources/secrets", secretsRouter);
   app.use("/api/resources", storageRouter);
-  app.use("/storage", express.static(STORAGE_DIR));
+
+  // Outside /api because a browser asks for these in `src` and `href`, where no header can
+  // be attached — so the permission is in the link instead. `storageAccess` is what makes
+  // that a permission rather than a URL anyone can type.
+  app.use("/storage", storageAccess, express.static(STORAGE_DIR));
 
   app.get("/api/health", (_req, res) => {
     res.status(200).json({ status: "ok" });
