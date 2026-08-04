@@ -227,11 +227,59 @@ Types: ${types}.
 | \`options\` | the values it accepts: a dropdown on the page, an enum in the tool schema, anything else refused |
 | \`multiple\` | with \`options\`, accepts a list of them |
 | \`multiline\` | \`string\` only: a box with room to write in, for a note or a reason |
+| \`accept\` | \`file\` only: which kinds, in the words a browser uses — \`image/*\`, \`audio/*\`, \`.csv\` |
 
 \`multiline\` is still a \`string\` — it changes the control, not the type. Use it whenever
 someone might type a sentence; a one-line field is a promise about length, and it is the
 wrong promise for a note. It is refused on a number, a boolean, or anything with
 \`options\`, since none of those have a long form.
+
+### A \`file\` input
+
+The value is never the bytes. Somebody attaches a file on the page, or posts one to the
+webhook, and the cell receives an object it can read:
+
+\`\`\`yaml
+inputs:
+  - name: photo
+    type: file
+    accept: image/*
+\`\`\`
+
+\`\`\`js
+const text = inputs.photo.readAsText();      // or readAsBase64(), readAsBuffer()
+return { size: text.length, kept: inputs.photo };
+\`\`\`
+
+In Python the same object answers to \`read_as_text()\`, \`read_as_base64()\`, \`read_as_bytes()\`.
+
+\`accept: audio/*\` does one thing beyond filtering the picker: the page grows a **record**
+button. There is no other way to ask for a voice note, and no separate declaration for it.
+
+A webhook that accepts files **must have a \`secretKey\`**, and it is refused without one.
+An open hook that runs a notebook costs a few seconds of somebody's CPU; an open hook that
+*stores what you send it* is free disk on a stranger's machine.
+
+## Keeping a file — \`files.write\`
+
+A cell can write a file and hand back where it went:
+
+\`\`\`js
+const chart = await files.write("chart.png", pngBuffer);   // Buffer, Uint8Array, or base64
+return { chart };                                          // shown as a picture
+\`\`\`
+
+\`\`\`python
+chart = files.write("chart.png", png_bytes)
+return {"chart": chart}
+\`\`\`
+
+What comes back is \`{ name, path, url, size, mime }\`. You do not have to say
+\`render: image\` — the value knows what it is, and \`auto\` shows a picture for an image, a
+player for a video or a sound, and a download link for anything else.
+
+**The same name replaces the file.** \`chart.png\` means *the current chart*, not the four
+hundredth one. If you want a history, put the date in the name yourself.
 
 ## Outputs — how a value is shown
 
@@ -260,8 +308,10 @@ outputs:
 | \`area\` | how a total filled up | an array of objects |
 | \`pie\` | what share of a whole | an array of objects, **6 rows or fewer** |
 | \`markdown\` | formatted prose, GFM tables included | a string |
-| \`image\` | an image | a \`data:\` URI or an image URL |
-| \`file\` | a download link | \`{ name, path }\` |
+| \`image\` | an image | a \`data:\` URI, an image URL, or what \`files.write\` returned |
+| \`video\` | a player | what \`files.write\` returned, or a video URL |
+| \`audio\` | a player | what \`files.write\` returned, or an audio URL |
+| \`file\` | a download link | what \`files.write\` returned |
 | \`json\` | a formatted dump | anything |
 | \`text\` | one plain value | a string or number |
 
