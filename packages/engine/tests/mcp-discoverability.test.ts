@@ -397,6 +397,91 @@ await check("an action that could not work is refused at write time, with the re
   );
 });
 
+// ── files, in and out ─────────────────────────────────────────────────────────
+
+console.log("\nfiles");
+
+await check("`files.write` is written down, in both runtimes", () => {
+  assert.match(conventions, /files\.write/);
+  assert.match(conventions, /await files\.write\(/);
+  assert.match(conventions, /files\.write\("chart\.png", png_bytes\)/);
+});
+
+await check("what comes back is named, and `auto` is said to be enough", () => {
+  assert.match(conventions, /\{ name, path, url, size, mime \}/);
+  assert.match(conventions, /You do not have to say\s+`render: image`/i);
+});
+
+await check("the replacing-by-name rule is stated, since nothing else would reveal it", () => {
+  assert.match(conventions, /same name replaces the file/i);
+});
+
+await check("a `file` input is documented with how a cell reads one", () => {
+  assert.match(conventions, /type: file/);
+  assert.match(conventions, /readAsText\(\)/);
+  assert.match(conventions, /read_as_text\(\)/);
+});
+
+await check("`accept` is documented, including the one thing it does beyond filtering", () => {
+  assert.match(conventions, /`accept`/);
+  // The reference wraps, so the words are matched with the break allowed between them.
+  assert.match(conventions, /the page grows a \*\*record\*\*\s+button/i);
+});
+
+await check("the webhook's secret requirement is stated where the file input is", () => {
+  assert.match(conventions, /must have a `secretKey`/i);
+});
+
+await check("`file` is accepted by the parser, and `accept` only on a file", () => {
+  const field = (extra: string) =>
+    [
+      "---",
+      "name: zz-accept",
+      "runtime: node",
+      "inputs:",
+      "  - name: doc",
+      extra,
+      "---",
+      "",
+      "```js",
+      "return {};",
+      "```",
+    ].join("\n");
+
+  const ok = fromMarkdown(field("    type: file\n    accept: image/*"));
+  assert.equal(ok.inputs?.[0].type, "file");
+  assert.equal(ok.inputs?.[0].accept, "image/*");
+
+  assert.throws(() => fromMarkdown(field("    type: string\n    accept: image/*")), /accept/);
+});
+
+// ── editing without rewriting ─────────────────────────────────────────────────
+
+console.log("\nchanging part of a notebook");
+
+await check("the outline is offered as the thing to read first", () => {
+  const read = tools.find((tool) => tool.name === "notebook_read");
+  assert.match(String(read?.description ?? ""), /part: outline/);
+  assert.match(conventions, /part: outline/);
+});
+
+await check("`notebook_edit_cell` exists and says why it beats a rewrite", () => {
+  const edit = tools.find((tool) => tool.name === "notebook_edit_cell");
+  assert.ok(edit, "there is no notebook_edit_cell tool");
+  assert.match(String(edit.description), /INSTEAD OF `notebook_write`/i);
+  assert.match(conventions, /notebook_edit_cell/);
+});
+
+await check("the scope refusal is documented rather than discovered by being refused", () => {
+  assert.match(conventions, /reading a name nothing\s+writes any more/i);
+});
+
+await check("the map's grouping is described where an agent decides what to reuse", () => {
+  assert.match(String(tools.find((tool) => tool.name === "system_map")?.description ?? ""), /about/);
+  assert.match(conventions, /Called by others/);
+  assert.match(conventions, /Look here before writing anything/i);
+});
+
 await check("the resource is described by what it answers, not just its name", async () => {
   const resources = (await client.listResources()).resources;
   const entry = resources.find((resource) => resource.uri === "zaa://conventions");
