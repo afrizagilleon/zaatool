@@ -4,8 +4,25 @@ import { createApp } from "./server/app.js";
 import { WebSocketManager } from "./server/websocket-manager.js";
 import { RunEventHub } from "./server/run-event-hub.js";
 import { schedulerService } from "./services/scheduler.service.js";
+import { configProblems, isProduction, registrationOpen, usingDevSecret } from "./config.js";
 
 export async function startServer(port = 4000) {
+  // Before anything is opened. A misconfigured deployment that starts is worse than one
+  // that does not: it looks like it works, and the thing it got wrong is the lock.
+  const problems = configProblems();
+  if (problems.length > 0) {
+    console.error("\n❌ Refusing to start:\n");
+    for (const problem of problems) console.error(`   • ${problem}\n`);
+    process.exit(1);
+  }
+
+  if (!isProduction() && usingDevSecret()) {
+    console.warn("⚠️  JWT_SECRET is not set; using the development secret.");
+  }
+  if (registrationOpen()) {
+    console.warn("⚠️  ALLOW_REGISTRATION is on: anyone who can reach this port can make an account.");
+  }
+
   // Initialize Database
   try {
     await initDb();
