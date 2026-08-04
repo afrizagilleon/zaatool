@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { RunActivityEvent, RunWatchMessage } from '@zaa-tool/shared';
 import { WS_BASE_URL } from '../lib/api.js';
+import { authenticateSocket } from '../lib/run-socket.js';
 
 /** How long a finished notebook keeps its colour before fading back to idle. */
 const SETTLE_MS = 4000;
@@ -46,6 +47,7 @@ export function useRunActivity(enabled: boolean): Record<string, NotebookActivit
     };
 
     socket.onopen = () => {
+      authenticateSocket(socket);
       const message: RunWatchMessage = { action: 'watch' };
       socket.send(JSON.stringify(message));
     };

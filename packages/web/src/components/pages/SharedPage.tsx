@@ -8,7 +8,7 @@ import { InputField, initialValues, toArgs } from './render/InputField';
 import { OutputView } from './render/OutputView';
 import { PageGrid } from './render/PageGrid';
 import { PageActions } from './render/PageActions';
-import { connectRunSocket, subscribeToRun } from '../../lib/run-socket';
+import { authenticateSocket, connectRunSocket, subscribeToRun } from '../../lib/run-socket';
 import { cn } from '../../lib/utils';
 
 /**
@@ -187,7 +187,11 @@ export function SharedPage({ token }: { token: string }) {
       () => {}
     );
 
-    socket.onopen = () => subscribeToRun(socket, runId);
+    socket.onopen = () => {
+      // The link is the credential here too — the same token the page was fetched with.
+      authenticateSocket(socket, token);
+      subscribeToRun(socket, runId);
+    };
     return () => {
       socket.onclose = null;
       socket.close();

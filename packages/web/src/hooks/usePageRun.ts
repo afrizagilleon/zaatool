@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { NotebookOutput } from '@zaa-tool/shared';
-import { connectRunSocket, subscribeToRun } from '../lib/run-socket.js';
+import { authenticateSocket, connectRunSocket, subscribeToRun } from '../lib/run-socket.js';
 import { notebooksApi } from '../lib/notebooks-api';
 
 /**
@@ -174,7 +174,10 @@ export function usePageRun(notebookId: string, outputs: NotebookOutput[]) {
       () => {}
     );
 
-    socket.onopen = () => subscribeToRun(socket, runId);
+    socket.onopen = () => {
+      authenticateSocket(socket);
+      subscribeToRun(socket, runId);
+    };
 
     return () => {
       socket.onclose = null;

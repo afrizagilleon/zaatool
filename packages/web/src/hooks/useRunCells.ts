@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { connectRunSocket, subscribeToRun } from '../lib/run-socket.js';
+import { authenticateSocket, connectRunSocket, subscribeToRun } from '../lib/run-socket.js';
 
 export type CellActivity = 'running' | 'done' | 'error';
 
@@ -48,7 +48,10 @@ export function useRunCells(runId: string | undefined): Record<string, CellActiv
       () => {}
     );
 
-    socket.onopen = () => subscribeToRun(socket, runId);
+    socket.onopen = () => {
+      authenticateSocket(socket);
+      subscribeToRun(socket, runId);
+    };
 
     return () => {
       socket.onclose = null;

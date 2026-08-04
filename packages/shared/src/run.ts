@@ -45,7 +45,29 @@ export interface RunWatchMessage {
   action: "watch";
 }
 
-export type RunClientMessage = RunSubscribeMessage | RunWatchMessage;
+/**
+ * The first thing a socket says.
+ *
+ * The stream used to accept anyone who connected. Holding a run id was the only thing
+ * standing between a stranger and a run's output, and `watch` did not even need that — it
+ * announced every notebook in the workspace by id to whoever asked.
+ *
+ * `token` is a session token for someone signed in, or a share token for a page handed to
+ * someone who is not. What each may then ask for differs, and the engine decides that;
+ * the message is the same either way.
+ */
+export interface RunAuthMessage {
+  action: "auth";
+  token: string;
+}
+
+export type RunClientMessage = RunAuthMessage | RunSubscribeMessage | RunWatchMessage;
+
+/** Sent back when a socket is turned away, so the client can say why rather than hang. */
+export interface RunDeniedEvent {
+  type: "run:denied";
+  reason: string;
+}
 
 /**
  * Lifecycle only — which notebook is busy and how it ended.

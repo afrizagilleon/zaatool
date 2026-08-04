@@ -3,25 +3,58 @@ import { Server } from "http";
 import type {
   RunActivityEvent,
   RunClientMessage,
+  RunDeniedEvent,
   RunEvent,
 } from "@zaa-tool/shared";
 import type { RunEventHub } from "./run-event-hub.js";
+import { authService } from "../services/auth.service.js";
+import { notebookSharesService } from "../services/notebook-shares.service.js";
 
 /** Guards against a single socket holding open an unbounded number of channels. */
 const MAX_SUBSCRIPTIONS_PER_SOCKET = 20;
+
+/**
+ * How long a socket may stay silent before it is closed.
+ *
+ * Long enough that a slow page still gets its first frame out, short enough that an open
+ * port is not a place to park connections.
+ */
+const AUTH_GRACE_MS = 10_000;
 
 function parseMessage(raw: unknown): RunClientMessage | null {
   if (typeof raw !== "string") return null;
   try {
     const message: unknown = JSON.parse(raw);
     if (typeof message !== "object" || message === null) return null;
-    const { action, runId } = message as { action?: string; runId?: string };
+    const { action, runId, token } = message as {
+      action?: string;
+      runId?: string;
+      token?: string;
+    };
+    if (action === "auth") {
+      return typeof token === "string" && token.length > 0 ? { action, token } : null;
+    }
     if (action === "watch") return { action: "watch" };
     if (action !== "subscribe" || typeof runId !== "string" || runId.length === 0) return null;
     return { action, runId };
   } catch {
     return null;
   }
+}
+
+/**
+ * Who a socket turned out to be.
+ *
+ * `session` is somebody signed in to this installation. `share` is a page handed to
+ * somebody who is not — it can follow a run, because a shared page runs its notebook and
+ * has to show the result, but it cannot ask what else is happening here.
+ */
+type Caller = "session" | "share";
+
+async function identify(token: string): Promise<Caller | null> {
+  if (authService.verifyToken(token)) return "session";
+  const share = await notebookSharesService.resolve(token);
+  return share ? "share" : null;
 }
 
 /**
@@ -42,10 +75,18 @@ function toActivity(event: RunEvent): RunActivityEvent | null {
 }
 
 /**
- * Owns the WebSocket lifecycle only. It does not decide who sees what — a
- * socket receives a run's events after it subscribes with that run's id, which
- * the client obtains from the HTTP response that started the run. Routing and
- * buffering belong to {@link RunEventHub}.
+ * Owns the WebSocket lifecycle only. It does not decide what an event contains — routing
+ * and buffering belong to {@link RunEventHub}.
+ *
+ * It does decide *who is listening*. A socket says who it is first; until it has, it can
+ * ask for nothing. After that two rules apply, and they differ because the two channels
+ * differ:
+ *
+ *  - `subscribe` still needs the run id, which a client only gets from the response that
+ *    started that run. Authentication is a second lock on that door, not a replacement.
+ *  - `watch` needs a session. It names every notebook that runs anywhere in this
+ *    installation, including ones the caller has never been shown, so a share token — which
+ *    was issued for exactly one page — does not reach it.
  */
 export class WebSocketManager {
   private wss: WebSocketServer;
@@ -59,12 +100,36 @@ export class WebSocketManager {
 
     this.wss.on("connection", (ws) => {
       const unsubscribes = new Map<string, () => void>();
+      let caller: Caller | null = null;
 
-      ws.on("message", (raw) => {
-        const message = parseMessage(raw.toString());
-        if (!message) return;
+      const deny = (reason: string, close = false) => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        const event: RunDeniedEvent = { type: "run:denied", reason };
+        ws.send(JSON.stringify(event));
+        if (close) ws.close();
+      };
+
+      const graceTimer = setTimeout(() => {
+        if (!caller) deny("This stream needs an `auth` message first.", true);
+      }, AUTH_GRACE_MS);
+
+      /**
+       * Checking a token means a database lookup for share links, so a client that sends
+       * `auth` and `subscribe` back to back — which every client here does — would be
+       * refused for arriving too fast. Anything sent while the check is in flight waits
+       * behind it instead, in the order it arrived.
+       */
+      let checking: Promise<void> | null = null;
+
+      const handle = (message: Exclude<RunClientMessage, { action: "auth" }>) => {
+        if (!caller) {
+          return deny("Send `auth` before subscribing.");
+        }
 
         if (message.action === "watch") {
+          if (caller !== "session") {
+            return deny("Watching the workspace needs an account here.");
+          }
           if (unsubscribes.has("*")) return;
           unsubscribes.set(
             "*",
@@ -89,9 +154,29 @@ export class WebSocketManager {
             }
           })
         );
+      };
+
+      ws.on("message", (raw) => {
+        const message = parseMessage(raw.toString());
+        if (!message) return;
+
+        if (message.action === "auth") {
+          checking = identify(message.token).then((identified) => {
+            if (!identified) return deny("That token was not accepted.", true);
+            caller = identified;
+          });
+          return;
+        }
+
+        if (checking) {
+          void checking.then(() => handle(message));
+          return;
+        }
+        handle(message);
       });
 
       const release = () => {
+        clearTimeout(graceTimer);
         for (const unsubscribe of unsubscribes.values()) unsubscribe();
         unsubscribes.clear();
       };

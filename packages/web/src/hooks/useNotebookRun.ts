@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useNotebookStore } from '../store/notebookStore.js';
 import { notebooksApi } from '../lib/notebooks-api.js';
-import { connectRunSocket, subscribeToRun } from '../lib/run-socket.js';
+import { authenticateSocket, connectRunSocket, subscribeToRun } from '../lib/run-socket.js';
 import { scopeBefore } from '../lib/notebook-scope-replay.js';
 
 /**
@@ -129,6 +129,7 @@ export function useNotebookRun() {
     wsRef.current = ws;
 
     ws.onopen = async () => {
+      authenticateSocket(ws);
       try {
         const current = useNotebookStore.getState();
         const { runId } = await notebooksApi.run(notebookId, {
