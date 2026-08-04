@@ -70,6 +70,8 @@ interface NotebookToolbarProps {
   runHistory?: React.ReactNode;
   /** The deploy gate, owned by the editor because it needs the saved notebook's id. */
   deployButton?: React.ReactNode;
+  /** Downloads the notebook as the text form. Absent until it has been saved once. */
+  exportButton?: React.ReactNode;
   /** Trigger editor, shown in a popover next to Secrets. */
   triggerPanel?: React.ReactNode;
   triggerCount: number;
@@ -101,6 +103,7 @@ export function NotebookToolbar({
   staleCount,
   runHistory,
   deployButton,
+  exportButton,
   triggerPanel,
   triggerCount,
   contractPanel,
@@ -205,6 +208,8 @@ export function NotebookToolbar({
       </Button>
 
       {runHistory}
+
+      {exportButton}
 
       <Divider />
 

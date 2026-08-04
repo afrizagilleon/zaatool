@@ -1,4 +1,6 @@
 import { Request, Response } from "express";
+import { randomUUID } from "crypto";
+import { fromMarkdown, toMarkdown } from "../core/notebook-text.js";
 import { notebooksService } from "../services/notebooks.service.js";
 import { notebookFilesService } from "../services/notebook-files.service.js";
 import { buildNotebookMap } from "../core/notebook-map.js";
@@ -401,6 +403,61 @@ export class NotebooksController {
       }
 
       res.json(notebookFilesService.keepUpload(notebook.id, file.originalname, file.buffer, "page"));
+    } catch (err: unknown) {
+      respondWithError(res, err);
+    }
+  };
+
+  /**
+   * The notebook as the text an agent reads and writes.
+   *
+   * The same `toMarkdown` the MCP tools use, and lossless — which is what makes this an
+   * export rather than a report. A notebook can be moved between installations, kept in
+   * somebody's git repository, or pasted into a chat, without anything here having to know
+   * about git or about chats.
+   */
+  text = async (req: Request, res: Response) => {
+    try {
+      const record = await notebooksService.getById(String(req.params.id));
+      if (!record) return res.status(404).json({ error: "Notebook not found" });
+
+      const document = notebooksService.parseDocument(record);
+      res.type("text/markdown").send(toMarkdown(document));
+    } catch (err: unknown) {
+      respondWithError(res, err);
+    }
+  };
+
+  /**
+   * Saves a notebook from that same text.
+   *
+   * `asNew` is the import case: the file names an id, and importing a colleague's notebook
+   * should not overwrite whatever happens to hold that id here.
+   */
+  saveText = async (req: Request, res: Response) => {
+    try {
+      const { text, asNew } = req.body ?? {};
+      if (typeof text !== "string" || text.trim() === "") {
+        return res.status(400).json({ error: "No text provided" });
+      }
+
+      const user = (req as Request & { user?: { username?: string } }).user;
+      let document = fromMarkdown(text);
+
+      if (asNew) {
+        document = { ...document, id: randomUUID() };
+      } else {
+        // The same two-pass read the MCP write does, so an import that omits `layout`
+        // or `actions` keeps the ones already stored rather than deleting them.
+        const existing = await notebooksService.getById(document.id);
+        if (existing) {
+          document = fromMarkdown(text, {
+            previous: notebooksService.parseDocument(existing),
+          });
+        }
+      }
+
+      res.json(await notebooksService.save(document, user?.username ?? "unknown"));
     } catch (err: unknown) {
       respondWithError(res, err);
     }

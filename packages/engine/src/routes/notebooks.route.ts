@@ -36,6 +36,9 @@ export function createNotebooksRouter(publishRunEvent: RunEventSink): Router {
   // Before `/:id`, or "map" would be read as a notebook id.
   router.get("/map", controller.map);
   router.get("/pages", controller.pages);
+  // Before `/:id` for the same reason `map` is.
+  router.post("/text", creator, controller.saveText);
+  router.get("/:id/text", controller.text);
   router.get("/:id", controller.getById);
   router.delete("/:id", creator, controller.remove);
   router.post("/:id/run", controller.run);

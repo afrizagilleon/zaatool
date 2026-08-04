@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash, Notebook as NotebookIcon, MagnifyingGlass } from '@phosphor-icons/react';
+import {
+  Plus,
+  Trash,
+  Notebook as NotebookIcon,
+  MagnifyingGlass,
+  UploadSimple,
+} from '@phosphor-icons/react';
 import type { NotebookRuntime, NotebookSummary } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -41,6 +47,23 @@ export function NotebookList({ onOpen, onCreate }: NotebookListProps) {
     }
   };
 
+  /**
+   * Imports a notebook from the text form.
+   *
+   * Always as a new notebook. The file carries the id it had wherever it came from, and
+   * a colleague's export landing on top of whatever holds that id here would be a very
+   * quiet way to lose work.
+   */
+  const importFile = async (file: File) => {
+    try {
+      const saved = await notebooksApi.saveText(await file.text(), true);
+      await refresh();
+      onOpen(saved.id);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
   const needle = query.trim().toLowerCase();
   const found = needle
     ? notebooks.filter((notebook) => notebook.name.toLowerCase().includes(needle))
@@ -52,6 +75,25 @@ export function NotebookList({ onOpen, onCreate }: NotebookListProps) {
         <div className="flex items-center gap-2 mb-4">
           <h1 className="text-sm font-bold uppercase tracking-widest text-foreground">Notebooks</h1>
           <div className="flex-1" />
+          {/* The text form is what agents already read and write, so importing one is
+              opening a file rather than a format anyone had to invent. */}
+          <label
+            className="inline-flex h-7 cursor-pointer items-center gap-1.5 border border-border px-2.5 text-xs hover:bg-muted"
+            title="Open a notebook exported as .md"
+          >
+            <UploadSimple size={12} />
+            Import
+            <input
+              type="file"
+              accept=".md,text/markdown"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = '';
+                if (file) void importFile(file);
+              }}
+            />
+          </label>
           <Button size="sm" className="h-7 px-2.5 text-xs" onClick={() => onCreate('node')}>
             <Plus size={12} className="mr-1.5" />
             JavaScript

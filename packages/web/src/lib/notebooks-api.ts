@@ -42,6 +42,22 @@ export const notebooksApi = {
   delete: (id: string): Promise<{ success: boolean }> =>
     request(`/api/notebooks/${id}`, { method: "DELETE" }),
 
+  /**
+   * The notebook as the text form — the same one agents read and write.
+   *
+   * Not `request`, because the answer is markdown rather than JSON. Lossless, so what
+   * comes out here goes back in unchanged; that is what makes it an export.
+   */
+  text: async (id: string): Promise<string> => {
+    const res = await fetch(`${API_BASE_URL}/api/notebooks/${id}/text`);
+    if (!res.ok) throw new Error(`Could not export: ${res.status}`);
+    return res.text();
+  },
+
+  /** `asNew` keeps an imported file from overwriting whatever holds the id it names. */
+  saveText: (text: string, asNew = false): Promise<{ id: string; name: string }> =>
+    request("/api/notebooks/text", { method: "POST", body: JSON.stringify({ text, asNew }) }),
+
   /** Every deployed notebook with a contract, described well enough to render. */
   pages: (): Promise<NotebookPage[]> => request("/api/notebooks/pages"),
 
