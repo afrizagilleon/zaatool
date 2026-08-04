@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
 import { buildSandboxEnv } from "./sandbox-env.js";
 import { PY_RPC_PREFIX, type NotebookCaller } from "./notebook-call.js";
+import type { FileWriter } from "./notebook-files.js";
 
 export function runPythonNode(
   code: string,
@@ -9,7 +10,8 @@ export function runPythonNode(
   onLog?: (level: string, msg: string) => void,
   secrets: Record<string, string> = {},
   inputsSchema: any[] = [],
-  onCall?: NotebookCaller
+  onCall?: NotebookCaller,
+  onFile?: FileWriter
 ): Promise<{ output?: Record<string, unknown>; logs: any[]; error?: string; ms: number }> {
   return new Promise((resolve) => {
     const startTime = Date.now();
@@ -76,11 +78,12 @@ class FileObject:
     def exists(self):
         return bool(self.absolute_path) and os.path.exists(self.absolute_path)
     def to_json(self):
+        # absolute_path is left out on purpose: it exists so this object can read the
+        # file, and it names a folder on the server. See code-wrappers.ts.
         return {
             "name": self.name,
             "path": self.path,
-            "url": self.url,
-            "absolute_path": self.absolute_path
+            "url": self.url
         }
 
 class ImageObject(FileObject):
@@ -143,10 +146,44 @@ class _Notebooks:
 
 notebooks = _Notebooks()
 
+class _Files:
+    """files.write(name, data) - the same channel notebooks.run uses, for bytes.
+
+    data may be str or bytes; bytes are sent as base64, which is what the engine
+    expects for anything that is not text. The reply is a dict with path and url, ready
+    to be returned as an output rendered as an image or a file.
+    """
+    def __init__(self):
+        self._enabled = False
+        self._last_id = 0
+    def write(self, name, data, encoding=None):
+        if not self._enabled:
+            raise RuntimeError("Writing a file is not available here")
+        if isinstance(data, (bytes, bytearray)):
+            payload = base64.b64encode(bytes(data)).decode("ascii")
+            sent = "base64"
+        elif isinstance(data, str):
+            payload = data
+            sent = encoding or "utf8"
+        else:
+            raise RuntimeError("files.write needs a str or bytes")
+        self._last_id += 1
+        file_id = self._last_id
+        _zaa_send({"type": "file:write", "id": file_id, "name": name, "data": payload, "encoding": sent})
+        while True:
+            frame = _zaa_receive()
+            if frame.get("type") == "file:result" and frame.get("id") == file_id:
+                if frame.get("ok"):
+                    return frame.get("value")
+                raise RuntimeError(frame.get("error") or "the write failed")
+
+files = _Files()
+
 payload = _zaa_receive()
 inputs = payload.get("inputs", {})
 inputs_schema = payload.get("inputsSchema", [])
 notebooks._enabled = bool(payload.get("canCall"))
+files._enabled = bool(payload.get("canWriteFile"))
 
 # Wrap inputs based on schema
 wrapped_inputs = {}
@@ -237,6 +274,30 @@ except Exception as err:
             startTimer();
             send({ type: "call:result", id: frame.id, ...outcome });
           });
+        return;
+      }
+      if (frame?.type === "file:write") {
+        if (!onFile) {
+          send({
+            type: "file:result",
+            id: frame.id,
+            ok: false,
+            error: "Writing a file is not available here",
+          });
+          return;
+        }
+        pauseTimer();
+        void onFile({ name: frame.name, data: frame.data, encoding: frame.encoding })
+          .then((value) => ({ ok: true as const, value }))
+          .catch((err: unknown) => ({
+            ok: false as const,
+            error: err instanceof Error ? err.message : String(err),
+          }))
+          .then((outcome) => {
+            if (settled) return;
+            startTimer();
+            send({ type: "file:result", id: frame.id, ...outcome });
+          });
       }
     };
 
@@ -270,7 +331,7 @@ except Exception as err:
     });
 
     // The child reads this as its first line and keeps stdin open for call replies.
-    send({ inputs, inputsSchema, canCall: Boolean(onCall) });
+    send({ inputs, inputsSchema, canCall: Boolean(onCall), canWriteFile: Boolean(onFile) });
 
     proc.on("error", (err) => finish({ error: err.message }));
 

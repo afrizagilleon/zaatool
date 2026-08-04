@@ -4,7 +4,7 @@ import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 // Secrets arrive through the worker's `env` option (see js-runner), not through
 // workerData — the worker's process.env is already scoped to this node.
-const { code, inputs, inputsSchema, canCall } = workerData;
+const { code, inputs, inputsSchema, canCall, canWriteFile } = workerData;
 
 // catch console.log from user's code → send as event log
 const originalLog = console.log;
@@ -24,11 +24,22 @@ console.error = (...args) => {
 const pending = new Map<number, { resolve: (value: unknown) => void; reject: (err: Error) => void }>();
 let nextCallId = 0;
 
+/** Replies to `notebooks.run` and to `files.write` arrive the same way, on the same port. */
+const fileWrites = new Map<number, { resolve: (value: unknown) => void; reject: (err: Error) => void }>();
+let nextFileId = 0;
+
 parentPort?.on("message", (msg) => {
-  if (msg?.type !== "call:result") return;
-  const waiting = pending.get(msg.id);
+  const waiting =
+    msg?.type === "call:result"
+      ? pending.get(msg.id)
+      : msg?.type === "file:result"
+        ? fileWrites.get(msg.id)
+        : undefined;
   if (!waiting) return;
-  pending.delete(msg.id);
+
+  if (msg.type === "call:result") pending.delete(msg.id);
+  else fileWrites.delete(msg.id);
+
   if (msg.ok) waiting.resolve(msg.value);
   else waiting.reject(new Error(msg.error));
 });
@@ -45,6 +56,46 @@ const notebooks = {
       const id = ++nextCallId;
       pending.set(id, { resolve, reject });
       parentPort?.postMessage({ type: "call", id, notebook, input });
+    });
+  },
+};
+
+/**
+ * `files.write(name, data)` — how a cell keeps something.
+ *
+ * `data` may be a string, a Buffer, a Uint8Array or an ArrayBuffer, because a cell that
+ * has just produced a PNG should not have to know which of those it is holding. Text is
+ * sent as text and everything else as base64; the engine writes it and answers with the
+ * path and a signed link, which is exactly what `render: image` and `render: file` want.
+ */
+const files = {
+  write(name: string, data: unknown, encoding?: "utf8" | "base64"): Promise<unknown> {
+    if (!canWriteFile) {
+      return Promise.reject(new Error("Writing a file is not available here"));
+    }
+
+    let payload: string;
+    let sent: "utf8" | "base64";
+
+    if (typeof data === "string") {
+      payload = data;
+      sent = encoding ?? "utf8";
+    } else if (data instanceof ArrayBuffer) {
+      payload = Buffer.from(new Uint8Array(data)).toString("base64");
+      sent = "base64";
+    } else if (ArrayBuffer.isView(data)) {
+      payload = Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString("base64");
+      sent = "base64";
+    } else {
+      return Promise.reject(
+        new Error("files.write needs a string, a Buffer, a Uint8Array or an ArrayBuffer")
+      );
+    }
+
+    return new Promise((resolve, reject) => {
+      const id = ++nextFileId;
+      fileWrites.set(id, { resolve, reject });
+      parentPort?.postMessage({ type: "file:write", id, name, data: payload, encoding: sent });
     });
   },
 };
@@ -83,9 +134,18 @@ const notebooks = {
       "FileObject",
       "ImageObject",
       "notebooks",
+      "files",
       `"use strict"; return (async () => { ${code} })()`,
     );
-    const output = await fn(wrappedInputs, require, Table, FileObject, ImageObject, notebooks);
+    const output = await fn(
+      wrappedInputs,
+      require,
+      Table,
+      FileObject,
+      ImageObject,
+      notebooks,
+      files
+    );
     const cleanOutput = output !== undefined ? JSON.parse(JSON.stringify(output)) : undefined;
     parentPort?.postMessage({ type: "done", output: cleanOutput });
   } catch (err) {

@@ -4,6 +4,7 @@ import { runJsNode } from "./js-runner.js";
 import { runPythonNode } from "./python-runner.js";
 import { selectOutputs } from "./notebook-contract.js";
 import type { NotebookCaller } from "./notebook-call.js";
+import type { FileWriter } from "./notebook-files.js";
 import type { NotebookPlan, PlanCell, PlanLane, PlanParallel, PlanStep } from "./notebook-compiler.js";
 
 export interface RunNotebookOptions {
@@ -17,6 +18,11 @@ export interface RunNotebookOptions {
    * is what a caller wants when there is nothing sensible to call into.
    */
   call?: NotebookCaller;
+  /**
+   * How a cell keeps a file. Absent means it cannot, which is the right answer wherever
+   * there is no notebook to attribute the file to.
+   */
+  file?: FileWriter;
 }
 
 export interface NotebookRunResult {
@@ -53,7 +59,7 @@ export async function runNotebook(
   plan: NotebookPlan,
   options: RunNotebookOptions = {}
 ): Promise<NotebookRunResult> {
-  const { ee, secrets = {}, input, call } = options;
+  const { ee, secrets = {}, input, call, file } = options;
   const startedAt = Date.now();
   const runCell = runnerFor(plan);
   const rootScope = new NotebookScope();
@@ -82,8 +88,12 @@ export async function runNotebook(
         ee?.emit("cell:log", { type: "cell:log", cellId: step.cellId, level, payload: msg });
       },
       secrets,
-      [],
-      callFromCell
+      // The contract, handed to the runner so a declared `file` reaches the cell as
+      // something with `readAsText()` rather than as a bare object. It used to be sent
+      // empty, which is why that wrapping never happened for a notebook.
+      plan.inputs ?? [],
+      callFromCell,
+      file
     );
 
     if (result.error) {

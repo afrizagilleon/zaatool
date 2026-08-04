@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { compileNotebook, selectPlanCell } from "../core/notebook-compiler.js";
 import { RunGate } from "../core/run-gate.js";
 import { runNotebook, type NotebookRunResult } from "../core/notebook-runner.js";
+import { notebookFilesService } from "./notebook-files.service.js";
 import { bindInputs } from "../core/notebook-contract.js";
 import { createRunEmitter, type RunEventSink } from "../core/run-emitter.js";
 import { notebooksService } from "./notebooks.service.js";
@@ -170,7 +171,10 @@ export class NotebookExecutionService {
     const plan = compileNotebook(document);
     // A contract failure names the callee, because from the caller's seat the error
     // is about the call it just made, not about a notebook it cannot see.
-    const input = bindInputs(plan.inputs, request.input);
+    const input = notebookFilesService.withReadablePaths(
+      plan.inputs,
+      bindInputs(plan.inputs, request.input)
+    );
     const secrets = await secretsService.getByKeys(plan.secrets);
 
     // A called notebook is a run in its own right, with its own id and its own history
@@ -213,6 +217,9 @@ export class NotebookExecutionService {
       secrets,
       input,
       call: (nestedRequest) => this.callNotebook(nestedRequest, nested),
+      // A callee writes into its own folder, not the caller's: a file belongs to the
+      // notebook that produced it, however deep in a chain that notebook sits.
+      file: notebookFilesService.writerFor(found.id),
     });
     await recorder.drain();
 
@@ -267,7 +274,10 @@ export class NotebookExecutionService {
 
     // Bound before the run id exists, so bad arguments are a rejected request rather
     // than a run that fails on its first cell.
-    const boundInputs = bindInputs(fullPlan.inputs, options.args);
+    const boundInputs = notebookFilesService.withReadablePaths(
+      fullPlan.inputs,
+      bindInputs(fullPlan.inputs, options.args)
+    );
 
     let plan = fullPlan;
     if (options.cellId) {
@@ -318,6 +328,7 @@ export class NotebookExecutionService {
           // cannot quietly shadow a value the contract promised.
           input: { ...options.input, ...boundInputs },
           call: this.callerFor(notebookId, document.name, publish, runId, useDeployed),
+          file: notebookFilesService.writerFor(notebookId),
         });
         // Waiting for the recorder means a caller that reads the run the moment this
         // resolves sees every cell, not whichever writes happened to land first.

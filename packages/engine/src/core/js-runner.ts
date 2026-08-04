@@ -3,6 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { buildSandboxEnv } from "./sandbox-env.js";
 import type { NotebookCaller } from "./notebook-call.js";
+import type { FileWriter } from "./notebook-files.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -20,7 +21,8 @@ export function runJsNode(
   onLog?: (level: string, msg: string) => void,
   secrets: Record<string, string> = {},
   inputsSchema: any[] = [],
-  onCall?: NotebookCaller
+  onCall?: NotebookCaller,
+  onFile?: FileWriter
 ): Promise<RunResult> {
   return new Promise((resolve) => {
     const startTime = Date.now();
@@ -33,7 +35,13 @@ export function runJsNode(
     const worker = new Worker(
       workerPath,
       {
-        workerData: { code, inputs, inputsSchema, canCall: Boolean(onCall) },
+        workerData: {
+          code,
+          inputs,
+          inputsSchema,
+          canCall: Boolean(onCall),
+          canWriteFile: Boolean(onFile),
+        },
         // The worker gets its own environment rather than a copy of the
         // engine's, so user code cannot read the server's credentials.
         env: buildSandboxEnv(secrets),
@@ -93,6 +101,35 @@ export function runJsNode(
             if (settled) return;
             startTimer();
             worker.postMessage({ type: "call:result", id: msg.id, ...outcome });
+          });
+        return;
+      }
+
+      if (msg.type === "file:write") {
+        if (!onFile) {
+          worker.postMessage({
+            type: "file:result",
+            id: msg.id,
+            ok: false,
+            error: "Writing a file is not available here",
+          });
+          return;
+        }
+
+        // Paused for the same reason a call pauses it: the time goes on this engine's
+        // disk rather than in the cell, and charging it here would make a cell's limit
+        // depend on how large its own output happens to be.
+        pauseTimer();
+        void onFile({ name: msg.name, data: msg.data, encoding: msg.encoding })
+          .then((value) => ({ ok: true as const, value }))
+          .catch((err: unknown) => ({
+            ok: false as const,
+            error: err instanceof Error ? err.message : String(err),
+          }))
+          .then((outcome) => {
+            if (settled) return;
+            startTimer();
+            worker.postMessage({ type: "file:result", id: msg.id, ...outcome });
           });
         return;
       }
