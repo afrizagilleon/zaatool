@@ -17,6 +17,7 @@ import { createApp } from "../src/server/app.js";
 import { notebooksService } from "../src/services/notebooks.service.js";
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
+import { jwtSecret } from "../src/config.js";
 import type { NotebookJson, NotebookMap } from "@zaa-tool/shared";
 
 let passed = 0;
@@ -44,8 +45,8 @@ const base = `http://127.0.0.1:${port}`;
 // Signed with the engine's own secret, the same as a real sign-in would produce. This
 // is a session for the test, not a way around the guard — the guard is checked below.
 const token = jwt.sign(
-  { id: "zz-map-tester", username: "zz-map-tester", role: "admin" },
-  process.env.JWT_SECRET || "zaatool-super-secret-key-12345",
+  { id: "zz-map-tester", username: "zz-map-tester", role: "creator" },
+  jwtSecret(),
   { expiresIn: "5m" }
 );
 

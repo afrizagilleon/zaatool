@@ -50,13 +50,12 @@ const server = http.createServer(createApp(() => {}));
 await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
-// The pages endpoint is behind the session guard, so the test needs one.
-const token = (
-  await authService
-    .register("zz-act-user", "zz-act-password")
-    .then(() => authService.login("zz-act-user", "zz-act-password"))
-    .catch(() => authService.login("zz-act-user", "zz-act-password"))
-).token;
+// The pages endpoint is behind the session guard, so the test needs one. Made directly
+// rather than through `register`, which is now closed once an installation has anybody in
+// it — that refusal is `access.test.ts`'s business, not this file's.
+await pool.query("DELETE FROM users WHERE username = 'zz-act-user'").catch(() => {});
+await authService.createUser("zz-act-user", "zz-act-password", "creator");
+const token = (await authService.login("zz-act-user", "zz-act-password")).token;
 const auth = { Authorization: `Bearer ${token}` };
 
 async function store(text: string, deploy = true): Promise<string> {

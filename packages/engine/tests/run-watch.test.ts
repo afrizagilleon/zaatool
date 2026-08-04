@@ -1,9 +1,11 @@
 /**
  * M7.4 — watching the workspace without being able to read it.
  *
- * The map needs to know that *something* is running without holding a run id, which
- * means this channel is reachable by anyone who can open the socket. So the thing worth
- * testing is not that events arrive — it is that outputs and logs never do.
+ * The map needs to know that *something* is running without holding a run id. It is no
+ * longer reachable by anyone who can open the socket — a socket says who it is first — but
+ * the reason the channel is thin has not changed: it is not scoped to a run the client
+ * proved it started. So the thing worth testing is still that outputs and logs never
+ * travel on it, and now also that a socket which never identified itself gets nothing.
  *
  *   pnpm --filter @zaa-tool/engine exec tsx tests/run-watch.test.ts
  */
@@ -13,6 +15,8 @@ import { AddressInfo } from "node:net";
 import WebSocket from "ws";
 import { RunEventHub } from "../src/server/run-event-hub.js";
 import { WebSocketManager } from "../src/server/websocket-manager.js";
+import { jwtSecret } from "../src/config.js";
+import jwt from "jsonwebtoken";
 import type { RunEvent } from "@zaa-tool/shared";
 
 let passed = 0;
@@ -36,13 +40,24 @@ const manager = new WebSocketManager(server, hub);
 await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 const url = `ws://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
-/** Opens a watching socket and collects whatever it is sent. */
-async function watch(): Promise<{ messages: Record<string, unknown>[]; close: () => void }> {
+/** A real session, signed the way a sign-in signs one. */
+const session = jwt.sign({ id: "zz-watch", username: "zz-watch", role: "creator" }, jwtSecret(), {
+  expiresIn: "5m",
+});
+
+/** Opens a socket and identifies it, which every client must now do before asking. */
+async function open(): Promise<{ socket: WebSocket; messages: Record<string, unknown>[] }> {
   const socket = new WebSocket(url);
   const messages: Record<string, unknown>[] = [];
-
   await new Promise<void>((resolve) => socket.on("open", () => resolve()));
   socket.on("message", (raw) => messages.push(JSON.parse(raw.toString())));
+  socket.send(JSON.stringify({ action: "auth", token: session }));
+  return { socket, messages };
+}
+
+/** Opens a watching socket and collects whatever it is sent. */
+async function watch(): Promise<{ messages: Record<string, unknown>[]; close: () => void }> {
+  const { socket, messages } = await open();
   socket.send(JSON.stringify({ action: "watch" }));
 
   // The subscription is registered on the server's next tick; give it one.
@@ -105,11 +120,7 @@ await check("even the announced events carry nothing but identity and status", a
 console.log("\nthe old channel still behaves");
 
 await check("subscribing to one run still delivers that run in full", async () => {
-  const socket = new WebSocket(url);
-  const messages: Record<string, unknown>[] = [];
-  await new Promise<void>((resolve) => socket.on("open", () => resolve()));
-  socket.on("message", (raw) => messages.push(JSON.parse(raw.toString())));
-
+  const { socket, messages } = await open();
   socket.send(JSON.stringify({ action: "subscribe", runId: "r5" }));
   await settle();
   hub.publish(event({ type: "cell:done", runId: "r5", cellId: "c1", output: { value: 42 } }));
@@ -122,8 +133,7 @@ await check("subscribing to one run still delivers that run in full", async () =
 
 await check("a watcher does not receive another run's detail either", async () => {
   const watcher = await watch();
-  const subscriber = new WebSocket(url);
-  await new Promise<void>((resolve) => subscriber.on("open", () => resolve()));
+  const { socket: subscriber } = await open();
   subscriber.send(JSON.stringify({ action: "subscribe", runId: "r6" }));
   await settle();
 
@@ -133,6 +143,34 @@ await check("a watcher does not receive another run's detail either", async () =
   assert.deepEqual(watcher.messages, [], "the watcher saw a subscriber's output");
   watcher.close();
   subscriber.close();
+});
+
+console.log("\na socket that never said who it is");
+
+await check("asking before identifying is refused, and delivers nothing", async () => {
+  const socket = new WebSocket(url);
+  const messages: Record<string, unknown>[] = [];
+  await new Promise<void>((resolve) => socket.on("open", () => resolve()));
+  socket.on("message", (raw) => messages.push(JSON.parse(raw.toString())));
+
+  socket.send(JSON.stringify({ action: "subscribe", runId: "r7" }));
+  await settle();
+  hub.publish(event({ type: "cell:done", runId: "r7", cellId: "c1", output: { value: 99 } }));
+  await settle();
+
+  assert.equal(messages.length, 1, "expected the refusal and nothing else");
+  assert.equal(messages[0].type, "run:denied");
+  socket.close();
+});
+
+await check("a token that is nobody's closes the socket", async () => {
+  const socket = new WebSocket(url);
+  await new Promise<void>((resolve) => socket.on("open", () => resolve()));
+
+  const closed = new Promise<void>((resolve) => socket.on("close", () => resolve()));
+  socket.send(JSON.stringify({ action: "auth", token: "not-a-token" }));
+
+  await Promise.race([closed, new Promise((_, reject) => setTimeout(reject, 2000))]);
 });
 
 manager.close();
