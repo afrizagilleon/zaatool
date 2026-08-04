@@ -4,10 +4,12 @@
   "description": "",
   "main": "index.ts",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "tsx tests/run-all.ts",
     "dev": "tsx watch src/server-entry.ts",
     "dev:cli": "tsx watch src/index.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "reset-password": "tsx scripts/reset-password.ts",
+    "agent-token": "tsx scripts/agent-token.ts"
   },
   "keywords": [],
   "author": "",
