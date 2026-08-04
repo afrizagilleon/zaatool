@@ -8,8 +8,9 @@ import {
   Spinner,
   WarningCircle,
 } from '@phosphor-icons/react';
-import type { NotebookAction } from '@zaa-tool/shared';
+import type { NotebookPageAction } from '@zaa-tool/shared';
 import { Button } from '../../ui/button';
+import { ActionDialog } from './ActionDialog';
 
 /**
  * The buttons a notebook declared.
@@ -39,31 +40,43 @@ type ActionState =
   | { kind: 'done'; index: number; message: string; failed: boolean };
 
 interface PageActionsProps {
-  actions: NotebookAction[];
+  actions: NotebookPageAction[];
   /** Runs the page's own notebook again with whatever is in the form now. */
   onRerun: () => void;
   /**
    * Presses a `run` button, by its position in the list. Absent on a shared page, where
    * the server has already removed every `run` action — so this renders nothing extra
    * rather than a button that would fail.
+   *
+   * `args` carries whatever the dialog collected; the calling page's own values are added
+   * by the caller, and the server drops anything the target does not declare.
    */
-  onRun?: (index: number) => Promise<{ notebook: string; status: string; errors?: string[] }>;
+  onRun?: (
+    index: number,
+    args: Record<string, unknown>
+  ) => Promise<{ notebook: string; status: string; errors?: string[] }>;
+  /** The calling page's form, so a field both notebooks name arrives already filled in. */
+  pageValues?: Record<string, string>;
   disabled?: boolean;
 }
 
-export function PageActions({ actions, onRerun, onRun, disabled }: PageActionsProps) {
+export function PageActions({
+  actions,
+  onRerun,
+  onRun,
+  pageValues = {},
+  disabled,
+}: PageActionsProps) {
   const [state, setState] = useState<ActionState>({ kind: 'idle' });
+  const [asking, setAsking] = useState<{ action: NotebookPageAction; index: number } | null>(null);
 
   if (actions.length === 0) return null;
 
-  const press = async (action: NotebookAction, index: number) => {
-    if (action.do === 'rerun') return onRerun();
-    if (action.do === 'link') return; // rendered as an anchor; nothing to handle
-
+  const start = async (index: number, args: Record<string, unknown>) => {
     if (!onRun) return;
     setState({ kind: 'running', index });
     try {
-      const result = await onRun(index);
+      const result = await onRun(index, args);
       const failed = result.status !== 'success';
       setState({
         kind: 'done',
@@ -77,6 +90,18 @@ export function PageActions({ actions, onRerun, onRun, disabled }: PageActionsPr
       setState({ kind: 'done', index, failed: true, message: (err as Error).message });
     }
     window.setTimeout(() => setState({ kind: 'idle' }), 6000);
+  };
+
+  const press = async (action: NotebookPageAction, index: number) => {
+    if (action.do === 'rerun') return onRerun();
+    if (action.do === 'link') return; // rendered as an anchor; nothing to handle
+    if (!onRun) return;
+
+    // Only where there is something left to ask. A button whose target takes nothing, or
+    // whose every field the button already fixes, still runs on one press — adding a
+    // dialog with nothing in it would be ceremony.
+    if (action.asks?.length) return setAsking({ action, index });
+    await start(index, {});
   };
 
   return (
@@ -168,6 +193,17 @@ export function PageActions({ actions, onRerun, onRun, disabled }: PageActionsPr
           {state.message}
         </span>
       )}
+
+      <ActionDialog
+        action={asking?.action ?? null}
+        pageValues={pageValues}
+        onCancel={() => setAsking(null)}
+        onSubmit={async (args) => {
+          const index = asking?.index ?? 0;
+          setAsking(null);
+          await start(index, args);
+        }}
+      />
     </div>
   );
 }

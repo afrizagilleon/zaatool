@@ -246,6 +246,20 @@ export interface NotebookAction {
 }
 
 /**
+ * An action as a page needs it: the declaration, plus what pressing it will ask for.
+ *
+ * `asks` is derived, never written. A `run` button calls a notebook that already declares
+ * its own inputs, so the form for them exists — on that notebook's page. This carries it
+ * to the button, so it can be shown in place when pressed rather than living permanently
+ * on the calling page, among fields that have nothing to do with what it shows.
+ *
+ * What the button already fixes through `args` is absent here: it is not a question.
+ */
+export interface NotebookPageAction extends NotebookAction {
+  asks?: NotebookParam[];
+}
+
+/**
  * Where one output sits on the page.
  *
  * `i` is an output's *name*, never a widget id — so an output removed from the contract
@@ -344,7 +358,7 @@ export interface NotebookPage {
   /** Empty when nobody arranged it; the page derives one instead. */
   layout: NotebookLayoutItem[];
   /** Buttons beside Run. Empty is the normal case. */
-  actions: NotebookAction[];
+  actions: NotebookPageAction[];
 }
 
 /**

@@ -373,6 +373,31 @@ A \`link\` starting \`#\` or \`/\` is somewhere in this workspace and opens in t
 \`#/apps\` goes to the app list, \`#/notebooks/<id>\` opens the editor. Anything else is out
 on the web and opens a new one, so the reader does not lose the page they were reading.
 
+**A \`run\` button asks for what its target needs.** If the notebook it calls declares
+inputs the button does not fix in \`args\`, pressing it opens a small form for exactly
+those — the same form that notebook's own page renders, from the same declaration.
+
+So do **not** add an input to this notebook just to feed a button. An input belongs to
+the notebook that reads it, and a field declared here sits above Run forever, on a page
+it has nothing to do with.
+
+\`\`\`yaml
+# the archive notebook needs a note. Declaring it HERE is the mistake:
+inputs:
+  - name: note        # this page never reads it, and it sits above Run forever
+    type: string
+
+# declare it on archive-rates instead, where it is read. Then just:
+actions:
+  - label: Save to archive
+    do: run
+    notebook: archive-rates
+\`\`\`
+
+A field named in both is filled in from this page and stays editable. A button whose
+target takes nothing, or whose every field is fixed by \`args\`, runs on one press with no
+form at all.
+
 What \`run\` does **not** do: show what the other notebook returned. It reports that it
 ran or that it failed, and nothing else. A page displaying two notebooks' values at once
 cannot say which value came from where, so the button is a verb, not a query. If the

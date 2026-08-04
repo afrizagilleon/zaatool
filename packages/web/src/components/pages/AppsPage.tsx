@@ -122,7 +122,15 @@ function PageRunner({ page, onBack }: { page: NotebookPage; onBack: () => void }
             actions={page.actions}
             disabled={isRunning}
             onRerun={run}
-            onRun={(index) => notebooksApi.runAction(page.id, index, toArgs(page.inputs, values))}
+            pageValues={values}
+            // This page's own values, then whatever the dialog asked for. The server keeps
+            // only what the target declares, and anything the button fixed wins over both.
+            onRun={(index, extra) =>
+              notebooksApi.runAction(page.id, index, {
+                ...toArgs(page.inputs, values),
+                ...extra,
+              })
+            }
           />
         </div>
 

@@ -315,6 +315,19 @@ await check("shows the shape rather than describing it", () => {
   assert.match(conventions, /notebook: send-report/);
 });
 
+await check("says a `run` button asks for what its target declares", () => {
+  assert.match(conventions, /asks for what its target needs/i);
+  assert.match(conventions, /opens a small form/i);
+  // The mistake this exists to prevent, and the one already in a real notebook: inputs
+  // added to the calling page purely to feed a button.
+  assert.match(conventions, /do \*\*not\*\* add an input to this notebook just to feed a button/i);
+  assert.match(String(write?.description ?? ""), /NEVER add an input to this notebook just to feed a button/);
+});
+
+await check("and that a button with nothing left to ask still runs on one press", () => {
+  assert.match(conventions, /runs on one press with no\s+form at all/i);
+});
+
 await check("says what `run` deliberately does not do", () => {
   // The constraint most likely to be designed around if it is not stated: a `run`
   // button reports an outcome, it does not display the other notebook's values.

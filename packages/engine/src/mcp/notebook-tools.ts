@@ -459,6 +459,7 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
           "NEVER draw a chart or a table out of text. No ASCII bars, no box-drawing characters, no pipe-and-dash tables — the page renders real ones from the data. Return the rows.",
           "",
           "BUTTONS: a page always has Run. `actions` adds others — `rerun` (run this again), `run` (run another deployed notebook, reporting only whether it worked), `link` (go to a URL). Three kinds, and no more.",
+          "A `run` button asks for whatever its target declares and the button does not fix, so NEVER add an input to this notebook just to feed a button — declare it on the notebook that reads it.",
           "",
           "  actions:",
           "    - label: Email the report",

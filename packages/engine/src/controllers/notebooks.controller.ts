@@ -16,7 +16,12 @@ import {
 import { NotebookCompileError } from "../core/notebook-compiler.js";
 import { ContractError } from "../core/notebook-contract.js";
 import type { RunEventSink } from "../core/run-emitter.js";
-import type { NotebookJson, NotebookPage } from "@zaa-tool/shared";
+import type {
+  NotebookAction,
+  NotebookJson,
+  NotebookPage,
+  NotebookPageAction,
+} from "@zaa-tool/shared";
 
 /** A notebook's own first sentence, which is the best description anyone will write. */
 function firstNoteOf(document: NotebookJson): string {
@@ -30,6 +35,41 @@ function firstNoteOf(document: NotebookJson): string {
     }
   }
   return "";
+}
+
+/**
+ * What pressing a `run` button will still need answering.
+ *
+ * The target already declares its inputs, so nothing here is new — it is the same form
+ * its own page renders, carried to the button that calls it. Whatever `args` fixes is
+ * left out, because a value the button decided is not a question.
+ *
+ * Undeployed or missing targets contribute nothing rather than failing the page: the
+ * button will say so when pressed, and one broken action should not blank an app list.
+ */
+async function withQuestions(actions: NotebookAction[]): Promise<NotebookPageAction[]> {
+  const asked: NotebookPageAction[] = [];
+
+  for (const action of actions) {
+    if (action.do !== "run" || !action.notebook) {
+      asked.push(action);
+      continue;
+    }
+
+    const target = await notebooksService.findByIdOrName(action.notebook);
+    if (target === null || target === "ambiguous") {
+      asked.push(action);
+      continue;
+    }
+
+    const document = await notebooksService.getDeployedDocument(target.id);
+    const fixed = new Set(Object.keys(action.args ?? {}));
+    const asks = (document?.inputs ?? []).filter((input) => !fixed.has(input.name));
+
+    asked.push(asks.length > 0 ? { ...action, asks } : action);
+  }
+
+  return asked;
 }
 
 function respondWithError(res: Response, err: unknown) {
@@ -104,7 +144,7 @@ export class NotebooksController {
           layout: (document.layout ?? []).filter((item) =>
             outputSpecs(document.outputs).some((output) => output.name === item.i)
           ),
-          actions: actionSpecs(document.actions),
+          actions: await withQuestions(actionSpecs(document.actions)),
         });
       }
 
