@@ -1,3 +1,5 @@
+import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useEffect, useState } from 'react';
 import {
   Play,
@@ -92,6 +94,19 @@ function PageRunner({ page, onBack }: { page: NotebookPage; onBack: () => void }
           </Button>
         </div>
 
+        {/* A notebook with no contract is not an app, it is something somebody wrote —
+            and this is the reading of it. The engine only fills `notes` in that case, so
+            no page with results ever grows a wall of its author's working notes. */}
+        {page.notes.length > 0 && (
+          <div className="prose-sm max-w-none space-y-4 border border-border p-5 text-sm [&_code]:font-mono [&_code]:text-xs [&_h1]:text-base [&_h1]:font-bold [&_h2]:text-sm [&_h2]:font-bold [&_li]:ml-4 [&_li]:list-disc [&_pre]:overflow-x-auto [&_pre]:bg-muted/40 [&_pre]:p-2">
+            {page.notes.map((note, index) => (
+              <Markdown key={index} remarkPlugins={[remarkGfm]}>
+                {note}
+              </Markdown>
+            ))}
+          </div>
+        )}
+
         {page.inputs.length > 0 && (
           <div className="space-y-4 border border-border p-4">
             {page.inputs.map((input) => (
@@ -100,6 +115,7 @@ function PageRunner({ page, onBack }: { page: NotebookPage; onBack: () => void }
                 input={input}
                 value={values[input.name] ?? ''}
                 onChange={(next) => setValues((current) => ({ ...current, [input.name]: next }))}
+                notebookId={page.id}
               />
             ))}
           </div>
@@ -123,6 +139,7 @@ function PageRunner({ page, onBack }: { page: NotebookPage; onBack: () => void }
             disabled={isRunning}
             onRerun={run}
             pageValues={values}
+            notebookId={page.id}
             // This page's own values, then whatever the dialog asked for. The server keeps
             // only what the target declares, and anything the button fixed wins over both.
             onRun={(index, extra) =>
