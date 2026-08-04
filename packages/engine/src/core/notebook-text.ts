@@ -529,6 +529,17 @@ function readInputs(value: unknown, issues: string[]): NotebookParam[] {
       issues.push(`input "${paramName}" is \`multiple\` but declares no \`options\``);
     }
 
+    if (raw.multiline === true) {
+      // Refused rather than ignored on anything else: a number with a text area, or a
+      // dropdown that claims to be multi-line, is a declaration nobody can act on.
+      if (param.type === "string" && !param.options) param.multiline = true;
+      else {
+        issues.push(
+          `input "${paramName}" is \`multiline\`, which only applies to a \`string\` without \`options\``
+        );
+      }
+    }
+
     params.push(param);
   }
   return params;

@@ -244,6 +244,58 @@ await check("warns that a wrong `render` is worse than none", () => {
   assert.match(conventions, /multi-line is always markdown/i);
 });
 
+// ── the two things an agent asked for and could not find ──────────────────────
+
+console.log("\nroom to write, and links in a row");
+
+await check("`multiline` is documented as a control, not a type", () => {
+  assert.match(conventions, /`multiline`/);
+  assert.match(conventions, /still a `string`/i);
+  assert.match(String(write?.description ?? ""), /multiline: true/);
+});
+
+await check("`multiline` is accepted on a plain string and refused elsewhere", () => {
+  const field = (extra: string) =>
+    [
+      "---",
+      "name: zz-multiline",
+      "runtime: node",
+      "inputs:",
+      "  - name: note",
+      extra,
+      "---",
+      "",
+      "```js",
+      "return {};",
+      "```",
+    ].join("\n");
+
+  const ok = fromMarkdown(field("    type: string\n    multiline: true"));
+  assert.equal(ok.inputs?.[0].multiline, true);
+
+  assert.throws(() => fromMarkdown(field("    type: number\n    multiline: true")), /multiline/);
+  assert.throws(
+    () => fromMarkdown(field("    type: string\n    options: [a, b]\n    multiline: true")),
+    /multiline/
+  );
+});
+
+await check("a URL in a table cell is documented as clickable, with the column as its label", () => {
+  assert.match(conventions, /web address becomes a link/i);
+  assert.match(conventions, /name the column after what it does/i);
+});
+
+await check("and markdown in a cell is called out, since that is what was tried", () => {
+  // The exact thing an agent produced: `[Verify](url)` rendered as those characters.
+  assert.match(conventions, /\[Verify\]\(https:\/\/…\)/);
+  assert.match(conventions, /Return the bare URL/i);
+});
+
+await check("an internal `link` is documented as staying in the tab", () => {
+  assert.match(conventions, /opens in the same tab/i);
+  assert.match(conventions, /#\/notebooks\/<id>/);
+});
+
 // ── buttons ───────────────────────────────────────────────────────────────────
 
 console.log("\npage actions");

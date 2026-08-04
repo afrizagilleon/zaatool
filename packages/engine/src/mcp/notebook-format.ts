@@ -226,6 +226,12 @@ Types: ${types}.
 | \`description\` | shown on the page and to you |
 | \`options\` | the values it accepts: a dropdown on the page, an enum in the tool schema, anything else refused |
 | \`multiple\` | with \`options\`, accepts a list of them |
+| \`multiline\` | \`string\` only: a box with room to write in, for a note or a reason |
+
+\`multiline\` is still a \`string\` — it changes the control, not the type. Use it whenever
+someone might type a sentence; a one-line field is a promise about length, and it is the
+wrong promise for a note. It is refused on a number, a boolean, or anything with
+\`options\`, since none of those have a long form.
 
 ## Outputs — how a value is shown
 
@@ -305,6 +311,26 @@ to be a chart, that a string is a file path. When in doubt, leave it out.
 Never return an ASCII bar chart, a box drawn with \`│\`, or a table built from \`|\`
 and \`-\`. The page draws real ones from the data. Return the rows.
 
+### A cell that is a web address becomes a link
+
+In a table, a value starting \`http://\`, \`https://\` or \`mailto:\` is rendered clickable.
+Nothing to declare — put the URL in the cell and **name the column after what it does**,
+because the column header is the label:
+
+\`\`\`js
+return { rows: orders.map((o) => ({
+  order: o.id,
+  total: o.total,
+  invoice: \`https://billing.example.com/i/\${o.id}\`,   // header reads INVOICE
+})) };
+\`\`\`
+
+Do **not** put markdown in a cell. \`[Verify](https://…)\` renders as those exact
+characters — a table cell is a value, not a document. Return the bare URL.
+
+A table cell is only ever a link, never a button: a link is a destination the row already
+carries, and a button would be a side effect with arguments, which is a form.
+
 ### Rules that keep the renderers honest
 
 - **Nothing is configured.** Table columns come from the object keys; search, sort and
@@ -342,6 +368,10 @@ actions:
 | \`notebook\` | \`run\` | the notebook to call, by name or id. It must be deployed |
 | \`args\` | \`run\` | fixed arguments, on top of this page's matching input values |
 | \`url\` | \`link\` | \`http://\`, \`https://\`, \`/\`, \`#\` or \`mailto:\` |
+
+A \`link\` starting \`#\` or \`/\` is somewhere in this workspace and opens in the same tab —
+\`#/apps\` goes to the app list, \`#/notebooks/<id>\` opens the editor. Anything else is out
+on the web and opens a new one, so the reader does not lose the page they were reading.
 
 What \`run\` does **not** do: show what the other notebook returned. It reports that it
 ran or that it failed, and nothing else. A page displaying two notebooks' values at once

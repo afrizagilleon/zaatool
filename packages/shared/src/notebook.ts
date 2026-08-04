@@ -155,6 +155,16 @@ export interface NotebookParam {
   options?: Array<string | number | NotebookParamOption>;
   /** With `options`, accepts a list of them rather than one. The value becomes an array. */
   multiple?: boolean;
+  /**
+   * Room to write in. `string` only, and it is still a `string` — this changes the
+   * control, not the type.
+   *
+   * A one-line box is a promise about length, and it was the wrong one for a note, a
+   * reason, or a prompt. It cannot be inferred: an empty default says nothing about how
+   * much someone is about to type, so this is the one presentation fact only the author
+   * knows. `json` already gets room, because JSON is never one line worth having.
+   */
+  multiline?: boolean;
 }
 
 /**

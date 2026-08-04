@@ -38,6 +38,43 @@ function cellText(value: unknown): string {
   return String(value);
 }
 
+/**
+ * A cell that is a web address becomes a link.
+ *
+ * This is `auto` applied one level down: a URL is a *destination*, and the notebook has
+ * already computed it per row. Showing it as unclickable text is the same failure as
+ * printing `[{...}]` instead of a table.
+ *
+ * It is a link and never a button, and that line matters. A link is data the row already
+ * carries; a button is a side effect with arguments, and the moment a row can trigger one
+ * the table stops being a view and starts being a form — which is the road back to the
+ * dashboard builder.
+ *
+ * The column name is the label. `verify: 'https://…'` renders under a VERIFY header, so
+ * there is nothing to declare and no second shape to support.
+ */
+const LINKABLE = /^(https?:\/\/|mailto:)/i;
+
+function linkOf(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  // Everything else — `javascript:`, `data:`, a bare `//host` — is left as text. A cell
+  // comes from a notebook, and a notebook can be written by an agent.
+  return LINKABLE.test(trimmed) ? trimmed : null;
+}
+
+/** Enough of a URL to recognise, short enough not to own the table's width. */
+function linkText(url: string): string {
+  if (url.toLowerCase().startsWith('mailto:')) return url.slice(7);
+  try {
+    const parsed = new URL(url);
+    const tail = parsed.pathname === '/' ? '' : parsed.pathname;
+    return `${parsed.host}${tail}`;
+  } catch {
+    return url;
+  }
+}
+
 function compare(a: unknown, b: unknown): number {
   if (typeof a === 'number' && typeof b === 'number') return a - b;
 
@@ -142,15 +179,29 @@ export function TableView({ rows: given }: { rows: Record<string, unknown>[] }) 
                 key={index}
                 className={cn('border-b border-border/60 last:border-0', index % 2 && 'bg-muted/20')}
               >
-                {columns.map((column) => (
-                  <td
-                    key={column}
-                    className="px-2 py-1.5 align-top font-mono tabular-nums"
-                    title={cellText(row[column])}
-                  >
-                    {cellText(row[column])}
-                  </td>
-                ))}
+                {columns.map((column) => {
+                  const url = linkOf(row[column]);
+                  return (
+                    <td
+                      key={column}
+                      className="max-w-64 truncate px-2 py-1.5 align-top font-mono tabular-nums"
+                      title={cellText(row[column])}
+                    >
+                      {url ? (
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary underline-offset-2 hover:underline"
+                        >
+                          {linkText(url)}
+                        </a>
+                      ) : (
+                        cellText(row[column])
+                      )}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>

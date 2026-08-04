@@ -264,6 +264,21 @@ export function ContractPanel({
                 />
                 Required
               </label>
+              {/* Only where it can be honoured: a dropdown or a number has no long form. */}
+              {input.type === 'string' && choicesOf(input).length === 0 && (
+                <label
+                  className="flex items-center gap-1.5 text-[10px] text-muted-foreground"
+                  title="Give this field room to write in. It is still a string."
+                >
+                  <Switch
+                    checked={input.multiline === true}
+                    onCheckedChange={(checked) =>
+                      onUpdateInput(index, { multiline: checked ? true : undefined })
+                    }
+                  />
+                  Long text
+                </label>
+              )}
               <Input
                 value={input.default === undefined ? '' : String(input.default)}
                 onChange={(e) =>

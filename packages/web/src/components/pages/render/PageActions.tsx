@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   ArrowClockwise,
+  ArrowRight,
   ArrowSquareOut,
   CheckCircle,
   Play,
@@ -20,6 +21,17 @@ import { Button } from '../../ui/button';
  * `run` reports and does not display. The other notebook says whether it worked, in one
  * line that clears itself; its outputs stay on its own page, where they are labelled.
  */
+
+/**
+ * Somewhere in this workspace, rather than out on the web.
+ *
+ * `#/apps` and `/a/<token>` stay in the tab; anything else opens a new one. Sending
+ * someone to another page of the app in a second window would leave two copies of the
+ * workspace open and neither of them wrong, which is its own kind of confusing.
+ */
+function isInternal(url: string | undefined): boolean {
+  return typeof url === 'string' && (url.startsWith('#') || url.startsWith('/'));
+}
 
 type ActionState =
   | { kind: 'idle' }
@@ -46,13 +58,7 @@ export function PageActions({ actions, onRerun, onRun, disabled }: PageActionsPr
 
   const press = async (action: NotebookAction, index: number) => {
     if (action.do === 'rerun') return onRerun();
-
-    if (action.do === 'link') {
-      // `noopener` on every one: a page can be shared, and the target should never get a
-      // handle on the window it came from.
-      window.open(action.url, '_blank', 'noopener,noreferrer');
-      return;
-    }
+    if (action.do === 'link') return; // rendered as an anchor; nothing to handle
 
     if (!onRun) return;
     setState({ kind: 'running', index });
@@ -77,35 +83,68 @@ export function PageActions({ actions, onRerun, onRun, disabled }: PageActionsPr
     <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
       {actions.map((action, index) => {
         const isRunning = state.kind === 'running' && state.index === index;
+
+        const icon = isRunning ? (
+          <Spinner size={13} className="mr-1.5 shrink-0 animate-spin" />
+        ) : action.do === 'rerun' ? (
+          <ArrowClockwise size={13} className="mr-1.5 shrink-0" />
+        ) : action.do === 'link' ? (
+          isInternal(action.url) ? (
+            <ArrowRight size={13} className="mr-1.5 shrink-0" />
+          ) : (
+            <ArrowSquareOut size={13} className="mr-1.5 shrink-0" />
+          )
+        ) : (
+          <Play size={13} weight="fill" className="mr-1.5 shrink-0" />
+        );
+
+        // `max-w-full` plus a truncating label: these are `whitespace-nowrap`, so
+        // "Verify open.er-api.com" on a phone used to run 44px past the edge of its own
+        // row and get clipped. Labels are written by an agent and can be any length, so
+        // the control has to survive one rather than assume it is short.
+        const shared = {
+          key: `${action.do}-${action.label}-${index}`,
+          variant: 'outline' as const,
+          size: 'sm' as const,
+          className: 'h-8 max-w-full min-w-0 shrink px-3 text-xs',
+        };
+
+        /**
+         * A link is an anchor, not a button that calls `window.open`.
+         *
+         * The button version could be swallowed by a popup blocker — which looks exactly
+         * like the page having done nothing — and it broke middle-click, "open in new
+         * tab" and "copy link address". An anchor also lets an in-app destination behave
+         * like navigation instead of spawning a second copy of the workspace.
+         */
+        if (action.do === 'link') {
+          const internal = isInternal(action.url);
+          return (
+            <Button {...shared} asChild>
+              <a
+                href={action.url}
+                title={`${action.label} — ${action.url}`}
+                {...(internal ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
+              >
+                {icon}
+                <span className="truncate">{action.label}</span>
+              </a>
+            </Button>
+          );
+        }
+
         return (
           <Button
-            key={`${action.do}-${action.label}-${index}`}
-            variant="outline"
-            size="sm"
-            // `max-w-full` plus a truncating label: a button is `whitespace-nowrap`, so
-            // "Verify open.er-api.com" on a phone used to run 44px past the edge of its
-            // own row and get clipped. Labels are written by an agent and can be any
-            // length, so the button has to survive one rather than assume it is short.
-            className="h-8 max-w-full min-w-0 shrink px-3 text-xs"
+            {...shared}
             disabled={disabled || isRunning}
             onClick={() => void press(action, index)}
             title={
-              action.do === 'link'
-                ? `${action.label} — ${action.url}`
-                : action.do === 'run'
-                  ? `${action.label} — runs ${action.notebook}`
-                  : `${action.label} — runs this page again`
+              action.do === 'run'
+                ? `${action.label} — runs ${action.notebook}`
+                : `${action.label} — runs this page again`
             }
           >
-            {isRunning ? (
-              <Spinner size={13} className="mr-1.5 shrink-0 animate-spin" />
-            ) : action.do === 'rerun' ? (
-              <ArrowClockwise size={13} className="mr-1.5 shrink-0" />
-            ) : action.do === 'link' ? (
-              <ArrowSquareOut size={13} className="mr-1.5 shrink-0" />
-            ) : (
-              <Play size={13} weight="fill" className="mr-1.5 shrink-0" />
-            )}
+            {icon}
             <span className="truncate">{action.label}</span>
           </Button>
         );

@@ -435,6 +435,7 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
           "NEVER write a notebook for one particular value. A notebook that answers \"convert 23.3 USD\" is a notebook that will be wrong tomorrow — declare `amount` as an input and answer every version of the question.",
           "",
           "WHEN AN INPUT HAS A FIXED SET OF VALUES, declare `options` instead of describing them in prose. The page renders a dropdown, the tool schema becomes an enum, and a wrong value is refused before the run starts — none of which happens if the list only exists in a sentence. Add `multiple: true` to accept several. Write `default` in the field, never as \"Default: …\" inside `description`.",
+          "For an input someone might type a sentence into — a note, a reason, a prompt — add `multiline: true`. It is still a `string`; only the box changes.",
           "",
           "  inputs:",
           "    - name: direction",

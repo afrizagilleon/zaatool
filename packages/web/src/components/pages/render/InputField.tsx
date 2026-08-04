@@ -170,6 +170,14 @@ export function InputField({
           className="font-mono text-xs min-h-24"
           placeholder="{ }"
         />
+      ) : input.multiline ? (
+        // Still a `string`; only the box is different. A one-line field is a promise
+        // about length, and it was the wrong promise for a note or a reason.
+        <Textarea
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className="min-h-20 text-xs"
+        />
       ) : (
         <Input
           type={input.type === 'number' ? 'number' : 'text'}
