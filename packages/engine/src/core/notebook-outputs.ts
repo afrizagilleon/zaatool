@@ -23,6 +23,8 @@ export const OUTPUT_RENDERS: readonly NotebookOutputRender[] = [
   "area",
   "pie",
   "image",
+  "video",
+  "audio",
   "file",
   "json",
 ];

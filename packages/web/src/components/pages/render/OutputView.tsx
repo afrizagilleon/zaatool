@@ -55,6 +55,20 @@ function FileLink({ value }: { value: unknown }) {
   );
 }
 
+/**
+ * Where the browser should fetch a picture, a video or a sound from.
+ *
+ * A string is used as written — a data URI, or a URL somewhere else. A descriptor from
+ * `files.write` carries a signed `url`, which is the only way a file on this machine is
+ * readable at all. Anything else is not media, and is shown as what it is.
+ */
+function mediaSource(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim() !== '') return value;
+  const file = value as { url?: unknown };
+  if (file && typeof file.url === 'string') return `${API_BASE_URL}${file.url}`;
+  return null;
+}
+
 export function OutputView({ output, value }: { output: NotebookOutput; value: unknown }) {
   if (value === null || value === undefined) return <Empty />;
 
@@ -78,12 +92,31 @@ export function OutputView({ output, value }: { output: NotebookOutput; value: u
         <Json value={value} />
       );
 
-    case 'image':
-      return typeof value === 'string' ? (
-        <img src={value} alt={output.name} className="max-w-full border border-border" />
+    // A media value arrives one of two ways and both are legitimate: a string, which is a
+    // data URI or somewhere else's URL, or the descriptor `files.write` hands back. Only
+    // the second one exists on this machine, and its `url` is signed.
+    case 'image': {
+      const src = mediaSource(value);
+      return src ? (
+        <img src={src} alt={output.name} className="max-w-full border border-border" />
       ) : (
         <Json value={value} />
       );
+    }
+
+    case 'video': {
+      const src = mediaSource(value);
+      return src ? (
+        <video src={src} controls className="max-w-full border border-border" />
+      ) : (
+        <Json value={value} />
+      );
+    }
+
+    case 'audio': {
+      const src = mediaSource(value);
+      return src ? <audio src={src} controls className="w-full" /> : <Json value={value} />;
+    }
 
     case 'file':
       return <FileLink value={value} />;

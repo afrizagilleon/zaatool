@@ -27,6 +27,8 @@ export const RENDERS: NotebookOutputRender[] = [
   'area',
   'pie',
   'image',
+  'video',
+  'audio',
   'file',
   'json',
 ];
@@ -91,7 +93,16 @@ export function inferRender(value: unknown): ResolvedRender {
   }
 
   if (asRows(value)) return 'table';
-  if (isFileLike(value)) return 'file';
+  // A file the engine stored already knows what it is. Writing `chart.png` should put a
+  // picture on the page rather than a link that says "chart.png" — the mime type is right
+  // there, and asking the author for `render: image` would be asking them to repeat it.
+  if (isFileLike(value)) {
+    const mime = String((value as Record<string, unknown>).mime ?? '');
+    if (mime.startsWith('image/')) return 'image';
+    if (mime.startsWith('video/')) return 'video';
+    if (mime.startsWith('audio/')) return 'audio';
+    return 'file';
+  }
   if (value !== null && typeof value === 'object') return 'json';
   return 'text';
 }

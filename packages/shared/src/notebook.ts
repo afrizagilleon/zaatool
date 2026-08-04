@@ -121,7 +121,17 @@ export type NotebookTrigger = CronTrigger | WebhookTrigger;
  * and one with no declared outputs returns nothing to a caller. Neither prevents it
  * from being run on its own.
  */
-export type NotebookParamType = "string" | "number" | "boolean" | "json";
+/**
+ * `file` is the one that is not a scalar, and it earns its place because the alternative
+ * is worse: without it, sending a photo to a notebook means base64 inside a JSON string,
+ * which is a 33% larger body, an unreadable cell, and no way for a page to draw a picker.
+ *
+ * A file's *value* is the descriptor the engine hands back after it has stored the bytes —
+ * `{ name, path, url, size, mime }`. A cell receives it wrapped, with `readAsText()` and
+ * friends; a page renders it as an image or a link. Nothing anywhere passes the bytes
+ * themselves through the contract.
+ */
+export type NotebookParamType = "string" | "number" | "boolean" | "json" | "file";
 
 /**
  * One permitted value, optionally with a label to show a person instead.
@@ -165,6 +175,33 @@ export interface NotebookParam {
    * knows. `json` already gets room, because JSON is never one line worth having.
    */
   multiline?: boolean;
+  /**
+   * What kinds of file this input takes — `file` only.
+   *
+   * The same words a browser's `accept` attribute takes, because that is where it is
+   * going: `"image/*"`, `"audio/*"`, `".csv,.xlsx"`. It is a hint, not a guard; the
+   * notebook still has to cope with whatever arrives, since a webhook does not consult a
+   * file picker.
+   *
+   * It earns its place for one reason beyond the picker: an input that says `audio/*`
+   * gets a record button, and there is no other way for a page to know that asking for a
+   * voice note is what this notebook meant.
+   */
+  accept?: string;
+}
+
+/**
+ * A stored file, as it travels through the contract.
+ *
+ * Never the bytes. `path` is the identity, `url` is signed and expires, and neither one
+ * says anything about where this engine keeps its disk.
+ */
+export interface NotebookFile {
+  name: string;
+  path: string;
+  url: string;
+  size: number;
+  mime: string;
 }
 
 /**
@@ -197,6 +234,8 @@ export type NotebookOutputRender =
   | "area"
   | "pie"
   | "image"
+  | "video"
+  | "audio"
   | "file"
   | "json";
 
@@ -352,6 +391,14 @@ export interface NotebookPage {
   id: string;
   name: string;
   description: string;
+  /**
+   * The notebook's cell notes, and only when it has no contract at all.
+   *
+   * A notebook that declares nothing and returns nothing is not an app — it is something
+   * somebody wrote down. Empty for every page that has outputs, because a page with
+   * results should not also carry its author's working notes.
+   */
+  notes: string[];
   inputs: NotebookParam[];
   /** Always the full form here, whatever the document wrote — the page has to render it. */
   outputs: NotebookOutput[];
