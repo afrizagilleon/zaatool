@@ -154,7 +154,14 @@ export function buildNotebookMap(
 }
 
 /** The same map as a paragraph, for an agent that asked what exists. */
-export function renderNotebookMap(map: NotebookMap): string {
+export interface MapRenderOptions {
+  /** Only notebooks mentioning this word in their name, contract or triggers. */
+  about?: string;
+  /** Group by how each notebook is reached rather than listing them flat. */
+  grouped?: boolean;
+}
+
+export function renderNotebookMap(map: NotebookMap, options: MapRenderOptions = {}): string {
   if (map.notebooks.length === 0) return "No notebooks yet.";
 
   const triggersFor = (notebookId: string) =>
@@ -166,8 +173,33 @@ export function renderNotebookMap(map: NotebookMap): string {
   const nameOf = (notebookId: string) =>
     map.notebooks.find((notebook) => notebook.id === notebookId)?.name ?? notebookId;
 
+  /**
+   * Matched against what a person would search for, which is a name, an argument or a
+   * schedule — never the code. Searching the code would turn the map into a grep with a
+   * worse interface, and the map's job is the shape of the system.
+   */
+  const mentions = (notebook: NotebookMap["notebooks"][number]): boolean => {
+    const needle = options.about?.trim().toLowerCase();
+    if (!needle) return true;
+    const haystack = [
+      notebook.name,
+      ...notebook.inputs,
+      ...notebook.outputs,
+      ...triggersFor(notebook.id).map((trigger) => `${trigger.kind} ${trigger.label}`),
+    ]
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(needle);
+  };
+
+  const shown = map.notebooks.filter(mentions);
+  if (shown.length === 0) {
+    return `Nothing in this workspace mentions "${options.about}".`;
+  }
+
   const lines: string[] = [];
-  for (const notebook of map.notebooks) {
+
+  const describe = (notebook: NotebookMap["notebooks"][number]): void => {
     lines.push(`- **${notebook.name}** \`${notebook.id}\` · ${notebook.runtime} · ${notebook.cellCount} cell(s)`);
     if (notebook.inputs.length > 0 || notebook.outputs.length > 0) {
       lines.push(`    (${notebook.inputs.join(", ") || "no inputs"}) → {${notebook.outputs.join(", ") || "nothing"}}`);
@@ -191,6 +223,39 @@ export function renderNotebookMap(map: NotebookMap): string {
       const names = [...new Set(callers.map((call) => nameOf(call.fromNotebookId)))];
       lines.push(`    called by ${names.join(", ")}`);
     }
+  };
+
+  if (!options.grouped) {
+    for (const notebook of shown) describe(notebook);
+    return lines.join("\n");
   }
+
+  /**
+   * Three groups, and the middle one is why this exists.
+   *
+   * A notebook that is only ever called by another is a *function*: it is the thing to
+   * look for before writing anything, and in a flat list it sits between two schedules
+   * looking exactly like them. Sorting by how a notebook is reached is the difference
+   * between a list of files and a description of a system.
+   */
+  const entryPoints = shown.filter((notebook) => triggersFor(notebook.id).length > 0);
+  const reused = shown.filter(
+    (notebook) => triggersFor(notebook.id).length === 0 && callersOf(notebook.id).length > 0
+  );
+  const idle = shown.filter(
+    (notebook) => triggersFor(notebook.id).length === 0 && callersOf(notebook.id).length === 0
+  );
+
+  const section = (title: string, group: typeof shown, note: string): void => {
+    if (group.length === 0) return;
+    if (lines.length > 0) lines.push("");
+    lines.push(`## ${title} — ${note}`);
+    for (const notebook of group) describe(notebook);
+  };
+
+  section("Starts on its own", entryPoints, "a schedule or a webhook sets these off");
+  section("Called by others", reused, "these exist to be reused — check here before writing");
+  section("Neither", idle, "run by hand, or not finished");
+
   return lines.join("\n");
 }

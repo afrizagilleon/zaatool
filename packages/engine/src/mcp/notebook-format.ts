@@ -473,6 +473,37 @@ without saying so.
 **Everything else is not like this.** \`inputs\`, \`outputs\`, \`secrets\` and \`triggers\`
 belong to whoever writes the text: omit them and they are gone. Write those in full.
 
+## Changing part of a notebook
+
+**A rewrite is for a rewrite.** To change one cell, do not send the whole document back —
+read the outline, then edit that cell:
+
+1. \`notebook_read\` with \`part: outline\` — one line per cell: its id, what it reads off
+   \`inputs\`, what it writes. No code, so it costs a fraction of the full text.
+2. \`notebook_edit_cell\` — \`replace\`, \`insert_before\`, \`insert_after\`, \`append\` or
+   \`delete\`, naming the cell by the id the outline gave you. Every other cell is left
+   byte for byte as it was.
+
+This is not only about tokens. Reproducing nineteen cells from memory to change the
+twentieth is how cells come back subtly different from what was stored, and it is how
+\`layout\` and \`actions\` used to disappear.
+
+\`notebook_edit_cell\` refuses an edit that would leave a later cell reading a name nothing
+writes any more. Deleting the cell that produces \`rows\` while a cell below still reads
+\`inputs.rows\` is refused here rather than failing halfway through a run at 3am.
+
+## Finding what already exists
+
+\`system_map\` groups notebooks by how each one is reached:
+
+- **Starts on its own** — a schedule or a webhook sets it off.
+- **Called by others** — it exists to be reused. **Look here before writing anything.**
+- **Neither** — run by hand, or unfinished.
+
+\`system_map\` with \`about: "invoice"\` narrows it to what mentions that word in a name, a
+contract or a trigger. On a workspace with fifty notebooks, reading all of them to find the
+two that matter is the habit worth losing.
+
 ## A complete example
 
 ${EXAMPLE.trimEnd()}

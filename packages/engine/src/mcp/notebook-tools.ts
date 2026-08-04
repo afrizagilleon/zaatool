@@ -14,6 +14,8 @@ import { ContractError } from "../core/notebook-contract.js";
 import { fromMarkdown, toMarkdown, mentionsKey, NotebookTextError } from "../core/notebook-text.js";
 import { requestApproval } from "./approval.js";
 import { buildNotebookMap, renderNotebookMap } from "../core/notebook-map.js";
+import { renderOutline } from "../core/notebook-outline.js";
+import { applyCellEdit, CellEditError, type CellEdit } from "../core/notebook-edit.js";
 import { outputNames } from "../core/notebook-outputs.js";
 import { abridge, wasAbridged } from "./abridge.js";
 import type { NotebookPlan } from "../core/notebook-compiler.js";
@@ -82,6 +84,8 @@ function explain(err: unknown): ToolReply {
   if (err instanceof TooManyRunsError) {
     return refuse(`${err.message} Other runs are already using the engine's slots.`);
   }
+  // Its message is the whole explanation, and it already names what would break.
+  if (err instanceof CellEditError) return refuse(err.message);
   return refuse((err as Error).message ?? String(err));
 }
 
@@ -258,10 +262,29 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
     {
       title: "Map the whole workspace",
       description:
-        "How the notebooks fit together: what triggers each one, which ones call which, and what contract each exposes. Read this before changing a notebook — it is how you find out who depends on it. Call edges are read out of the code, so a call whose target is computed at run time is reported as such rather than hidden.",
-      inputSchema: {},
+        [
+          "How the notebooks fit together: what triggers each one, which ones call which, and what contract each exposes. Read this before changing a notebook — it is how you find out who depends on it.",
+          "",
+          "Grouped by how each notebook is reached. **On its own** is what a schedule or a webhook starts; **called by others** is what exists to be reused, which is where to look before writing anything new; **neither** is a draft or something a person opens by hand.",
+          "",
+          "`about` narrows it to the notebooks whose name, contract or trigger mentions a word. On a workspace with fifty notebooks, reading all of them to find the two that touch invoices is the expensive habit this avoids.",
+          "",
+          "Call edges are read out of the code, so a call whose target is computed at run time is reported as such rather than hidden.",
+        ].join("\n"),
+      inputSchema: {
+        about: z
+          .string()
+          .optional()
+          .describe("Only notebooks mentioning this word in their name, contract or triggers."),
+      },
     },
-    async () => reply(renderNotebookMap(buildNotebookMap(await notebooksService.getAllDocuments())))
+    async ({ about }) =>
+      reply(
+        renderNotebookMap(buildNotebookMap(await notebooksService.getAllDocuments()), {
+          about,
+          grouped: true,
+        })
+      )
   );
 
   server.registerTool(
@@ -269,15 +292,103 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
     {
       title: "Read a notebook",
       description:
-        "The whole notebook in its text form: front matter for the contract, secrets and triggers, then one section per cell. Edit this text and send it back with notebook_write.",
+        [
+          "The notebook, whole or in outline.",
+          "",
+          "`part: outline` is one line per cell — its id, what it reads off `inputs`, and what it writes back — and no code at all. Start here on anything you did not just write. A twenty-cell notebook is thousands of tokens in full and a few hundred in outline, and the question you usually have is which cell to touch.",
+          "Then read the full text only if you need the code, and change it with `notebook_edit_cell` rather than sending the whole document back.",
+          "",
+          "`part: full` (the default) is the text form: front matter for the contract, secrets and triggers, then one section per cell. Edit it and send it back with `notebook_write` when you are rewriting the notebook rather than changing part of it.",
+        ].join("\n"),
       inputSchema: {
         notebook: z.string().describe("The notebook's name or id."),
+        part: z
+          .enum(["full", "outline"])
+          .optional()
+          .describe("`outline` for one line per cell with no code; `full` for the whole text."),
       },
     },
-    async ({ notebook }) => {
+    async ({ notebook, part }) => {
       const resolved = await resolveNotebook(notebook);
       if ("error" in resolved) return resolved.error;
-      return reply(toMarkdown(notebooksService.parseDocument(resolved.record)));
+      const document = notebooksService.parseDocument(resolved.record);
+      return reply(part === "outline" ? renderOutline(document) : toMarkdown(document));
+    }
+  );
+
+  server.registerTool(
+    "notebook_edit_cell",
+    {
+      title: "Change one cell",
+      description:
+        [
+          "Replaces, inserts, appends or deletes a single cell, leaving every other cell exactly as it is.",
+          "",
+          "USE THIS INSTEAD OF `notebook_write` WHENEVER YOU ARE CHANGING PART OF A NOTEBOOK. Rewriting the whole document to alter one cell means reproducing every other cell from memory, and what gets lost that way is real: arrangements, buttons, and cells whose code came back subtly different from what was stored.",
+          "",
+          "Get the cell id from `notebook_read` with `part: outline`.",
+          "",
+          "It refuses an edit that would leave a later cell reading a name nothing writes any more — deleting the cell that produces `rows` while a cell below still reads `inputs.rows` is refused here rather than failing halfway through a run at 3am.",
+          "",
+          "Like `notebook_write`, this changes the draft. Nothing reaches production until a person deploys it.",
+        ].join("\n"),
+      inputSchema: {
+        notebook: z.string().describe("The notebook's name or id."),
+        action: z
+          .enum(["replace", "insert_before", "insert_after", "append", "delete"])
+          .describe("What to do. `append` puts a new cell at the end and needs no `cell`."),
+        cell: z
+          .string()
+          .optional()
+          .describe("The cell id to act on. Required for everything except `append`."),
+        code: z.string().optional().describe("The cell's code. Required except for `delete`."),
+        note: z
+          .string()
+          .optional()
+          .describe("The prose above the code. On `replace`, leaving it out keeps what is there."),
+      },
+    },
+    async ({ notebook, action, cell, code, note }) => {
+      const resolved = await resolveNotebook(notebook);
+      if ("error" in resolved) return resolved.error;
+
+      if (action !== "append" && !cell) {
+        return reply(`\`${action}\` needs a \`cell\` id. Read the outline to see them.`);
+      }
+      if (action !== "delete" && code === undefined) {
+        return reply(`\`${action}\` needs \`code\`.`);
+      }
+
+      const document = notebooksService.parseDocument(resolved.record);
+      let edited: NotebookJson;
+      try {
+        edited = applyCellEdit(document, { action, cell, code, note } as CellEdit);
+      } catch (err: unknown) {
+        return explain(err);
+      }
+
+      const saved = await notebooksService.save(edited, deps.writer);
+
+      const lines = [
+        `${action} on **${saved.name}** \`${saved.id}\``,
+        "",
+        renderOutline(edited),
+      ];
+
+      try {
+        compileNotebook(edited);
+        lines.push("", "Compiles.");
+      } catch (err: unknown) {
+        const issues = err instanceof NotebookCompileError ? err.issues : [(err as Error).message];
+        lines.push("", "Saved, but it does not compile yet:", ...issues.map((issue) => `  - ${issue}`));
+      }
+
+      const deployState = await notebooksService.getDeployState(saved.id);
+      if (deployState?.isDeployed && deployState.hasUndeployedChanges) {
+        lines.push("", "This is the draft. Triggers still run the deployed version.");
+      }
+
+      return reply(lines.join("\n"));
     }
   );
 
