@@ -1,31 +1,84 @@
-version: '3.8'
+# zaatool, on a machine that is not your laptop.
+#
+# Three services. There used to be four: MinIO was here from the beginning and nothing ever
+# used it — `storage.service.ts` writes to a folder on disk. It is gone rather than kept
+# "for later", because a running service nobody uses is a password to rotate, a port to
+# firewall, and a thing to explain to whoever reads this next.
+#
+# Redis is absent for a different reason, and it is a decision rather than an omission:
+# nothing here is shared between processes. The scheduler is one process and the run gate
+# is one process, so a second engine would break on cron long before it needed a cache.
+#
+#   cp .env.example .env      # then fill in JWT_SECRET and POSTGRES_PASSWORD
+#   docker compose up -d --build
+#
+# See DEPLOY.md.
 
 services:
   postgres:
     image: postgres:15-alpine
     environment:
-      POSTGRES_USER: zaa_user
-      POSTGRES_PASSWORD: zaa_password
-      POSTGRES_DB: zaa_tool
+      POSTGRES_USER: ${POSTGRES_USER:-zaa_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-zaa_tool}
     ports:
-      - "5432:5432"
+      # Bound to the loopback address rather than to every interface. It stays reachable
+      # for `pnpm dev` on this machine and is not reachable from the network, which is the
+      # difference between a convenience and a database on the internet.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-zaa_user} -d ${POSTGRES_DB:-zaa_tool}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
+  engine:
+    build:
+      context: .
+      dockerfile: packages/engine/Dockerfile
+      args:
+        BUILD_VERSION: ${BUILD_VERSION:-dev}
+        BUILD_COMMIT: ${BUILD_COMMIT:-unknown}
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    ports:
-      - "9000:9000"
-      - "9001:9001"
+      NODE_ENV: production
+      # No default, on purpose. The engine refuses to start in production without it —
+      # see packages/engine/src/config.ts.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      POSTGRES_HOST: postgres
+      POSTGRES_USER: ${POSTGRES_USER:-zaa_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-zaa_tool}
+      # Off unless you are letting the first person in. Turn it on, register, turn it off.
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-25}
     volumes:
-      - minio_data:/data
+      # Everything notebooks write, and everything sent to them. Without this, every file
+      # produced since the last deploy disappears on the next one.
+      - storage_data:/app/packages/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: packages/web/Dockerfile
+      args:
+        BUILD_VERSION: ${BUILD_VERSION:-dev}
+        BUILD_COMMIT: ${BUILD_COMMIT:-unknown}
+    # The only published port. It serves the app and proxies everything the engine owns,
+    # so there is one origin, one certificate to buy, and a share link that is a URL on
+    # your own domain.
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      - engine
     restart: unless-stopped
 
 volumes:
   postgres_data:
-  minio_data:
+  storage_data:

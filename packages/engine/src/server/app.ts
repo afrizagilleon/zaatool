@@ -14,6 +14,9 @@ import { authMiddleware } from "../middleware/auth.middleware.js";
 import { storageAccess } from "../middleware/storage-access.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 
+/** When this process came up. Restarts are the thing you are usually checking for. */
+const STARTED_AT = new Date().toISOString();
+
 export function createApp(publishRunEvent: RunEventSink) {
   const app = express();
   app.use(cors());
@@ -43,8 +46,19 @@ export function createApp(publishRunEvent: RunEventSink) {
   // that a permission rather than a URL anyone can type.
   app.use("/storage", storageAccess, express.static(STORAGE_DIR));
 
+  /**
+   * Reachable without a session, like `/api/health`, and carrying the same amount of
+   * information: which build this is. Not a secret, and being able to answer "is the
+   * thing running what I deployed" without shelling into the machine is most of what
+   * makes an update safe to do at all.
+   */
   app.get("/api/health", (_req, res) => {
-    res.status(200).json({ status: "ok" });
+    res.status(200).json({
+      status: "ok",
+      version: process.env.BUILD_VERSION || "dev",
+      commit: process.env.BUILD_COMMIT || "unknown",
+      startedAt: STARTED_AT,
+    });
   });
 
   app.use("/api/notebooks", createNotebooksRouter(publishRunEvent));

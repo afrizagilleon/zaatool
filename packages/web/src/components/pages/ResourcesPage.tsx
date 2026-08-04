@@ -8,6 +8,7 @@ import { useStorage } from '../../hooks/useStorage';
 import { SecretsTab } from '../resources/SecretsTab';
 import { SkillsTab } from '../resources/SkillsTab';
 import { StorageTab } from '../resources/StorageTab';
+import { BuildVersion } from '../resources/BuildVersion';
 
 export function ResourcesPage() {
   const activeTab = useUiStore((s) => s.activeTab);
@@ -96,6 +97,8 @@ export function ResourcesPage() {
             />
           </TabsContent>
         </Tabs>
+
+        <BuildVersion />
       </div>
     </div>
   );

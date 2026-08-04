@@ -1,0 +1,23 @@
+# What must not go into an image.
+#
+# The first two are the usual ones. The third is the one that matters here: `packages/storage`
+# is the folder notebooks write into, so on a developer's machine it holds real files —
+# uploads, charts, whatever has been produced since the beginning. Copying it would put
+# somebody's data inside a published image.
+
+node_modules
+**/node_modules
+dist
+**/dist
+
+packages/storage
+packages/engine/storage
+
+.git
+.env
+.env.*
+backups
+.plannings
+.claude
+*.md
+!DEPLOY.md
