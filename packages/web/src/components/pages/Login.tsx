@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuthStore } from '../../store/authStore.js';
+import { API_BASE_URL } from '../../lib/api.js';
 import { Button } from '../ui/button.js';
 import { Input } from '../ui/input.js';
 import { Label } from '../ui/label.js';
@@ -21,6 +22,23 @@ export function Login() {
 
   const [localError, setLocalError] = useState<string | null>(null);
   const [registerSuccess, setRegisterSuccess] = useState(false);
+
+  /**
+   * Whether signing up would be accepted, asked before the form is offered.
+   *
+   * Undefined until the answer arrives, and the link stays hidden until then: offering a
+   * sign-up form that the engine will refuse is a worse first impression than a moment
+   * without it. `firstUser` is the one case that is always open, and it says so, because
+   * whoever takes it becomes the creator.
+   */
+  const [policy, setPolicy] = useState<{ registrationOpen: boolean; firstUser: boolean } | null>(null);
+
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/auth/policy`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setPolicy(data))
+      .catch(() => setPolicy(null));
+  }, []);
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -144,30 +162,44 @@ export function Login() {
           </Button>
         </form>
 
-        <div className="mt-8 border-t border-border pt-6 text-center">
-          <p className="text-xs text-muted-foreground">
-            Don't have an account?{' '}
-            <button
-              onClick={() => {
-                setLocalError(null);
-                clearError();
-                setIsRegister(true);
-              }}
-              className="text-foreground hover:underline font-semibold cursor-pointer"
-            >
-              Register User
-            </button>
-          </p>
-        </div>
+        {policy?.registrationOpen && (
+          <div className="mt-8 border-t border-border pt-6 text-center">
+            <p className="text-xs text-muted-foreground">
+              {policy.firstUser ? 'Nobody has an account here yet.' : "Don't have an account?"}{' '}
+              <button
+                onClick={() => {
+                  setLocalError(null);
+                  clearError();
+                  setIsRegister(true);
+                }}
+                className="text-foreground hover:underline font-semibold cursor-pointer"
+              >
+                {policy.firstUser ? 'Create the first one' : 'Register User'}
+              </button>
+            </p>
+          </div>
+        )}
+
+        {policy && !policy.registrationOpen && (
+          <div className="mt-8 border-t border-border pt-6 text-center">
+            <p className="text-xs text-muted-foreground">
+              Registration is closed. Ask someone with a creator account to make you one.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Registration Dialog */}
       <Dialog open={isRegister} onOpenChange={setIsRegister}>
         <DialogContent className="sm:max-w-md bg-card border-border rounded-2xl text-foreground">
           <DialogHeader>
-            <DialogTitle className="text-xl font-bold tracking-tight">Create Administrator Account</DialogTitle>
+            <DialogTitle className="text-xl font-bold tracking-tight">
+              {policy?.firstUser ? 'Create the first account' : 'Create an account'}
+            </DialogTitle>
             <DialogDescription className="text-muted-foreground text-xs">
-              Register a new user to access and modify workflows.
+              {policy?.firstUser
+                ? 'This one becomes the creator: it can write notebooks, deploy them, and invite everyone else.'
+                : 'New accounts start as viewers — they can open Apps and run them, but not change them.'}
             </DialogDescription>
           </DialogHeader>
 
@@ -225,7 +257,7 @@ export function Login() {
                     id="reg-password"
                     type="password"
                     required
-                    placeholder="Minimum 6 characters"
+                    placeholder="At least 8 characters"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="pl-10 h-10 bg-background border-border"

@@ -22,11 +22,22 @@ import type { LocationTab } from '../../lib/app-location.js';
  * open by default, which meant the retired canvas was the front door for months.
  */
 const navTabs = [
-  { id: 'apps' as const, label: 'Apps' },
-  { id: 'map' as const, label: 'Map' },
-  { id: 'notebooks' as const, label: 'Notebooks' },
-  { id: 'resources' as const, label: 'Resources' },
+  { id: 'apps' as const, label: 'Apps', creatorOnly: false },
+  { id: 'map' as const, label: 'Map', creatorOnly: false },
+  { id: 'notebooks' as const, label: 'Notebooks', creatorOnly: true },
+  { id: 'resources' as const, label: 'Resources', creatorOnly: true },
 ] as const;
+
+/**
+ * Tailwind needs the class to exist in the source, so the count cannot be interpolated.
+ * Four entries in, at most four out.
+ */
+const COLUMNS: Record<number, string> = {
+  1: 'grid-cols-1',
+  2: 'grid-cols-2',
+  3: 'grid-cols-3',
+  4: 'grid-cols-4',
+};
 
 export function Navbar() {
   const isDarkMode = useUiStore((s) => s.isDarkMode);
@@ -36,10 +47,18 @@ export function Navbar() {
 
   const [isProfileOpen, setIsProfileOpen] = useState(false);
 
-  const activeLabel = navTabs.find((tab) => tab.id === activeTab)?.label ?? 'Menu';
-
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+
+  /**
+   * A viewer is not shown the sections it cannot use.
+   *
+   * The engine refuses the writes either way — this is not the lock. It is the difference
+   * between an app that has two sections and an app that has four, two of which answer
+   * every action with a red box.
+   */
+  const tabs = navTabs.filter((tab) => !tab.creatorOnly || user?.role === 'creator');
+  const activeLabel = tabs.find((tab) => tab.id === activeTab)?.label ?? 'Menu';
 
   return (
     <header
@@ -78,7 +97,7 @@ export function Navbar() {
             value={activeTab}
             onValueChange={(val: string) => setActiveTab(val as LocationTab)}
           >
-            {navTabs.map((tab) => (
+            {tabs.map((tab) => (
               <DropdownMenuRadioItem key={tab.id} value={tab.id}>
                 {tab.label}
               </DropdownMenuRadioItem>
@@ -92,8 +111,8 @@ export function Navbar() {
         onValueChange={(val: string) => setActiveTab(val as LocationTab)}
         className="hidden lg:block w-[380px]"
       >
-        <TabsList className="grid w-full grid-cols-4 h-7 p-0.5">
-          {navTabs.map((tab) => (
+        <TabsList className={`grid w-full ${COLUMNS[tabs.length]} h-7 p-0.5`}>
+          {tabs.map((tab) => (
             <TabsTrigger key={tab.id} value={tab.id} className="text-xs h-6">
               {tab.label}
             </TabsTrigger>

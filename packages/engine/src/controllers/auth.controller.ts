@@ -1,8 +1,24 @@
 import { Request, Response } from "express";
-import { authService } from "../services/auth.service.js";
+import { authService, isRole, RegistrationClosedError } from "../services/auth.service.js";
+import { registrationOpen } from "../config.js";
 import { pool } from "../db/connection.js";
 
 export class AuthController {
+  /**
+   * What the login screen needs to know before it draws itself.
+   *
+   * Carries no names and no counts — only whether a sign-up form would be accepted, and
+   * whether this is a fresh installation with nobody in it yet.
+   */
+  async policy(_req: Request, res: Response) {
+    try {
+      const count = await authService.userCount();
+      res.json({ registrationOpen: count === 0 || registrationOpen(), firstUser: count === 0 });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  }
+
   async register(req: Request, res: Response) {
     try {
       const { username, password, email } = req.body;
@@ -11,8 +27,33 @@ export class AuthController {
       }
       const user = await authService.register(username, password, email);
       res.status(201).json({ success: true, user });
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
+    } catch (err) {
+      const status = err instanceof RegistrationClosedError ? 403 : 400;
+      res.status(status).json({ error: (err as Error).message });
+    }
+  }
+
+  async inviteUser(req: Request, res: Response) {
+    try {
+      const { username, password, email, role } = req.body;
+      if (!username || !password) {
+        return res.status(400).json({ error: "Username and password are required" });
+      }
+      if (!isRole(role)) {
+        return res.status(400).json({ error: "Role must be creator or viewer" });
+      }
+      const user = await authService.createUser(username, password, role, email);
+      res.status(201).json({ success: true, user });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  }
+
+  async listUsers(_req: Request, res: Response) {
+    try {
+      res.json({ success: true, users: await authService.listUsers() });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
     }
   }
 
@@ -24,14 +65,13 @@ export class AuthController {
       }
       const result = await authService.login(username, password);
       res.json({ success: true, ...result });
-    } catch (err: any) {
-      res.status(401).json({ error: err.message });
+    } catch (err) {
+      res.status(401).json({ error: (err as Error).message });
     }
   }
 
   async getMe(req: Request, res: Response) {
-    // If request passes auth middleware, user information is attached to req.user
-    const user = (req as any).user;
+    const user = (req as Request & { user?: { id: string } }).user;
     if (!user) {
       return res.status(401).json({ error: "Unauthorized" });
     }
@@ -44,8 +84,8 @@ export class AuthController {
         return res.status(404).json({ error: "User not found" });
       }
       res.json({ success: true, user: rows[0] });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      res.status(500).json({ error: (err as Error).message });
     }
   }
 }

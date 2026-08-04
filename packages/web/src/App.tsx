@@ -19,6 +19,7 @@ function App() {
 
   const token = useAuthStore((s) => s.token);
   const checkAuth = useAuthStore((s) => s.checkAuth);
+  const isCreator = useAuthStore((s) => s.user?.role) === 'creator';
 
   // Auto verify session on mount
   useEffect(() => {
@@ -47,14 +48,19 @@ function App() {
       <main className="flex-1 flex overflow-hidden relative">
         {activeTab === 'apps' && <AppsPage />}
         {activeTab === 'map' && <SystemMap onOpenNotebook={openNotebook} />}
-        {activeTab === 'notebooks' && (
-          <NotebooksPage
-            notebookId={notebookId}
-            onOpenNotebook={openNotebook}
-            onCloseNotebook={closeNotebook}
-          />
-        )}
-        {activeTab === 'resources' && <ResourcesPage />}
+        {/* A typed `#/notebooks` from a viewer lands on Apps rather than on an editor whose
+            every save comes back 403. The navbar already hides these; this is the URL. */}
+        {activeTab === 'notebooks' &&
+          (isCreator ? (
+            <NotebooksPage
+              notebookId={notebookId}
+              onOpenNotebook={openNotebook}
+              onCloseNotebook={closeNotebook}
+            />
+          ) : (
+            <AppsPage />
+          ))}
+        {activeTab === 'resources' && (isCreator ? <ResourcesPage /> : <AppsPage />)}
         {activeTab === 'gallery' && <RendererGallery />}
       </main>
     </div>
