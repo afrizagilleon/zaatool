@@ -60,7 +60,13 @@ export class NotebookTextError extends Error {
 }
 
 const DEFAULT_VERSION = "1.0";
-export const PARAM_TYPES: readonly NotebookParamType[] = ["string", "number", "boolean", "json"];
+export const PARAM_TYPES: readonly NotebookParamType[] = [
+  "string",
+  "number",
+  "boolean",
+  "json",
+  "file",
+];
 const FENCE_LANGUAGE: Record<NotebookRuntime, string> = { node: "js", python: "python" };
 
 // ── writing ───────────────────────────────────────────────────────────────────
@@ -537,6 +543,15 @@ function readInputs(value: unknown, issues: string[]): NotebookParam[] {
         issues.push(
           `input "${paramName}" is \`multiline\`, which only applies to a \`string\` without \`options\``
         );
+      }
+    }
+
+    if (typeof raw.accept === "string" && raw.accept.trim() !== "") {
+      // Same rule as `multiline`: a presentation fact only the author knows, refused
+      // where it cannot mean anything rather than kept and quietly ignored.
+      if (param.type === "file") param.accept = raw.accept.trim();
+      else {
+        issues.push(`input "${paramName}" is \`accept\`, which only applies to a \`file\``);
       }
     }
 

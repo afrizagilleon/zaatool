@@ -1,5 +1,8 @@
 import { Router, type Request, type Response } from "express";
+import multer from "multer";
 import { notebookSharesService, type ShareRow } from "../services/notebook-shares.service.js";
+import { notebookFilesService } from "../services/notebook-files.service.js";
+import { maxUploadBytes } from "../config.js";
 import { notebooksService } from "../services/notebooks.service.js";
 import {
   notebookExecutionService,
@@ -39,6 +42,12 @@ const WINDOW_MS = 60 * 60 * 1000;
  */
 const recentRuns = new Map<string, number[]>();
 
+/** One file, in memory, size-limited. Where it lands is not this route's decision. */
+const attachment = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: maxUploadBytes(), files: 1 },
+});
+
 function withinLimit(shareId: string): boolean {
   const now = Date.now();
   const times = (recentRuns.get(shareId) ?? []).filter((at) => now - at < WINDOW_MS);
@@ -65,12 +74,24 @@ function firstNoteOf(document: NotebookJson): string {
   return "";
 }
 
+/** Every note, in order — what a notebook with no contract has instead of a page. */
+function notesOf(document: NotebookJson): string[] {
+  const notes: string[] = [];
+  for (const step of document.steps ?? []) {
+    if (step.kind === "cell" && step.note?.trim()) notes.push(step.note.trim());
+  }
+  return notes;
+}
+
 function pageOf(id: string, document: NotebookJson): NotebookPage {
   const outputs = outputSpecs(document.outputs);
+  const hasContract = (document.inputs?.length ?? 0) > 0 || outputs.length > 0;
   return {
     id,
     name: document.name,
     description: firstNoteOf(document),
+    // A written notebook can be shared as what it is: the thing somebody wrote.
+    notes: hasContract ? [] : notesOf(document),
     inputs: document.inputs ?? [],
     outputs,
     layout: (document.layout ?? []).filter((item) =>
@@ -125,6 +146,38 @@ export function createShareRouter(publishRunEvent: RunEventSink): Router {
       const opened = await open(req, res);
       if (!opened) return;
       res.json(pageOf(opened.share.notebook_id, opened.document));
+    } catch (err: unknown) {
+      res.status(500).json({ error: (err as Error).message });
+    }
+  });
+
+  /**
+   * A file attached by someone with no account here.
+   *
+   * Held to the same bound as a run: a link that can be turned into free disk is worse
+   * than one that can be turned into free compute, so it costs a slot from the same
+   * counter rather than having a second one nobody would think to look at.
+   */
+  router.post("/:token/uploads", attachment.single("file"), async (req: Request, res: Response) => {
+    try {
+      const opened = await open(req, res);
+      if (!opened) return;
+
+      if (!withinLimit(opened.share.id)) {
+        return res.status(429).json({ error: "This link has been used too many times today." });
+      }
+
+      const file = (req as Request & { file?: { originalname: string; buffer: Buffer } }).file;
+      if (!file) return res.status(400).json({ error: "No file provided" });
+
+      res.json(
+        notebookFilesService.keepUpload(
+          opened.share.notebook_id,
+          file.originalname,
+          file.buffer,
+          "page"
+        )
+      );
     } catch (err: unknown) {
       res.status(500).json({ error: (err as Error).message });
     }

@@ -1,5 +1,8 @@
-import { Router, type Request, type Response } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
+import multer from "multer";
 import { notebookTriggersService } from "../services/notebook-triggers.service.js";
+import { notebookFilesService } from "../services/notebook-files.service.js";
+import { maxUploadBytes } from "../config.js";
 import {
   notebookExecutionService,
   NotebookNotDeployedError,
@@ -14,6 +17,40 @@ import type { RunEventSink } from "../core/run-emitter.js";
 /** Long enough for a real API call, short enough that a caller is not left hanging. */
 const DEFAULT_WAIT_MS = 30_000;
 const MAX_WAIT_MS = 120_000;
+
+/**
+ * Files arriving at a webhook.
+ *
+ * In memory and capped, because this is the one door here that opens onto the internet.
+ * Where the bytes land is decided after the hook has been identified — a request cannot
+ * name a folder, and cannot even cause a folder to exist until it has been let in.
+ */
+const uploads = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: maxUploadBytes(), files: 8 },
+});
+
+/** What multer leaves on the request. Narrower than multer's own type, on purpose. */
+interface MultipartFile {
+  fieldname: string;
+  originalname: string;
+  buffer: Buffer;
+}
+
+function multipartFields(req: Request, res: Response, next: NextFunction) {
+  if (!String(req.headers["content-type"] ?? "").includes("multipart/form-data")) return next();
+
+  uploads.any()(req, res, (err: unknown) => {
+    if (!err) return next();
+    const code = (err as { code?: string }).code;
+    if (code === "LIMIT_FILE_SIZE") {
+      return res.status(413).json({
+        error: `A file is larger than the ${Math.round(maxUploadBytes() / (1024 * 1024))} MB limit.`,
+      });
+    }
+    res.status(400).json({ error: (err as Error).message });
+  });
+}
 
 /** Headers worth passing to a notebook; the rest are noise or sensitive. */
 const FORWARDED_HEADERS = ["content-type", "user-agent", "x-request-id"];
@@ -47,11 +84,28 @@ function forwardedHeaders(req: Request): Record<string, string> {
 export function createHooksRouter(publishRunEvent: RunEventSink): Router {
   const router = Router();
 
-  router.post("/:slug", async (req: Request, res: Response) => {
+  router.post("/:slug", multipartFields, async (req: Request, res: Response) => {
     try {
       const trigger = await notebookTriggersService.findEnabledWebhook(String(req.params.slug));
       // Same answer for "no such hook" and "disabled hook", so probing tells nothing.
       if (!trigger) return res.status(404).json({ error: "Unknown webhook" });
+
+      const attached = (req as Request & { files?: MultipartFile[] }).files ?? [];
+
+      /**
+       * A hook that accepts files must have a secret. Agreed in v2 and enforced here
+       * rather than at configuration time, because a trigger can lose its secret after it
+       * was made — and the difference this guards is real: an open hook that runs a
+       * notebook costs somebody a few seconds of CPU, while an open hook that *stores what
+       * you send it* is free disk space on a stranger's server.
+       */
+      if (attached.length > 0 && !trigger.secret_key) {
+        return res.status(401).json({
+          error:
+            "This webhook accepts no files because it has no secret. Give the trigger a " +
+            "`secretKey` and send it as X-Webhook-Secret.",
+        });
+      }
 
       if (trigger.secret_key) {
         const expected = await secretsService.getValueByKey(trigger.secret_key);
@@ -72,11 +126,27 @@ export function createHooksRouter(publishRunEvent: RunEventSink): Router {
         }
       }
 
+      // Stored before the run starts, and named after the form field they arrived in — so
+      // a notebook declaring `photo` as a `file` input is called with the file somebody
+      // put in the `photo` field, and the contract judges it like any other argument.
+      const fields: Record<string, unknown> = {};
+      for (const file of attached) {
+        fields[file.fieldname] = notebookFilesService.keepUpload(
+          trigger.notebook_id,
+          file.originalname,
+          file.buffer,
+          "hook"
+        );
+      }
+
+      const body = typeof req.body === "object" && req.body !== null ? req.body : {};
+      const args = attached.length > 0 ? { ...body, ...fields } : body;
+
       const started = await notebookExecutionService.start(trigger.notebook_id, publishRunEvent, {
         triggerSource: "webhook",
         // A notebook that declares inputs is called by this request, not merely
         // triggered by it: the body binds to the contract and a mismatch is a 400.
-        args: typeof req.body === "object" && req.body !== null ? req.body : undefined,
+        args,
         input: {
           trigger: {
             kind: "webhook",

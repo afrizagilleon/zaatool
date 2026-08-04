@@ -57,6 +57,9 @@ interface PageActionsProps {
   ) => Promise<{ notebook: string; status: string; errors?: string[] }>;
   /** The calling page's form, so a field both notebooks name arrives already filled in. */
   pageValues?: Record<string, string>;
+  /** Where an attachment in the dialog goes. */
+  notebookId?: string;
+  shareToken?: string;
   disabled?: boolean;
 }
 
@@ -65,6 +68,8 @@ export function PageActions({
   onRerun,
   onRun,
   pageValues = {},
+  notebookId,
+  shareToken,
   disabled,
 }: PageActionsProps) {
   const [state, setState] = useState<ActionState>({ kind: 'idle' });
@@ -197,6 +202,8 @@ export function PageActions({
       <ActionDialog
         action={asking?.action ?? null}
         pageValues={pageValues}
+        notebookId={notebookId}
+        shareToken={shareToken}
         onCancel={() => setAsking(null)}
         onSubmit={async (args) => {
           const index = asking?.index ?? 0;

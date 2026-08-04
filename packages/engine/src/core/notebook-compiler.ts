@@ -10,7 +10,7 @@ import { outputNames } from "./notebook-outputs.js";
 
 const DEFAULT_CELL_TIMEOUT_MS = 30_000;
 const VALID_RUNTIMES: NotebookRuntime[] = ["node", "python"];
-const VALID_PARAM_TYPES: NotebookParamType[] = ["string", "number", "boolean", "json"];
+const VALID_PARAM_TYPES: NotebookParamType[] = ["string", "number", "boolean", "json", "file"];
 
 export interface PlanCell {
   kind: "code";

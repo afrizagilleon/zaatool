@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { notebooksService } from "../services/notebooks.service.js";
+import { notebookFilesService } from "../services/notebook-files.service.js";
 import { buildNotebookMap } from "../core/notebook-map.js";
 import { outputSpecs } from "../core/notebook-outputs.js";
 import { actionSpecs } from "../core/notebook-actions.js";
@@ -22,6 +23,20 @@ import type {
   NotebookPage,
   NotebookPageAction,
 } from "@zaa-tool/shared";
+
+/**
+ * Every note in the notebook, in the order they are written.
+ *
+ * A notebook whose cells are all prose is a document; this is that document. Cells with
+ * no note contribute nothing rather than a gap — the code is not the reading.
+ */
+function notesOf(document: NotebookJson): string[] {
+  const notes: string[] = [];
+  for (const step of document.steps ?? []) {
+    if (step.kind === "cell" && step.note?.trim()) notes.push(step.note.trim());
+  }
+  return notes;
+}
 
 /** A notebook's own first sentence, which is the best description anyone will write. */
 function firstNoteOf(document: NotebookJson): string {
@@ -115,11 +130,15 @@ export class NotebooksController {
   };
 
   /**
-   * Every deployed notebook that has a contract, as a page.
+   * Every deployed notebook, as a page.
    *
-   * The same rule as the agent catalogue: no contract, nothing to render. A notebook
-   * that takes nothing and returns nothing is not a page, it is a button — and there is
-   * already a Run button in the editor.
+   * A page shows what its notebook has. Outputs if it has them; if it has none, its cell
+   * notes *are* the page — which is what makes a notebook of nothing but prose a thing you
+   * can deploy and send someone a link to. It used to be dropped from this list entirely,
+   * so the only way to read a written notebook was to open the editor.
+   *
+   * A notebook with neither notes nor a contract is still nothing to render, and still
+   * skipped: there is already a Run button in the editor.
    */
   pages = async (_req: Request, res: Response) => {
     try {
@@ -128,9 +147,16 @@ export class NotebooksController {
       for (const summary of await notebooksService.getSummary()) {
         const document = await notebooksService.getDeployedDocument(summary.id);
         if (!document) continue;
-        if ((document.inputs?.length ?? 0) === 0 && (document.outputs?.length ?? 0) === 0) continue;
+
+        const hasContract =
+          (document.inputs?.length ?? 0) > 0 || (document.outputs?.length ?? 0) > 0;
+        // Only when there is nothing else to show, or every existing page would suddenly
+        // grow a wall of the author's working notes above its results.
+        const notes = hasContract ? [] : notesOf(document);
+        if (!hasContract && notes.length === 0) continue;
 
         pages.push({
+          notes,
           id: summary.id,
           name: document.name,
           description: firstNoteOf(document),
@@ -350,6 +376,31 @@ export class NotebooksController {
       const result = await notebooksService.delete(String(req.params.id));
       notifyCatalogChanged();
       res.json(result);
+    } catch (err: unknown) {
+      respondWithError(res, err);
+    }
+  };
+
+  /**
+   * Keeps a file a page is about to hand to a run, and answers with the descriptor.
+   *
+   * Two steps rather than one multipart run request, and the reason is the contract: a
+   * run takes named arguments, and mixing files into that would mean a second way to
+   * supply an argument. Here the file becomes an ordinary value first, and the run that
+   * follows is the same run any other caller starts.
+   */
+  upload = async (req: Request, res: Response) => {
+    try {
+      const file = (req as Request & { file?: { originalname: string; buffer: Buffer } }).file;
+      if (!file) return res.status(400).json({ error: "No file provided" });
+
+      const notebook = await notebooksService.findByIdOrName(String(req.params.id));
+      if (notebook === null) return res.status(404).json({ error: "Notebook not found" });
+      if (notebook === "ambiguous") {
+        return res.status(400).json({ error: "More than one notebook goes by that name" });
+      }
+
+      res.json(notebookFilesService.keepUpload(notebook.id, file.originalname, file.buffer, "page"));
     } catch (err: unknown) {
       respondWithError(res, err);
     }

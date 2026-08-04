@@ -78,12 +78,18 @@ export class FileObject {
     return !!this.absolute_path && fs.existsSync(this.absolute_path);
   }
 
+  /**
+   * `absolute_path` is deliberately absent.
+   *
+   * It exists so this object can read the file, and it names a folder on the server. A
+   * cell that returns the file it was given would otherwise put the engine's disk layout
+   * into a page, a webhook's reply and an agent's transcript.
+   */
   toJSON() {
     return {
       name: this.name,
       path: this.path,
       url: this.url,
-      absolute_path: this.absolute_path,
     };
   }
 }

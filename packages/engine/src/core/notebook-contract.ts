@@ -47,6 +47,26 @@ function coerce(param: NotebookParam, value: unknown): { ok: true; value: unknow
       if (value === "false") return { ok: true, value: false };
       return { ok: false, reason: `expected a boolean, got ${describe(value)}` };
     }
+
+    /**
+     * A file arrives as the descriptor the engine handed out when it stored the bytes.
+     * A bare string is accepted as the path, because that is what a caller writes by hand
+     * when reusing a file a previous run produced — and it is the only form an agent can
+     * type without having uploaded anything.
+     */
+    case "file": {
+      if (typeof value === "string" && value.trim() !== "") {
+        return { ok: true, value: { name: value.split("/").pop() ?? value, path: value.trim() } };
+      }
+      if (value && typeof value === "object" && !Array.isArray(value)) {
+        const file = value as { path?: unknown };
+        if (typeof file.path === "string" && file.path.trim() !== "") {
+          return { ok: true, value };
+        }
+        return { ok: false, reason: "expected a file with a `path`" };
+      }
+      return { ok: false, reason: `expected a file, got ${describe(value)}` };
+    }
   }
 }
 

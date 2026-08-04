@@ -4,6 +4,7 @@ import { Textarea } from '../../ui/textarea';
 import { Switch } from '../../ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../ui/select';
 import { choicesOf, hasChoices } from '../../../lib/notebook-options';
+import { FileField } from './FileField';
 
 /**
  * One declared input, as a form field.
@@ -63,6 +64,17 @@ export function toArgs(
     }
 
     if (raw === '' && !input.required) continue;
+
+    // A file is kept as the descriptor the engine returned, JSON-encoded like a
+    // multiple-choice selection — the form still holds nothing but strings.
+    if (input.type === 'file') {
+      try {
+        args[input.name] = JSON.parse(raw);
+      } catch {
+        continue;
+      }
+      continue;
+    }
 
     if (input.type === 'json') {
       try {
@@ -125,10 +137,16 @@ export function InputField({
   input,
   value,
   onChange,
+  notebookId,
+  shareToken,
 }: {
   input: NotebookParam;
   value: string;
   onChange: (next: string) => void;
+  /** Where an attached file goes. Only a `file` input needs it. */
+  notebookId?: string;
+  /** Set on a shared page, where the link is the credential. */
+  shareToken?: string;
 }) {
   return (
     <label className="block space-y-1">
@@ -142,6 +160,14 @@ export function InputField({
 
       {input.type === 'boolean' ? (
         <Switch checked={value === 'true'} onCheckedChange={(on) => onChange(String(on))} />
+      ) : input.type === 'file' ? (
+        <FileField
+          input={input}
+          value={value}
+          onChange={onChange}
+          notebookId={notebookId ?? ''}
+          shareToken={shareToken}
+        />
       ) : hasChoices(input) ? (
         input.multiple ? (
           <ChoiceList input={input} value={value} onChange={onChange} />

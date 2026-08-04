@@ -1,7 +1,21 @@
 import { Router } from "express";
+import multer from "multer";
 import { NotebooksController } from "../controllers/notebooks.controller.js";
 import { requireRole } from "../middleware/require-role.js";
+import { maxUploadBytes } from "../config.js";
 import type { RunEventSink } from "../core/run-emitter.js";
+
+/**
+ * An attachment on its way into a run.
+ *
+ * In memory, never on disk here: where it lands is `notebookFilesService`'s decision, and
+ * a `dir` this route could be talked into is exactly the hole M18 closed. One file, size
+ * limited, and the name is treated as a suggestion.
+ */
+const attachment = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: maxUploadBytes(), files: 1 },
+});
 
 /**
  * Built as a factory because running a notebook needs the run event sink, which
@@ -25,6 +39,10 @@ export function createNotebooksRouter(publishRunEvent: RunEventSink): Router {
   router.get("/:id", controller.getById);
   router.delete("/:id", creator, controller.remove);
   router.post("/:id/run", controller.run);
+  // Not creator-only, unlike the resources library. Running a page is a viewer's whole
+  // purpose, and a page that asks for a photo cannot be run without giving it one. What
+  // arrives here lands in the notebook's own uploads folder, never in the shared files.
+  router.post("/:id/uploads", attachment.single("file"), controller.upload);
   router.post("/:id/actions/:index", controller.runAction);
   router.get("/:id/deploy", controller.deployState);
   router.get("/:id/deployed", controller.deployedDocument);

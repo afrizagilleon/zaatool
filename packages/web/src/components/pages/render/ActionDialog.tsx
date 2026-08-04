@@ -25,6 +25,9 @@ import { InputField, initialValues, toArgs } from './InputField';
  * rendered its own approximation of a form would be a second form to keep in step.
  */
 interface ActionDialogProps {
+  /** Where an attached file goes — only a target with a `file` input needs it. */
+  notebookId?: string;
+  shareToken?: string;
   action: NotebookPageAction | null;
   /**
    * The calling page's current values. A field the target and the page both name is
@@ -46,7 +49,7 @@ function startingValues(asks: NotebookParam[], pageValues: Record<string, string
   return values;
 }
 
-export function ActionDialog({ action, pageValues, onCancel, onSubmit }: ActionDialogProps) {
+export function ActionDialog({ action, pageValues, notebookId, shareToken, onCancel, onSubmit }: ActionDialogProps) {
   const asks = action?.asks ?? [];
   const [values, setValues] = useState<Record<string, string>>({});
   const [isRunning, setIsRunning] = useState(false);
@@ -89,6 +92,8 @@ export function ActionDialog({ action, pageValues, onCancel, onSubmit }: ActionD
               input={input}
               value={values[input.name] ?? ''}
               onChange={(next) => setValues((current) => ({ ...current, [input.name]: next }))}
+              notebookId={notebookId}
+              shareToken={shareToken}
             />
           ))}
         </form>
