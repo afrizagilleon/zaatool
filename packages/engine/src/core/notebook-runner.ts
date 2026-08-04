@@ -93,7 +93,8 @@ export async function runNotebook(
       // empty, which is why that wrapping never happened for a notebook.
       plan.inputs ?? [],
       callFromCell,
-      file
+      file,
+      plan.packages ?? []
     );
 
     if (result.error) {

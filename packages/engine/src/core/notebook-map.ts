@@ -102,6 +102,7 @@ export function buildNotebookMap(
       inputs: (document.inputs ?? []).map(describeInput),
       outputs: outputNames(document.outputs),
       secrets: [...(document.secrets ?? [])],
+      packages: [...(document.packages ?? [])],
       cellCount: cells.length,
       parallelCount: counts.parallel,
       updatedAt,
@@ -203,6 +204,9 @@ export function renderNotebookMap(map: NotebookMap, options: MapRenderOptions = 
     lines.push(`- **${notebook.name}** \`${notebook.id}\` · ${notebook.runtime} · ${notebook.cellCount} cell(s)`);
     if (notebook.inputs.length > 0 || notebook.outputs.length > 0) {
       lines.push(`    (${notebook.inputs.join(", ") || "no inputs"}) → {${notebook.outputs.join(", ") || "nothing"}}`);
+    }
+    if (notebook.packages.length > 0) {
+      lines.push(`    packages: ${notebook.packages.join(", ")}`);
     }
     for (const trigger of triggersFor(notebook.id)) {
       lines.push(`    ${trigger.kind} ${trigger.label}${trigger.enabled ? "" : " (disabled)"}`);

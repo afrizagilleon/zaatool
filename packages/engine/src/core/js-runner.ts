@@ -22,7 +22,8 @@ export function runJsNode(
   secrets: Record<string, string> = {},
   inputsSchema: any[] = [],
   onCall?: NotebookCaller,
-  onFile?: FileWriter
+  onFile?: FileWriter,
+  packages: string[] = []
 ): Promise<RunResult> {
   return new Promise((resolve) => {
     const startTime = Date.now();
@@ -41,6 +42,7 @@ export function runJsNode(
           inputsSchema,
           canCall: Boolean(onCall),
           canWriteFile: Boolean(onFile),
+          packages,
         },
         // The worker gets its own environment rather than a copy of the
         // engine's, so user code cannot read the server's credentials.

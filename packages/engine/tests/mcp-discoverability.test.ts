@@ -19,6 +19,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { registerNotebookTools } from "../src/mcp/notebook-tools.js";
 import { registerConventions } from "../src/mcp/conventions.js";
 import { OUTPUT_RENDERS, outputSpecs } from "../src/core/notebook-outputs.js";
+import { ALLOWED_JS_PACKAGES } from "../src/core/notebook-packages.js";
 import { ACTION_KINDS } from "../src/core/notebook-actions.js";
 import { EXAMPLE } from "../src/mcp/notebook-format.js";
 import { fromMarkdown } from "../src/core/notebook-text.js";
@@ -453,6 +454,25 @@ await check("`file` is accepted by the parser, and `accept` only on a file", () 
   assert.equal(ok.inputs?.[0].accept, "image/*");
 
   assert.throws(() => fromMarkdown(field("    type: string\n    accept: image/*")), /accept/);
+});
+
+// ── libraries ─────────────────────────────────────────────────────────────────
+
+console.log("\nlibraries");
+
+await check("`packages` is documented next to the runtime it changes", () => {
+  assert.match(conventions, /packages: \[pandas/);
+  assert.match(conventions, /anything on PyPI/i);
+});
+
+await check("the JavaScript list is read from the runtime, not written twice", () => {
+  for (const name of ALLOWED_JS_PACKAGES) {
+    assert.ok(conventions.includes(`\`${name}\``), `the reference never mentions ${name}`);
+  }
+});
+
+await check("the silent-failure case is named, since nothing else would reveal it", () => {
+  assert.match(conventions, /Undeclared means the standard library only/i);
 });
 
 // ── editing without rewriting ─────────────────────────────────────────────────

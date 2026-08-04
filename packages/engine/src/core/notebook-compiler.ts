@@ -37,6 +37,8 @@ export interface NotebookPlan {
   notebookId: string;
   runtime: NotebookRuntime;
   secrets: string[];
+  /** Libraries the cells may import, as declared. Empty means the standard library. */
+  packages: string[];
   /** The reuse contract, validated here so a bad one never reaches a run. */
   inputs: NotebookParam[];
   outputs: string[];
@@ -228,6 +230,9 @@ export function compileNotebook(notebook: NotebookJson): NotebookPlan {
     runtime: notebook.runtime,
     secrets: Array.isArray(notebook.secrets)
       ? [...new Set(notebook.secrets.filter((k): k is string => typeof k === "string" && k.length > 0))]
+      : [],
+    packages: Array.isArray(notebook.packages)
+      ? [...new Set(notebook.packages.filter((p): p is string => typeof p === "string" && p.trim() !== ""))]
       : [],
     inputs,
     outputs,

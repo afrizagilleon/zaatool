@@ -17,6 +17,7 @@ import type {
 } from "@zaa-tool/shared";
 import { OUTPUT_RENDERS } from "./notebook-outputs.js";
 import { actionProblems, actionSpecs } from "./notebook-actions.js";
+import { packageProblems } from "./notebook-packages.js";
 
 /**
  * The notebook's text form: the same document, written as markdown.
@@ -79,6 +80,7 @@ export function toMarkdown(notebook: NotebookJson): string {
     version: notebook.version || DEFAULT_VERSION,
   };
   if (notebook.secrets?.length) meta.secrets = notebook.secrets;
+  if (notebook.packages?.length) meta.packages = notebook.packages;
   if (notebook.inputs?.length) meta.inputs = notebook.inputs;
   if (notebook.outputs?.length) meta.outputs = notebook.outputs;
   if (notebook.triggers?.length) meta.triggers = notebook.triggers;
@@ -256,6 +258,14 @@ export function fromMarkdown(text: string, options?: FromMarkdownOptions): Noteb
 
   const secrets = readStringList(meta.secrets, "secrets", issues);
   if (secrets.length > 0) notebook.secrets = secrets;
+
+  const packages = readStringList(meta.packages, "packages", issues);
+  if (packages.length > 0) {
+    // Judged here rather than at run time: a package a cell cannot have is a mistake in
+    // the document, and the author is reading this answer now.
+    issues.push(...packageProblems(runtime, packages));
+    notebook.packages = packages;
+  }
 
   const outputs = readOutputs(meta.outputs, issues);
   if (outputs.length > 0) notebook.outputs = outputs;

@@ -20,6 +20,8 @@ export interface NotebookMapNotebook {
   inputs: string[];
   outputs: string[];
   secrets: string[];
+  /** Libraries its cells import. Changing this is a production change, so the map says it. */
+  packages: string[];
   cellCount: number;
   /** Parallel groups, which is what makes a notebook worth drawing rather than listing. */
   parallelCount: number;

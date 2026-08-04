@@ -1,10 +1,47 @@
 import { workerData, parentPort } from "worker_threads";
 import { createRequire } from "module";
 
-const require = createRequire(import.meta.url);
+const nodeRequire = createRequire(import.meta.url);
 // Secrets arrive through the worker's `env` option (see js-runner), not through
 // workerData — the worker's process.env is already scoped to this node.
-const { code, inputs, inputsSchema, canCall, canWriteFile } = workerData;
+const { code, inputs, inputsSchema, canCall, canWriteFile, packages } = workerData;
+
+/**
+ * `require`, narrowed to what the notebook declared.
+ *
+ * It used to resolve out of the engine's own `node_modules`, which meant a cell could
+ * `require('pg')` and open a client to the database this application runs on. Nothing
+ * about writing a notebook should reach that far, and nothing announced that it could.
+ *
+ * Node's own built-ins stay: a cell that wants `crypto` or `fs` is doing ordinary work,
+ * and the process it runs in is already the boundary. What is gone is *the engine's
+ * dependency tree by accident*.
+ */
+const allowed = new Set<string>(Array.isArray(packages) ? packages : []);
+
+const scopedRequire = (specifier: string): unknown => {
+  const name = String(specifier ?? "");
+  const bare = name.replace(/^node:/, "").split("/")[0];
+
+  // A path is not a package, and there is nothing on this disk a cell should be reading
+  // by path — the notebook is the unit, not the filesystem around it.
+  if (name.startsWith(".") || name.startsWith("/")) {
+    throw new Error(`require("${name}") is not available: a cell cannot load files by path.`);
+  }
+
+  if (allowed.has(bare) || isBuiltin(bare)) return nodeRequire(name);
+
+  throw new Error(
+    `require("${name}") is not available. Declare it in the notebook's \`packages:\` list, ` +
+      "or use one of node's built-in modules."
+  );
+};
+
+function isBuiltin(name: string): boolean {
+  // `module.builtinModules` is the list node itself keeps, so this never drifts.
+  const { builtinModules } = nodeRequire("module") as { builtinModules: string[] };
+  return builtinModules.includes(name);
+}
 
 // catch console.log from user's code → send as event log
 const originalLog = console.log;
@@ -139,7 +176,7 @@ const files = {
     );
     const output = await fn(
       wrappedInputs,
-      require,
+      scopedRequire,
       Table,
       FileObject,
       ImageObject,

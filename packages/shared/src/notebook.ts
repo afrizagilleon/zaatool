@@ -323,6 +323,15 @@ export interface NotebookJson {
   runtime: NotebookRuntime;
   /** Secret keys this notebook may read; undeclared means none. */
   secrets?: string[];
+  /**
+   * Libraries its cells may import. Undeclared means the standard library and nothing else.
+   *
+   * The same sentence as `secrets`, about a different resource: the notebook names what it
+   * needs, and the engine decides whether it may have it. A Python cell may name anything
+   * on PyPI, optionally with a version; a JavaScript cell may name one of the few the
+   * engine ships, because those load into this process rather than a throwaway environment.
+   */
+  packages?: string[];
   triggers?: NotebookTrigger[];
   /** Values a caller supplies, seeded into scope before the first cell. */
   inputs?: NotebookParam[];
@@ -377,6 +386,8 @@ export interface NotebookServing {
   toolName: string | null;
   /** Whether it appears under Apps as a page. */
   hasPage: boolean;
+  /** Libraries this version installs. Changing them is a production change. */
+  packages: string[];
   /** Triggers that would start refusing: cron expressions and webhook slugs. */
   triggers: Array<{ kind: "cron" | "webhook"; label: string }>;
 }

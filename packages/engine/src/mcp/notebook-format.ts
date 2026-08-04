@@ -1,4 +1,5 @@
 import { ACTION_KINDS } from "../core/notebook-actions.js";
+import { ALLOWED_JS_PACKAGES } from "../core/notebook-packages.js";
 import { OUTPUT_RENDERS } from "../core/notebook-outputs.js";
 import { PARAM_TYPES } from "../core/notebook-text.js";
 
@@ -94,6 +95,8 @@ return {
 export function renderFormatReference(): string {
   const types = PARAM_TYPES.map((type: string) => `\`${type}\``).join(", ");
   const renders = OUTPUT_RENDERS.map((render) => `\`${render}\``).join(", ");
+  // Read from the list the runtime enforces, so the reference cannot drift from it.
+  const jsPackages = ALLOWED_JS_PACKAGES.map((name) => `\`${name}\``).join(", ");
 
   // One template rather than a joined list: tables and fenced blocks need single
   // newlines, and a join that puts a blank line between every element quietly breaks
@@ -259,6 +262,30 @@ button. There is no other way to ask for a voice note, and no separate declarati
 A webhook that accepts files **must have a \`secretKey\`**, and it is refused without one.
 An open hook that runs a notebook costs a few seconds of somebody's CPU; an open hook that
 *stores what you send it* is free disk on a stranger's machine.
+
+## Libraries — \`packages\`
+
+A notebook names the libraries its cells import, in front matter, next to \`secrets\`:
+
+\`\`\`yaml
+runtime: python
+packages: [pandas, "requests>=2.31"]
+\`\`\`
+
+\`\`\`python
+import pandas as pd
+return {"rows": pd.DataFrame(inputs["raw"]).groupby("month").sum().reset_index().to_dict("records")}
+\`\`\`
+
+**Python may name anything on PyPI**, with a version if you need one. The environment is
+built before the first cell and cached, so the second run costs nothing.
+
+**JavaScript may name only ${jsPackages}.** Node's own built-in modules always work and
+need no declaration. Anything else is refused — a JavaScript package loads into the
+engine's own process, so that list is part of the engine rather than part of a notebook.
+
+**Undeclared means the standard library only.** Do not write \`import pandas\` and hope; a
+missing declaration is a failure at run time, and declaring it is one line.
 
 ## Keeping a file — \`files.write\`
 

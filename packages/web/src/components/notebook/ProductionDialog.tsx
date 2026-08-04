@@ -1,5 +1,13 @@
 import { useState } from 'react';
-import { Robot, AppWindow, Clock, Globe, Spinner, WarningCircle } from '@phosphor-icons/react';
+import {
+  Robot,
+  AppWindow,
+  Clock,
+  Globe,
+  Package,
+  Spinner,
+  WarningCircle,
+} from '@phosphor-icons/react';
 import type { NotebookServing } from '@zaa-tool/shared';
 import {
   Dialog,
@@ -97,6 +105,15 @@ export function ProductionDialog({
             )}
             {serving?.hasPage && (
               <Line icon={<AppWindow size={13} />}>Its page disappears from Apps.</Line>
+            )}
+            {/* Shown here because a change to `packages:` is a change to what production
+                installs, and it is the one change least visible in a diff of the cells. */}
+            {(serving?.packages.length ?? 0) > 0 && (
+              <Line icon={<Package size={13} />}>
+                It installs{' '}
+                <code className="font-mono">{serving?.packages.join(', ')}</code> before its
+                first cell.
+              </Line>
             )}
             {serving?.triggers.map((trigger) => (
               <Line

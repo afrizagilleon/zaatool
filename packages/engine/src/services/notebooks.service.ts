@@ -192,6 +192,9 @@ export class NotebooksService {
             ? toolNameFor(document.name) || null
             : null,
         hasPage: (document.inputs?.length ?? 0) > 0 || (document.outputs?.length ?? 0) > 0,
+        // Deploying a changed `packages:` changes what production installs, which is a
+        // bigger change than most cell edits and the one least visible in a diff.
+        packages: [...(document.packages ?? [])],
         triggers: (document.triggers ?? [])
           .filter((trigger) => trigger.enabled !== false)
           .map((trigger) =>

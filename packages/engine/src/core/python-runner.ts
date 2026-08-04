@@ -11,7 +11,8 @@ export function runPythonNode(
   secrets: Record<string, string> = {},
   inputsSchema: any[] = [],
   onCall?: NotebookCaller,
-  onFile?: FileWriter
+  onFile?: FileWriter,
+  packages: string[] = []
 ): Promise<{ output?: Record<string, unknown>; logs: any[]; error?: string; ms: number }> {
   return new Promise((resolve) => {
     const startTime = Date.now();
@@ -211,8 +212,39 @@ except Exception as err:
     _zaa_send({"type": "error", "error": "".join(traceback.format_exception_only(type(err), err)).strip()})
 `;
 
-    const pythonCmd = process.platform === "win32" ? "python" : "python3";
-    const proc = spawn(pythonCmd, ["-c", wrapper], {
+    /**
+     * A notebook that declares packages runs under `uv`, which builds the environment it
+     * asked for and caches it — the second run of the same set costs nothing.
+     *
+     * `--no-project` matters: without it `uv` would look upward for a `pyproject.toml`
+     * and pull this repository's own dependencies into a notebook's environment, which
+     * is exactly the leak `packages:` exists to close.
+     *
+     * A notebook that declares nothing keeps the interpreter that was always used. This
+     * is not a fallback for lack of confidence in `uv` — it is that installing nothing
+     * should not cost a process launch anyone can measure.
+     */
+    const command =
+      packages.length > 0
+        ? {
+            bin: process.env.UV_PATH || "uv",
+            args: [
+              "run",
+              "--no-project",
+              "--quiet",
+              ...packages.flatMap((requirement) => ["--with", requirement]),
+              "--",
+              "python",
+              "-c",
+              wrapper,
+            ],
+          }
+        : {
+            bin: process.platform === "win32" ? "python" : "python3",
+            args: ["-c", wrapper],
+          };
+
+    const proc = spawn(command.bin, command.args, {
       env: { PYTHONIOENCODING: "utf-8", ...buildSandboxEnv(secrets) },
     });
 
@@ -333,7 +365,17 @@ except Exception as err:
     // The child reads this as its first line and keeps stdin open for call replies.
     send({ inputs, inputsSchema, canCall: Boolean(onCall), canWriteFile: Boolean(onFile) });
 
-    proc.on("error", (err) => finish({ error: err.message }));
+    proc.on("error", (err) => {
+      // A missing `uv` reads as ENOENT on a word nobody typed, which is a confusing way
+      // to learn that a machine is not set up for packages.
+      const missingUv = packages.length > 0 && (err as NodeJS.ErrnoException).code === "ENOENT";
+      finish({
+        error: missingUv
+          ? `This notebook declares packages (${packages.join(", ")}), which need \`uv\`. ` +
+            "Install it from https://docs.astral.sh/uv/ , or set UV_PATH to where it lives."
+          : err.message,
+      });
+    });
 
     proc.on("close", (code) => {
       if (finalError) return finish({ error: finalError });
