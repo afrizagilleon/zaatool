@@ -502,22 +502,76 @@ belong to whoever writes the text: omit them and they are gone. Write those in f
 
 ## Changing part of a notebook
 
-**A rewrite is for a rewrite.** To change one cell, do not send the whole document back —
-read the outline, then edit that cell:
+**A rewrite is for a rewrite.** Almost nothing is a rewrite.
 
-1. \`notebook_read\` with \`part: outline\` — one line per cell: its id, what it reads off
-   \`inputs\`, what it writes. No code, so it costs a fraction of the full text.
-2. \`notebook_edit_cell\` — \`replace\`, \`insert_before\`, \`insert_after\`, \`append\` or
-   \`delete\`, naming the cell by the id the outline gave you. Every other cell is left
-   byte for byte as it was.
+| what you want to change | what to call |
+|---|---|
+| one cell's code or note | \`notebook_edit_cell\` |
+| \`inputs\`, \`outputs\`, \`layout\`, \`triggers\`, \`secrets\`, \`packages\`, \`actions\`, \`name\` | \`notebook_edit_setup\` |
+| the whole thing, from nothing | \`notebook_write\` |
 
-This is not only about tokens. Reproducing nineteen cells from memory to change the
-twentieth is how cells come back subtly different from what was stored, and it is how
-\`layout\` and \`actions\` used to disappear.
+### Reading before changing
+
+1. \`notebook_read part: outline\` — one line per cell: its id, what it reads off
+   \`inputs\`, what it writes. **No code**, so it costs a fraction of the full text.
+2. \`notebook_read part: cell\` with \`cell:\` — that one cell's code, **plus the names in
+   scope where it sits** and the names it must keep writing. Read this rather than the
+   whole notebook: the code alone would leave you guessing at \`inputs.…\`.
+3. \`notebook_read part: setup\` — front matter alone, with the layout drawn as a grid.
+
+\`\`\`
+  012345678911   ← 12 columns
+  |AAAAAABBBBBB|
+  |AAAAAABBBBBB|
+  |CCCCCCCCCCCC|
+
+  A = rate   (x0 y0 w6 h2)
+  B = trend  (x6 y0 w6 h2)
+  C = table  (x0 y2 w12 h1)
+\`\`\`
+
+### Changing one cell
+
+\`notebook_edit_cell\` — \`replace\`, \`insert_before\`, \`insert_after\`, \`append\` or
+\`delete\`, naming the cell by id **or by its position**. Every other cell is left byte
+for byte as it was.
+
+**Send \`code\` as code.** A markdown fence around the whole thing is unwrapped for you,
+and nothing else is guessed at: the code has to parse. An edit that does not is refused
+with the parser's reason, and **nothing is saved**. The reply shows the first lines as
+they were actually stored.
+
+\`dry_run: true\` reports what the edit would do without saving it.
+
+### Changing what a notebook declares
+
+\`notebook_edit_setup(notebook, key, value)\` replaces one key of the front matter and
+touches no cell. \`value\` is JSON; a list replaces the whole list, and \`[]\` clears it.
+
+\`\`\`
+  key: "layout"   value: [{"i":"rate","x":0,"y":0,"w":6,"h":2}]
+  key: "inputs"   value: [{"name":"pair","type":"string","default":"USD_IDR"}]
+  key: "actions"  value: []      ← removes every button
+\`\`\`
+
+**Moving a tile does not need the code.** Adding an input does not need the code. That is
+the whole reason this exists.
+
+### Why it matters more than tokens
+
+Reproducing nineteen cells from memory to change the twentieth is how cells come back
+subtly different from what was stored, and it is how \`layout\` and \`actions\` used to
+disappear.
 
 \`notebook_edit_cell\` refuses an edit that would leave a later cell reading a name nothing
 writes any more. Deleting the cell that produces \`rows\` while a cell below still reads
 \`inputs.rows\` is refused here rather than failing halfway through a run at 3am.
+
+### Before asking someone to deploy
+
+\`notebook_diff\` says which cells and which declarations differ between the draft and
+what is actually running. Worth reading before "fixing production" — the draft may
+already contain half of what you are about to add.
 
 ## Finding what already exists
 
