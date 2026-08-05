@@ -26,14 +26,14 @@ import assert from "node:assert/strict";
 import { fromMarkdown } from "../src/core/notebook-text.js";
 import { applyCellEdit, CellEditError } from "../src/core/notebook-edit.js";
 import { compileNotebook } from "../src/core/notebook-compiler.js";
-import { stripCodeFence, codeSyntaxProblem } from "../src/core/cell-code.js";
+import { stripCodeFence, codeSyntaxProblem, pythonSyntaxProblem } from "../src/core/cell-code.js";
 
 let passed = 0;
 let failed = 0;
 
-function check(name: string, run: () => void): void {
+async function check(name: string, run: () => void | Promise<void>): Promise<void> {
   try {
-    run();
+    await run();
     passed += 1;
     console.log(`  ok   ${name}`);
   } catch (err) {
@@ -155,6 +155,18 @@ check("code that does not parse is refused, with the parser's reason", () => {
   assert.throws(() => stored("if (true) {"), /does not parse/);
 });
 
+check("the position reported is the cell's own, not the wrapper's", () => {
+  // It used to say "column 103" for a mistake on the first line, because the wrapper
+  // shared that line. A position an agent cannot map onto the code it sent is noise.
+  const problem = codeSyntaxProblem("return { a: ;", "node");
+  assert.ok(problem);
+  assert.match(problem, /line 1, column 1[23]\b/, problem);
+
+  const second = codeSyntaxProblem("const a = 1;\nreturn { b: ;", "node");
+  assert.ok(second);
+  assert.match(second, /line 2/, second);
+});
+
 check("the refusal happens before anything is applied", () => {
   const before = notebook();
   const original = (before.steps[0] as { code?: string }).code;
@@ -192,10 +204,25 @@ check("an empty cell is not an error", () => {
   assert.equal(codeSyntaxProblem("   \n  ", "node"), null);
 });
 
-check("python is not checked here, and that is recorded rather than hidden", () => {
-  // Spawning an interpreter on every write is not worth it; the fence — the failure this
-  // was built for — is already gone by the time this runs. F-002 keeps the gap visible.
+check("python is not checked by the synchronous path, because only python can", () => {
   assert.equal(codeSyntaxProblem("this is not python(", "python"), null);
+});
+
+await check("python is checked, by python", async () => {
+  assert.equal(await pythonSyntaxProblem("return {'a': 1}"), null);
+  assert.equal(await pythonSyntaxProblem("x = [1, 2]\nreturn {'n': len(x)}"), null);
+
+  // Wrapped as `python-runner` wraps it, so a bare `return` is legal and this is not a
+  // check that refuses every well-formed cell in the workspace.
+  const problem = await pythonSyntaxProblem("return {'a': ");
+  assert.ok(problem, "broken python was accepted");
+  assert.match(problem, /SyntaxError/i);
+});
+
+await check("a fenced python cell is named as a fence, not as mystery syntax", async () => {
+  const problem = await pythonSyntaxProblem(`${FENCE}python\nreturn {'a': 1}\n${FENCE}`);
+  assert.ok(problem);
+  assert.match(problem, /markdown fence/i);
 });
 
 // ── other shapes a model sends ────────────────────────────────────────────────

@@ -20,6 +20,7 @@ import { registerNotebookTools } from "../src/mcp/notebook-tools.js";
 import { registerConventions } from "../src/mcp/conventions.js";
 import { OUTPUT_RENDERS, outputSpecs } from "../src/core/notebook-outputs.js";
 import { ALLOWED_JS_PACKAGES } from "../src/core/notebook-packages.js";
+import { SETUP_KEYS } from "../src/core/notebook-setup.js";
 import { ACTION_KINDS } from "../src/core/notebook-actions.js";
 import { EXAMPLE } from "../src/mcp/notebook-format.js";
 import { fromMarkdown } from "../src/core/notebook-text.js";
@@ -500,6 +501,37 @@ await check("the tool says what shape `code` takes, since a fence is the natural
 
 await check("the scope refusal is documented rather than discovered by being refused", () => {
   assert.match(conventions, /reading a name nothing\s+writes any more/i);
+});
+
+await check("reading one cell is offered, and said to carry its scope", () => {
+  const read = tools.find((tool) => tool.name === "notebook_read");
+  assert.match(String(read?.description ?? ""), /part: cell/);
+  assert.match(String(read?.description ?? ""), /names that are in scope/i);
+  assert.match(conventions, /part: cell/);
+  assert.match(conventions, /plus the names in\s+scope/i);
+});
+
+await check("`notebook_edit_setup` exists and says a tile needs no code", () => {
+  const edit = tools.find((tool) => tool.name === "notebook_edit_setup");
+  assert.ok(edit, "there is no notebook_edit_setup tool");
+  assert.match(String(edit.description), /INSTEAD OF `notebook_write` FOR ANYTHING DECLARED/i);
+
+  // Every key it accepts is a key the parser knows.
+  const keys = (edit.inputSchema as { properties?: { key?: { enum?: string[] } } })?.properties?.key?.enum;
+  assert.deepEqual([...(keys ?? [])].sort(), [...SETUP_KEYS].sort());
+
+  assert.match(conventions, /notebook_edit_setup/);
+  assert.match(conventions, /Moving a tile does not need the code/i);
+});
+
+await check("the layout is documented as a picture, since coordinates are unreadable", () => {
+  assert.match(conventions, /012345678911/);
+  assert.match(conventions, /A = rate/);
+});
+
+await check("`notebook_diff` is documented where an agent decides to deploy", () => {
+  assert.ok(tools.some((tool) => tool.name === "notebook_diff"), "there is no notebook_diff tool");
+  assert.match(conventions, /notebook_diff/);
 });
 
 await check("the map's grouping is described where an agent decides what to reuse", () => {
