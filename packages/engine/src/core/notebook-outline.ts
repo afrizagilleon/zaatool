@@ -1,4 +1,7 @@
 import type { NotebookCell, NotebookJson, NotebookStep } from "@zaa-tool/shared";
+import { cellReads, cellWrites, jsSyntaxProblem } from "./cell-analysis.js";
+
+export { cellReads, cellWrites };
 
 /**
  * What each cell reads and what it writes, without running anything.
@@ -8,9 +11,10 @@ import type { NotebookCell, NotebookJson, NotebookStep } from "@zaa-tool/shared"
  * time an agent adds one line. The outline is the cheap answer to the question that
  * actually gets asked, which is *where does the thing I need to change live*.
  *
- * Both halves are read out of the source text, the same way the map reads call edges, and
- * with the same honesty about it: a `return` this cannot parse is reported as unknown
- * rather than as nothing. "Nothing" would be a lie that a scope check could act on.
+ * Both halves come from the cell's syntax tree — see `cell-analysis.ts` — and keep the
+ * same honesty the map has about call edges: a `return` whose shape cannot be accounted
+ * for is reported as unknown rather than as nothing. "Nothing" would be a lie that a
+ * scope check could act on.
  */
 
 export interface CellOutline {
@@ -30,134 +34,15 @@ export interface CellOutline {
    */
   writesKnown: boolean;
   lines: number;
-}
-
-/** Names a cell takes off the shared scope. */
-export function cellReads(code: string): string[] {
-  const names = new Set<string>();
-  for (const match of code.matchAll(/inputs\s*\.\s*([A-Za-z_$][\w$]*)/g)) names.add(match[1]);
-  for (const match of code.matchAll(/inputs\s*\[\s*["']([^"']+)["']\s*\]/g)) names.add(match[1]);
-  return [...names];
-}
-
-/**
- * Names a cell returns.
- *
- * Walks the object literal after `return` rather than matching a pattern across it, so a
- * nested object, a string containing a brace, or a comment does not produce a phantom
- * name. Anything it cannot account for sets `known` to false.
- */
-export function cellWrites(code: string): { names: string[]; known: boolean } {
-  const start = findReturnObject(code);
-  if (start === -1) return { names: [], known: false };
-
-  const names: string[] = [];
-  let known = true;
-  let depth = 0;
-  let index = start;
-  let atKey = true;
-
-  while (index < code.length) {
-    const character = code[index];
-
-    if (character === '"' || character === "'" || character === "`") {
-      const end = skipString(code, index);
-      if (depth === 1 && atKey) {
-        const name = code.slice(index + 1, end - 1);
-        if (isKeyed(code, end)) {
-          names.push(name);
-          atKey = false;
-        }
-      }
-      index = end;
-      continue;
-    }
-
-    if (character === "{" || character === "[" || character === "(") {
-      depth += 1;
-      index += 1;
-      if (depth === 1) atKey = true;
-      continue;
-    }
-
-    if (character === "}" || character === "]" || character === ")") {
-      depth -= 1;
-      index += 1;
-      if (depth === 0) break;
-      continue;
-    }
-
-    if (depth === 1 && character === ",") {
-      atKey = true;
-      index += 1;
-      continue;
-    }
-
-    if (depth === 1 && atKey) {
-      // A spread carries names this cannot see, and the honest answer is "unknown".
-      if (code.startsWith("...", index)) {
-        known = false;
-        atKey = false;
-        index += 3;
-        continue;
-      }
-      // A computed key, same reason.
-      if (character === "[") {
-        known = false;
-        atKey = false;
-        index += 1;
-        continue;
-      }
-
-      const identifier = /^[A-Za-z_$][\w$]*/.exec(code.slice(index));
-      if (identifier) {
-        const after = index + identifier[0].length;
-        const next = nextMeaningful(code, after);
-        if (next === ":" || next === "," || next === "}") {
-          names.push(identifier[0]);
-          atKey = false;
-        }
-        index = after;
-        continue;
-      }
-    }
-
-    index += 1;
-  }
-
-  return { names: [...new Set(names)], known };
-}
-
-/** The index of the `{` opening the returned object, or -1 if there is not one. */
-function findReturnObject(code: string): number {
-  for (const match of code.matchAll(/\breturn\b/g)) {
-    let index = (match.index ?? 0) + match[0].length;
-    while (index < code.length && /\s/.test(code[index])) index += 1;
-    if (code[index] === "{") return index;
-  }
-  return -1;
-}
-
-function skipString(code: string, start: number): number {
-  const quote = code[start];
-  let index = start + 1;
-  while (index < code.length) {
-    if (code[index] === "\\") index += 2;
-    else if (code[index] === quote) return index + 1;
-    else index += 1;
-  }
-  return code.length;
-}
-
-function nextMeaningful(code: string, from: number): string {
-  let index = from;
-  while (index < code.length && /\s/.test(code[index])) index += 1;
-  return code[index] ?? "";
-}
-
-/** Whether a quoted string was a key (`"a": 1`) rather than a value. */
-function isKeyed(code: string, after: number): boolean {
-  return nextMeaningful(code, after) === ":";
+  /**
+   * Set when the cell does not parse.
+   *
+   * JavaScript only — Python needs an interpreter, which an outline is not going to wait
+   * for. A cell like this cannot run, and saying so here is cheaper than finding out at
+   * 3am: a notebook whose fourth cell is broken looks perfectly healthy in every other
+   * view of it.
+   */
+  syntaxError?: string;
 }
 
 function firstLine(note: string | undefined): string {
@@ -169,9 +54,10 @@ function firstLine(note: string | undefined): string {
   return "";
 }
 
-function outlineCell(cell: NotebookCell, lane?: string): CellOutline {
+function outlineCell(cell: NotebookCell, runtime: string, lane?: string): CellOutline {
   const code = cell.code ?? "";
   const written = cellWrites(code);
+  const syntaxError = runtime === "node" ? jsSyntaxProblem(code) : null;
   return {
     cellId: cell.id,
     ...(lane ? { lane } : {}),
@@ -180,6 +66,7 @@ function outlineCell(cell: NotebookCell, lane?: string): CellOutline {
     writes: written.names,
     writesKnown: written.known,
     lines: code.trim() === "" ? 0 : code.trim().split("\n").length,
+    ...(syntaxError ? { syntaxError } : {}),
   };
 }
 
@@ -195,7 +82,7 @@ export function outlineOf(document: NotebookJson): CellOutline[] {
         }
         continue;
       }
-      outlines.push(outlineCell(step, lane));
+      outlines.push(outlineCell(step, document.runtime, lane));
     }
   };
 
@@ -204,13 +91,35 @@ export function outlineOf(document: NotebookJson): CellOutline[] {
 }
 
 /**
+ * What is readable at each point, carried down the notebook.
+ *
+ * `certain` is what is definitely there. `uncertain` records that some earlier cell
+ * returned a shape nobody could account for, so a name not in `certain` might still
+ * arrive at run time and must not be reported as missing.
+ */
+interface Scope {
+  certain: Set<string>;
+  uncertain: boolean;
+}
+
+/**
  * Names that would be read by a cell and written by nobody before it.
  *
- * The check an edit has to pass. Deliberately conservative in both directions: a cell
- * whose writes could not be read contributes its unknowns to *everything* after it, so an
- * edit is never refused on the strength of a parse this file could not do.
+ * The check an edit has to pass, and it is deliberately conservative: it reports only
+ * what it can prove. A cell whose writes could not be read makes everything *after it*
+ * unprovable, so nothing downstream is reported — an edit is never refused on the
+ * strength of a parse this file could not do.
  *
- * Lanes are treated as running from the shared scope at the fork, because they do — a
+ * Two things that used to be wrong here:
+ *
+ *  - **Uncertainty was one flag for the whole document.** An opaque cell in lane A
+ *    silenced the check in lane B, which cannot see lane A's writes at all. It is now
+ *    carried in the scope, so it travels the way visibility travels.
+ *  - **Almost every cell was opaque**, because the old character scanner could not read a
+ *    ternary or an `await`. With a real parser the check is on far more of the time, which
+ *    is the whole reason the distinction matters.
+ *
+ * Lanes run from the shared scope at the fork, because that is what the runner does — a
  * name written in one lane is not readable in another, and a check that pretended
  * otherwise would bless an edit the runner then refuses.
  */
@@ -223,16 +132,17 @@ export function brokenReads(document: NotebookJson): { cellId: string; name: str
   // put it there.
   declared.add("trigger");
 
-  let anyUnknown = false;
-
-  const walk = (steps: NotebookStep[] | undefined, scope: Set<string>): Set<string> => {
-    let current = new Set(scope);
+  const walk = (steps: NotebookStep[] | undefined, scope: Scope): Scope => {
+    let current: Scope = { certain: new Set(scope.certain), uncertain: scope.uncertain };
 
     for (const step of steps ?? []) {
       if (step.kind === "parallel") {
-        const merged = new Set(current);
+        const merged: Scope = { certain: new Set(current.certain), uncertain: current.uncertain };
         for (const lane of step.lanes ?? []) {
-          for (const name of walk(lane.steps, current)) merged.add(name);
+          // Each lane starts from the fork, not from the lane before it.
+          const after = walk(lane.steps, current);
+          for (const name of after.certain) merged.certain.add(name);
+          merged.uncertain = merged.uncertain || after.uncertain;
         }
         current = merged;
         continue;
@@ -240,19 +150,142 @@ export function brokenReads(document: NotebookJson): { cellId: string; name: str
 
       const code = step.code ?? "";
       for (const name of cellReads(code)) {
-        if (!current.has(name) && !anyUnknown) broken.push({ cellId: step.id, name });
+        if (!current.certain.has(name) && !current.uncertain) {
+          broken.push({ cellId: step.id, name });
+        }
       }
 
       const written = cellWrites(code);
-      if (!written.known) anyUnknown = true;
-      for (const name of written.names) current.add(name);
+      if (!written.known) current.uncertain = true;
+      for (const name of written.names) current.certain.add(name);
     }
 
     return current;
   };
 
-  walk(document.steps, declared);
+  walk(document.steps, { certain: declared, uncertain: false });
   return broken;
+}
+
+/**
+ * Every name readable at a given cell, and what cells after it still need.
+ *
+ * This is what makes `notebook_read(part: "cell")` safe to use on its own. An agent that
+ * reads one cell knows its code and nothing else — and the one thing it cannot guess is
+ * which names exist at that point. Without this it would guess, `brokenReads` would refuse
+ * the edit, and it would guess again.
+ */
+export function scopeAt(
+  document: NotebookJson,
+  cellId: string
+): { available: string[]; uncertain: boolean; neededAfter: string[] } | null {
+  const cells = outlineOf(document);
+  const index = cells.findIndex((cell) => cell.cellId === cellId);
+  if (index === -1) return null;
+
+  const available = new Set((document.inputs ?? []).map((input) => input.name));
+  available.add("trigger");
+  let uncertain = false;
+
+  for (const cell of cells.slice(0, index)) {
+    for (const name of cell.writes) available.add(name);
+    if (!cell.writesKnown) uncertain = true;
+  }
+
+  // What this cell must keep writing, or something below it stops working.
+  const neededAfter = new Set<string>();
+  for (const cell of cells.slice(index + 1)) {
+    for (const name of cell.reads) {
+      if (cells[index].writes.includes(name)) neededAfter.add(name);
+    }
+  }
+  // A declared output this cell produces is needed by the page, not by another cell.
+  const outputs = new Set(
+    (document.outputs ?? []).map((output) => (typeof output === "string" ? output : output.name))
+  );
+  for (const name of cells[index].writes) {
+    if (outputs.has(name)) neededAfter.add(name);
+  }
+
+  return { available: [...available], uncertain, neededAfter: [...neededAfter] };
+}
+
+/** Resolves a cell by id or by its 1-based position, the way `notebook_run_cell` does. */
+export function findCell(document: NotebookJson, reference: string): string | null {
+  const cells = outlineOf(document);
+  const trimmed = reference.trim();
+  if (cells.some((cell) => cell.cellId === trimmed)) return trimmed;
+
+  const position = Number(trimmed);
+  if (Number.isInteger(position) && position >= 1 && position <= cells.length) {
+    return cells[position - 1].cellId;
+  }
+  return null;
+}
+
+/**
+ * One cell, with enough of its surroundings to edit it safely.
+ *
+ * The code alone would be a trap. An agent reading a single cell knows what that cell
+ * does and nothing about the notebook around it — so the two things it cannot guess are
+ * *which names exist here* and *which names something below still needs*. Both are
+ * already computed for the outline; this is them, attached to the one cell being read.
+ */
+export function renderCell(document: NotebookJson, reference: string): string | null {
+  const cellId = findCell(document, reference);
+  if (!cellId) return null;
+
+  const cells = outlineOf(document);
+  const index = cells.findIndex((cell) => cell.cellId === cellId);
+  const outline = cells[index];
+  const scope = scopeAt(document, cellId);
+
+  const source = (() => {
+    const found: NotebookCell[] = [];
+    const walk = (steps: NotebookStep[] | undefined): void => {
+      for (const step of steps ?? []) {
+        if (step.kind === "parallel") {
+          for (const lane of step.lanes ?? []) walk(lane.steps);
+          continue;
+        }
+        if (step.id === cellId) found.push(step);
+      }
+    };
+    walk(document.steps);
+    return found[0];
+  })();
+
+  const lines = [
+    `**${document.name}** · cell ${index + 1} of ${cells.length} · \`${cellId}\`` +
+      (outline.lane ? ` · lane ${outline.lane}` : ""),
+  ];
+
+  if (source?.note?.trim()) {
+    lines.push("", "note:", ...source.note.split("\n").map((line) => `  ${line}`));
+  }
+
+  lines.push("", "code:", ...(source?.code ?? "").split("\n").map((line) => `  ${line}`));
+
+  lines.push(
+    "",
+    `in scope here: ${scope?.available.join(", ") || "nothing"}` +
+      (scope?.uncertain ? " (and possibly more — an earlier cell returns a shape that cannot be read)" : ""),
+    `this cell writes: ${outline.writes.join(", ") || "nothing"}` +
+      (outline.writesKnown ? "" : " (and more that cannot be read)")
+  );
+
+  if (scope?.neededAfter.length) {
+    lines.push(
+      `must keep writing: ${scope.neededAfter.join(", ")} — a later cell or a declared output depends on ${scope.neededAfter.length === 1 ? "it" : "them"}`
+    );
+  }
+
+  lines.push(
+    "",
+    `Change it with notebook_edit_cell(notebook: "${document.name}", action: "replace", cell: "${cellId}", code: …)`
+  );
+
+  return lines.join("\n");
 }
 
 /** The outline as an agent reads it: one line per cell, and nothing it did not ask for. */
@@ -276,9 +309,13 @@ export function renderOutline(document: NotebookJson): string {
       ? cell.writes.join(", ") || "nothing"
       : `${cell.writes.join(", ") || "?"} (and more it could not read)`;
     const where = cell.lane ? ` · lane ${cell.lane}` : "";
-    lines.push(`- \`${cell.cellId}\`${where} · ${cell.lines} line(s)`);
+    const broken = cell.syntaxError ? " · DOES NOT PARSE" : "";
+    lines.push(`- \`${cell.cellId}\`${where} · ${cell.lines} line(s)${broken}`);
     if (cell.title) lines.push(`    ${cell.title}`);
     lines.push(`    reads: ${cell.reads.join(", ") || "nothing"} → writes: ${writes}`);
+    // Named here because every other view of the notebook looks perfectly healthy, and
+    // the alternative is finding out when it runs.
+    if (cell.syntaxError) lines.push(`    ${cell.syntaxError}`);
   }
 
   return lines.join("\n");

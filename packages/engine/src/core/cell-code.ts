@@ -22,6 +22,9 @@
  *    was code.
  */
 
+import { spawn } from "child_process";
+import { jsSyntaxProblem } from "./cell-analysis.js";
+
 /** Opening fence: three or more backticks or tildes, with an optional language word. */
 const FENCE_OPEN = /^\s*(`{3,}|~{3,})[ \t]*([A-Za-z0-9_+-]*)[ \t]*\r?\n/;
 
@@ -53,40 +56,81 @@ export function stripCodeFence(code: string): string {
   return body.slice(0, closed.index);
 }
 
+/** Named so an agent can fix itself in one turn rather than guessing at a parse error. */
+function describeProblem(code: string, detail: string): string {
+  if (/^\s*(`{3,}|~{3,})/.test(code)) {
+    return `that code is still wrapped in a markdown fence — send the code only (${detail})`;
+  }
+  return `that code does not parse: ${detail}`;
+}
+
 /**
- * Whether this is syntactically code at all.
+ * Whether this is syntactically code at all — JavaScript, checked in process.
  *
- * JavaScript is checked here, in process, by compiling it the same way the worker will —
- * `new Function` with the same parameter list. It costs microseconds and it is the check
- * that would have caught the fence.
+ * Parsed by acorn with the same wrapper the worker builds, so what passes here is what
+ * will run there. Microseconds, and it is the check that would have caught the fence.
  *
- * Python is not checked: doing it properly means spawning an interpreter on every write,
- * and the failure this was built for — the fence — is already gone by the time this runs.
- * That gap is recorded rather than hidden; see F-002 in the repair plan.
+ * Python needs an interpreter, so it is {@link pythonSyntaxProblem} and asynchronous.
  */
 export function codeSyntaxProblem(code: string, runtime: "node" | "python"): string | null {
   if (runtime !== "node") return null;
-  if (code.trim() === "") return null;
+  const detail = jsSyntaxProblem(code);
+  return detail === null ? null : describeProblem(code, detail);
+}
 
-  try {
-    // Same shape as `worker-boot.ts` builds, so what passes here is what will run there.
-    new Function(
-      "inputs",
-      "require",
-      "Table",
-      "FileObject",
-      "ImageObject",
-      "notebooks",
-      "files",
-      `"use strict"; return (async () => { ${code} })()`
-    );
-    return null;
-  } catch (err) {
-    const message = (err as Error).message;
-    // The one an agent will actually hit, named so it can fix itself in one turn.
-    if (/^\s*(`{3,}|~{3,})/.test(code)) {
-      return `that code is still wrapped in a markdown fence — send the code only (${message})`;
-    }
-    return `that code does not parse: ${message}`;
-  }
+/**
+ * The same question for Python, which only Python can answer.
+ *
+ * Wrapped exactly as `python-runner.ts` wraps it — a bare `return` is a syntax error at
+ * module level and legal inside `def main`, so checking the unwrapped text would refuse
+ * every well-formed cell in the workspace.
+ *
+ * Two deliberate softnesses. A machine with no interpreter gets `null` rather than a
+ * refusal, because a missing Python is a deployment problem and not this notebook's
+ * fault; and the check is given two seconds, after which it gives up quietly. Neither is
+ * a way for broken code to get in — the fence, the failure this was built for, is caught
+ * by {@link stripCodeFence} before any of this runs.
+ */
+export function pythonSyntaxProblem(code: string): Promise<string | null> {
+  if (code.trim() === "") return Promise.resolve(null);
+
+  const wrapped = code.includes("def main(")
+    ? code
+    : `def main(inputs):\n${code.split("\n").map((line) => `    ${line}`).join("\n")}`;
+
+  return new Promise((resolve) => {
+    const child = spawn(process.platform === "win32" ? "python" : "python3", [
+      "-c",
+      "import sys; compile(sys.stdin.read(), '<cell>', 'exec')",
+    ]);
+
+    let stderr = "";
+    const done = (answer: string | null) => {
+      clearTimeout(timer);
+      child.removeAllListeners();
+      child.kill();
+      resolve(answer);
+    };
+
+    const timer = setTimeout(() => done(null), 2000);
+
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    // No interpreter on this machine. Not the notebook's problem.
+    child.on("error", () => done(null));
+
+    child.on("close", (exitCode) => {
+      if (exitCode === 0) return done(null);
+      // The traceback's last line is the useful one: "SyntaxError: invalid syntax".
+      const lines = stderr.trim().split("\n").filter(Boolean);
+      const reason = lines[lines.length - 1] ?? "SyntaxError";
+      // Line numbers refer to the wrapper, which is one line longer than the cell.
+      const where = /line (\d+)/.exec(stderr);
+      const line = where ? ` (around line ${Math.max(1, Number(where[1]) - 1)})` : "";
+      done(describeProblem(code, `${reason}${line}`));
+    });
+
+    child.stdin.end(wrapped);
+  });
 }

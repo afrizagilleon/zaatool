@@ -76,12 +76,47 @@ const cellIds = outlineOf(CHAIN).map((cell) => cell.cellId);
 
 console.log("\nwhat a cell reads and writes");
 
-check("both forms of reading the scope are seen", () => {
+check("both forms of reading the scope are seen, in source order", () => {
+  // Source order rather than "dotted ones first": the scanner this replaced ran two
+  // regexes and reported the results of one after the other, which read as a shuffle to
+  // anyone comparing the list against the code.
   assert.deepEqual(cellReads('inputs.rows; inputs["total"]; inputs .pair'), [
     "rows",
-    "pair",
     "total",
+    "pair",
   ]);
+});
+
+check("a name inside a string or a comment is not a read", () => {
+  // The character scanner counted both. `render: chart` prose in a note, or a message
+  // that happens to mention `inputs.total`, is not a dependency.
+  assert.deepEqual(cellReads('const msg = "see inputs.total"; // inputs.other\nreturn {};'), []);
+});
+
+check("returns inside a callback belong to the callback, not the cell", () => {
+  const written = cellWrites("const r = rows.map((x) => ({ id: x.id })); return { r };");
+  assert.deepEqual(written.names, ["r"], "a callback's keys leaked into the notebook scope");
+  assert.equal(written.known, true);
+});
+
+check("a ternary writes both branches", () => {
+  const written = cellWrites("return ok ? { a: 1 } : { b: 2 };");
+  assert.deepEqual(written.names.sort(), ["a", "b"]);
+  assert.equal(written.known, true, "a ternary used to be unreadable");
+});
+
+check("an awaited object literal is read through", () => {
+  const written = cellWrites("return await Promise.resolve({ total: 1 });");
+  assert.equal(written.known, false, "the awaited value is a call, so it is not knowable");
+
+  const direct = cellWrites("const v = await f(); return { v };");
+  assert.deepEqual(direct.names, ["v"]);
+  assert.equal(direct.known, true);
+});
+
+check("two returns on two paths write the union of both", () => {
+  const written = cellWrites("if (x) return { a: 1 };\nreturn { b: 2 };");
+  assert.deepEqual(written.names.sort(), ["a", "b"]);
 });
 
 check("a returned object literal is read, shorthand included", () => {
