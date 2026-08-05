@@ -21,7 +21,7 @@ import { abridge, wasAbridged } from "./abridge.js";
 import type { NotebookPlan } from "../core/notebook-compiler.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 import type { AgentScope } from "../services/agent-tokens.service.js";
-import type { NotebookJson } from "@zaa-tool/shared";
+import type { NotebookJson, NotebookStep } from "@zaa-tool/shared";
 
 /**
  * The agent's side of zaatool.
@@ -87,6 +87,40 @@ function explain(err: unknown): ToolReply {
   // Its message is the whole explanation, and it already names what would break.
   if (err instanceof CellEditError) return refuse(err.message);
   return refuse((err as Error).message ?? String(err));
+}
+
+/** The first `count` lines, with a marker when there is more. */
+function firstLines(code: string, count: number): string[] {
+  const lines = code.split("\n");
+  return lines.length <= count ? lines : [...lines.slice(0, count), `… ${lines.length - count} more line(s)`];
+}
+
+/**
+ * The code that ended up in the document, for the cell this edit touched.
+ *
+ * An insert or an append has a new id nobody has seen yet, so it is found by position:
+ * whichever cell is not one that was there before. Cheap, and it is only for a reply.
+ */
+function storedCodeOf(document: NotebookJson, cell: string | undefined, action: string): string {
+  const cells: { id: string; code?: string }[] = [];
+  const walk = (steps: NotebookStep[] | undefined): void => {
+    for (const step of steps ?? []) {
+      if (step.kind === "parallel") {
+        for (const lane of step.lanes ?? []) walk(lane.steps);
+        continue;
+      }
+      cells.push(step);
+    }
+  };
+  walk(document.steps);
+
+  if (action === "replace") return cells.find((one) => one.id === cell)?.code ?? "";
+  if (action === "append") return cells[cells.length - 1]?.code ?? "";
+
+  const anchor = cells.findIndex((one) => one.id === cell);
+  if (anchor === -1) return "";
+  const inserted = action === "insert_before" ? cells[anchor - 1] : cells[anchor + 1];
+  return inserted?.code ?? "";
 }
 
 async function resolveNotebook(
@@ -328,6 +362,10 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
           "",
           "Get the cell id from `notebook_read` with `part: outline`.",
           "",
+          "SEND `code` AS CODE, not as a markdown block. A fence around the whole thing is unwrapped for you, but nothing else is guessed at: the code has to parse, and an edit that does not is refused with the parser's reason and **nothing is saved**. The reply shows the first lines as they were actually stored, so you can see what arrived.",
+          "",
+          "  code: \"const rate = await fetch(url).then(r => r.json());\\nreturn { rate };\"",
+          "",
           "It refuses an edit that would leave a later cell reading a name nothing writes any more — deleting the cell that produces `rows` while a cell below still reads `inputs.rows` is refused here rather than failing halfway through a run at 3am.",
           "",
           "Like `notebook_write`, this changes the draft. Nothing reaches production until a person deploys it.",
@@ -367,6 +405,18 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
         return explain(err);
       }
 
+      // Judged before it is stored, not after. Saving first and reporting the compile
+      // afterwards is how a broken cell ended up in a notebook with "Compiles." printed
+      // underneath it — the message was about a document that had already been written.
+      try {
+        compileNotebook(edited);
+      } catch (err: unknown) {
+        const issues = err instanceof NotebookCompileError ? err.issues : [(err as Error).message];
+        return refuse(
+          ["Nothing was changed — that edit does not compile:", ...issues.map((issue) => `  - ${issue}`)].join("\n")
+        );
+      }
+
       const saved = await notebooksService.save(edited, deps.writer);
 
       const lines = [
@@ -375,12 +425,11 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
         renderOutline(edited),
       ];
 
-      try {
-        compileNotebook(edited);
-        lines.push("", "Compiles.");
-      } catch (err: unknown) {
-        const issues = err instanceof NotebookCompileError ? err.issues : [(err as Error).message];
-        lines.push("", "Saved, but it does not compile yet:", ...issues.map((issue) => `  - ${issue}`));
+      // The code as it was actually stored, so a fence that was unwrapped is visible
+      // rather than a silent difference between what was sent and what is there.
+      if (action !== "delete" && code !== undefined) {
+        const stored = firstLines(storedCodeOf(edited, cell, action), 3);
+        lines.push("", "Stored:", ...stored.map((line) => `  ${line}`));
       }
 
       const deployState = await notebooksService.getDeployState(saved.id);

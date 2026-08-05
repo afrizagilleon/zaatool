@@ -492,6 +492,12 @@ await check("`notebook_edit_cell` exists and says why it beats a rewrite", () =>
   assert.match(conventions, /notebook_edit_cell/);
 });
 
+await check("the tool says what shape `code` takes, since a fence is the natural guess", () => {
+  const edit = tools.find((tool) => tool.name === "notebook_edit_cell");
+  assert.match(String(edit?.description ?? ""), /SEND `code` AS CODE/);
+  assert.match(String(edit?.description ?? ""), /nothing is saved/i);
+});
+
 await check("the scope refusal is documented rather than discovered by being refused", () => {
   assert.match(conventions, /reading a name nothing\s+writes any more/i);
 });

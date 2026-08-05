@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import type { NotebookCell, NotebookJson, NotebookStep } from "@zaa-tool/shared";
 import { brokenReads } from "./notebook-outline.js";
+import { codeSyntaxProblem, stripCodeFence } from "./cell-code.js";
 
 /**
  * One cell at a time.
@@ -90,7 +91,26 @@ function editSteps(steps: NotebookStep[], edit: CellEdit, done: { hit: boolean }
  *    would surface at 3am rather than here. Only *new* breaks are refused — a notebook
  *    that is already broken has to stay editable, or it cannot be repaired.
  */
-export function applyCellEdit(document: NotebookJson, edit: CellEdit): NotebookJson {
+export function applyCellEdit(document: NotebookJson, rawEdit: CellEdit): NotebookJson {
+  /**
+   * The code is cleaned and judged **before** anything is applied.
+   *
+   * A markdown fence is unwrapped rather than refused, because it is the most natural
+   * thing a model can send and refusing it drove agents back to rewriting whole notebooks.
+   * What is left has to parse: `compileNotebook` reads structure and never looked at a
+   * line of code, which is how a cell containing nothing but a fence was stored, reported
+   * as compiling, and only failed when somebody ran it.
+   */
+  const edit: CellEdit =
+    "code" in rawEdit && rawEdit.code !== undefined
+      ? { ...rawEdit, code: stripCodeFence(rawEdit.code) }
+      : rawEdit;
+
+  if ("code" in edit && edit.code !== undefined) {
+    const problem = codeSyntaxProblem(edit.code, document.runtime);
+    if (problem) throw new CellEditError(problem);
+  }
+
   const done = { hit: edit.action === "append" };
   const steps = editSteps(document.steps ?? [], edit, done);
 
