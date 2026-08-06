@@ -6,11 +6,12 @@ import type {
   NotebookRuntime,
   NotebookStep,
 } from "@zaa-tool/shared";
+import { PARAM_TYPES } from "@zaa-tool/shared";
 import { outputNames } from "./notebook-outputs.js";
 
 const DEFAULT_CELL_TIMEOUT_MS = 30_000;
 const VALID_RUNTIMES: NotebookRuntime[] = ["node", "python"];
-const VALID_PARAM_TYPES: NotebookParamType[] = ["string", "number", "boolean", "json", "file"];
+const VALID_PARAM_TYPES: readonly NotebookParamType[] = PARAM_TYPES;
 
 export interface PlanCell {
   kind: "code";

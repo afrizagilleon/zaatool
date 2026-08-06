@@ -1,4 +1,5 @@
 import type { NotebookOutput, NotebookOutputRender } from '@zaa-tool/shared';
+import { OUTPUT_RENDERS } from '@zaa-tool/shared';
 
 /**
  * Deciding how to show a value.
@@ -16,22 +17,13 @@ import type { NotebookOutput, NotebookOutputRender } from '@zaa-tool/shared';
 
 export type ResolvedRender = Exclude<NotebookOutputRender, 'auto'>;
 
-export const RENDERS: NotebookOutputRender[] = [
-  'auto',
-  'text',
-  'markdown',
-  'table',
-  'chart',
-  'bar',
-  'line',
-  'area',
-  'pie',
-  'image',
-  'video',
-  'audio',
-  'file',
-  'json',
-];
+/**
+ * The same list the engine validates against, not a copy of it.
+ *
+ * It was a copy for four milestones, and copies of a list are how `file` came to exist
+ * everywhere except the one place a person could choose it.
+ */
+export const RENDERS: readonly NotebookOutputRender[] = OUTPUT_RENDERS;
 
 /** Both written forms as one, so the editor never branches on how an output was typed. */
 export function specsOf(outputs: Array<string | NotebookOutput>): NotebookOutput[] {

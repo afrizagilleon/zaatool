@@ -15,7 +15,10 @@ import type {
   NotebookTrigger,
   ParallelStep,
 } from "@zaa-tool/shared";
+import { PARAM_TYPES } from "@zaa-tool/shared";
 import { OUTPUT_RENDERS } from "./notebook-outputs.js";
+
+export { PARAM_TYPES };
 import { actionProblems, actionSpecs } from "./notebook-actions.js";
 import { packageProblems } from "./notebook-packages.js";
 
@@ -61,13 +64,6 @@ export class NotebookTextError extends Error {
 }
 
 const DEFAULT_VERSION = "1.0";
-export const PARAM_TYPES: readonly NotebookParamType[] = [
-  "string",
-  "number",
-  "boolean",
-  "json",
-  "file",
-];
 const FENCE_LANGUAGE: Record<NotebookRuntime, string> = { node: "js", python: "python" };
 
 // ── writing ───────────────────────────────────────────────────────────────────

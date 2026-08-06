@@ -130,8 +130,17 @@ export type NotebookTrigger = CronTrigger | WebhookTrigger;
  * `{ name, path, url, size, mime }`. A cell receives it wrapped, with `readAsText()` and
  * friends; a page renders it as an image or a link. Nothing anywhere passes the bytes
  * themselves through the contract.
+ *
+ * Written as an array first and a type second, because the editor needs the *values* at
+ * run time to draw a dropdown and a union type gives it none. It was written twice
+ * instead — once here as a type, once in `ContractPanel` as a list — and the two drifted
+ * for four milestones: `file` existed in the engine, in the compiler, in the page
+ * renderer and in the agent's tool schema, and could not be chosen in the editor. Nothing
+ * failed, because nothing compared them.
  */
-export type NotebookParamType = "string" | "number" | "boolean" | "json" | "file";
+export const PARAM_TYPES = ["string", "number", "boolean", "json", "file"] as const;
+
+export type NotebookParamType = (typeof PARAM_TYPES)[number];
 
 /**
  * One permitted value, optionally with a label to show a person instead.
@@ -223,21 +232,24 @@ export interface NotebookFile {
  * appearance choice around it (colour, axes, grid, labels) stays fixed. `chart` remains
  * as "you pick for me".
  */
-export type NotebookOutputRender =
-  | "auto"
-  | "text"
-  | "markdown"
-  | "table"
-  | "chart"
-  | "bar"
-  | "line"
-  | "area"
-  | "pie"
-  | "image"
-  | "video"
-  | "audio"
-  | "file"
-  | "json";
+export const OUTPUT_RENDERS = [
+  "auto",
+  "text",
+  "markdown",
+  "table",
+  "chart",
+  "bar",
+  "line",
+  "area",
+  "pie",
+  "image",
+  "video",
+  "audio",
+  "file",
+  "json",
+] as const;
+
+export type NotebookOutputRender = (typeof OUTPUT_RENDERS)[number];
 
 export interface NotebookOutput {
   name: string;

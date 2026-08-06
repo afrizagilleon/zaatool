@@ -1,4 +1,5 @@
-import type { NotebookOutput, NotebookOutputRender } from "@zaa-tool/shared";
+import type { NotebookOutput } from "@zaa-tool/shared";
+import { OUTPUT_RENDERS } from "@zaa-tool/shared";
 
 /**
  * Reading a notebook's declared outputs.
@@ -12,22 +13,7 @@ import type { NotebookOutput, NotebookOutputRender } from "@zaa-tool/shared";
  * layout because a second declaration is a second thing to keep in step.
  */
 
-export const OUTPUT_RENDERS: readonly NotebookOutputRender[] = [
-  "auto",
-  "text",
-  "markdown",
-  "table",
-  "chart",
-  "bar",
-  "line",
-  "area",
-  "pie",
-  "image",
-  "video",
-  "audio",
-  "file",
-  "json",
-];
+export { OUTPUT_RENDERS };
 
 /** Every declared name, in order, with duplicates and empties dropped. */
 export function outputNames(outputs: Array<string | NotebookOutput> | undefined): string[] {
