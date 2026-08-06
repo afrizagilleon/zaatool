@@ -15,6 +15,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   name: 'Untitled Notebook',
   runtime: 'node',
   secrets: [],
+  packages: [],
   triggers: [],
   inputs: [],
   outputs: [],
@@ -40,6 +41,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
       name: 'Untitled Notebook',
       runtime,
       secrets: [],
+      packages: [],
       triggers: [],
       inputs: [],
       outputs: [],
@@ -64,6 +66,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
       name: document.name,
       runtime: document.runtime,
       secrets: document.secrets ?? [],
+      packages: document.packages ?? [],
       triggers: document.triggers ?? [],
       inputs: document.inputs ?? [],
       outputs: document.outputs ?? [],
@@ -87,13 +90,18 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   },
 
   getDocument: (): NotebookJson => {
-    const { id, name, runtime, secrets, triggers, inputs, outputs, layout, actions, steps } =
+    const { id, name, runtime, secrets, packages, triggers, inputs, outputs, layout, actions, steps } =
       get();
     return {
       version: NOTEBOOK_VERSION, id, name, runtime, secrets, triggers, inputs, outputs, steps,
       // Omitted when nobody arranged it, so a notebook nobody laid out stays free of it.
       ...(layout.length > 0 ? { layout } : {}),
       ...(actions.length > 0 ? { actions } : {}),
+      // Held even before there was a panel for it. Until this line existed, opening a
+      // notebook that declared `packages: [pandas]` and pressing Save deleted the
+      // declaration — the store dropped what it did not render, and the next run lost
+      // its libraries with nothing anywhere saying why.
+      ...(packages.length > 0 ? { packages } : {}),
     };
   },
 
@@ -154,6 +162,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   setName: (name) => set({ name, isDirty: true }),
   setRuntime: (runtime) => set({ runtime, isDirty: true }),
   setSecrets: (secrets) => set({ secrets, isDirty: true }),
+  setPackages: (packages) => set({ packages, isDirty: true }),
 
   addCell: (afterStepId) => {
     const cell = tree.newCell();
