@@ -31,6 +31,16 @@ docker compose up -d --build
 Three containers come up: `postgres`, `engine`, `web`. Only `web` publishes a port —
 `8080` by default. Open `http://<machine>:8080`.
 
+One origin serves everything: `web` is nginx, holding the bundle and proxying `/api`,
+`/hooks`, `/mcp`, `/storage` and `/ws` to the engine. That is what makes a share link a
+real URL, and it is why no cross-origin request happens at all. If you ever serve the
+bundle from somewhere other than the engine, name the origins — otherwise production
+accepts same-origin only:
+
+```bash
+CORS_ORIGINS=https://app.example.com,https://staging.example.com
+```
+
 **Put TLS in front of it.** Caddy, nginx, a cloud load balancer, whatever you already run.
 Not optional: sessions and share tokens travel in headers, and the microphone in a
 notebook's page will not work at all without HTTPS.
