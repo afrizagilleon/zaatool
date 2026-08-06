@@ -4,7 +4,7 @@ import type { NotebookTrigger } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { Switch } from '../ui/switch';
 import { cn } from '../../lib/utils';
-import { API_BASE_URL } from '../../lib/api';
+import { absoluteUrl } from '../../lib/api';
 import { ScheduleEditor } from '../schedule/ScheduleEditor';
 import { SecretPicker } from '../resources/SecretPicker';
 
@@ -128,7 +128,10 @@ export function TriggerPanel({ triggers, isSaved, onAdd, onUpdate, onRemove }: T
               />
             ) : (
               <>
-                <CopyableUrl url={`${API_BASE_URL}/hooks/${trigger.slug}`} />
+                {/* An address, not a path. With the app and the engine on one origin the base is
+                    empty, so this read `/hooks/abc` — a string that copies fine and cannot be
+                    given to the service meant to call it. */}
+                <CopyableUrl url={absoluteUrl(`/hooks/${trigger.slug}`)} />
 
                 <SecretPicker
                   value={trigger.secretKey}

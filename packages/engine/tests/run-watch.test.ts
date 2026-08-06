@@ -38,7 +38,9 @@ const server = http.createServer();
 const hub = new RunEventHub();
 const manager = new WebSocketManager(server, hub);
 await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-const url = `ws://127.0.0.1:${(server.address() as AddressInfo).port}`;
+// `/ws` rather than the root: the root is the single-page app once this is deployed,
+// and a socket mounted there was answered with `index.html`.
+const url = `ws://127.0.0.1:${(server.address() as AddressInfo).port}/ws`;
 
 /** A real session, signed the way a sign-in signs one. */
 const session = jwt.sign({ id: "zz-watch", username: "zz-watch", role: "creator" }, jwtSecret(), {

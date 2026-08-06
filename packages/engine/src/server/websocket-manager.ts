@@ -92,7 +92,11 @@ export class WebSocketManager {
   private wss: WebSocketServer;
 
   constructor(server: Server, private hub: RunEventHub) {
-    this.wss = new WebSocketServer({ server });
+    // On a path of its own. Mounted at the server root, the upgrade request arrived at
+    // `/` — which behind the deployed nginx is the single-page app, so the socket was
+    // answered with `index.html` and the run stream could not connect at all. A named
+    // path is also what lets a dev server proxy it, since the root belongs to the app.
+    this.wss = new WebSocketServer({ server, path: "/ws" });
 
     this.wss.on("error", (err) => {
       console.error("❌ WebSocket server error:", err.message);
