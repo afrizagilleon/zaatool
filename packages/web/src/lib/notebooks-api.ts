@@ -1,4 +1,4 @@
-import { API_BASE_URL } from "./api.js";
+import { API_BASE_URL, describeRequestFailure } from "./api.js";
 import type {
   NotebookDeployState,
   NotebookJson,
@@ -13,10 +13,18 @@ import type {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const { headers: initHeaders, ...restInit } = init ?? {};
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { "Content-Type": "application/json", ...(initHeaders as Record<string, string>) },
-    ...restInit,
-  });
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}${path}`, {
+      headers: { "Content-Type": "application/json", ...(initHeaders as Record<string, string>) },
+      ...restInit,
+    });
+  } catch (err) {
+    // Never reached the engine at all, which is a different problem from a refusal and
+    // used to arrive as a bare `Failed to fetch` with no address in it.
+    throw new Error(describeRequestFailure(err));
+  }
 
   if (!res.ok) {
     // The compiler reports why a notebook is not runnable; surface that instead

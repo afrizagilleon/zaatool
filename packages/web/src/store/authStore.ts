@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { API_BASE_URL } from '../lib/api.js';
+import { API_BASE_URL, describeRequestFailure } from '../lib/api.js';
 
 interface User {
   id: string;
@@ -52,8 +52,10 @@ export const useAuthStore = create<AuthState>()(
           // Store token in localStorage for the fetch interceptor
           localStorage.setItem('zaatool_token', data.token);
           return true;
-        } catch (err: any) {
-          set({ error: err.message, isLoading: false });
+        } catch (err: unknown) {
+          // `Failed to fetch` was the last thing this app said to you on a phone, and it
+          // named neither the address nor the reason. It says both now.
+          set({ error: describeRequestFailure(err), isLoading: false });
           return false;
         }
       },
@@ -74,8 +76,8 @@ export const useAuthStore = create<AuthState>()(
 
           set({ isLoading: false });
           return true;
-        } catch (err: any) {
-          set({ error: err.message, isLoading: false });
+        } catch (err: unknown) {
+          set({ error: describeRequestFailure(err), isLoading: false });
           return false;
         }
       },
