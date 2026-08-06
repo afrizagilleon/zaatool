@@ -7,6 +7,7 @@ import type {
   NotebookParamType,
   NotebookRuntime,
 } from '@zaa-tool/shared';
+import { PARAM_TYPES } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Switch } from '../ui/switch';
@@ -14,7 +15,24 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { choicesOf } from '../../lib/notebook-options';
 import { RENDERS, specsOf, toDeclaration } from '../../lib/notebook-outputs';
 
-const TYPES: NotebookParamType[] = ['string', 'number', 'boolean', 'json'];
+/**
+ * Every type the engine accepts, and no list of its own.
+ *
+ * This was `['string', 'number', 'boolean', 'json']` — a hand-written subset that lost
+ * `file` when the engine gained it, so uploads worked from an agent, from a webhook and
+ * from a deployed page, and could not be declared by the person sitting in the editor.
+ * Reading `PARAM_TYPES` means the next type the contract learns appears here on its own.
+ */
+const TYPES: readonly NotebookParamType[] = PARAM_TYPES;
+
+/**
+ * Suggestions, not a closed list — the field takes anything a browser's `accept` does.
+ *
+ * `audio/*` is first because it is the one with a consequence beyond the file picker: an
+ * input that says it turns on the recorder, and there is no other way to ask for a voice
+ * note.
+ */
+const ACCEPT_SUGGESTIONS = ['audio/*', 'image/*', 'video/*', '.csv,.xlsx', '.pdf'];
 
 /**
  * The values an input accepts, when there is a fixed set of them.
@@ -279,17 +297,57 @@ export function ContractPanel({
                   Long text
                 </label>
               )}
-              <Input
-                value={input.default === undefined ? '' : String(input.default)}
-                onChange={(e) =>
-                  onUpdateInput(index, {
-                    default: e.target.value === '' ? undefined : e.target.value,
-                  })
-                }
-                placeholder="default (optional)"
-                className="h-7 flex-1 text-xs"
-              />
+              {/* A file has no default: there is nothing to type that would become one,
+                  and a stored descriptor is not something anyone writes by hand. */}
+              {input.type !== 'file' && (
+                <Input
+                  value={input.default === undefined ? '' : String(input.default)}
+                  onChange={(e) =>
+                    onUpdateInput(index, {
+                      default: e.target.value === '' ? undefined : e.target.value,
+                    })
+                  }
+                  placeholder="default (optional)"
+                  className="h-7 flex-1 text-xs"
+                />
+              )}
             </div>
+
+            {/* The field that decides whether a page draws a picker or a record button.
+                It only means anything for `file`, so it only appears for `file` — and it
+                is a free text box because it is passed to the browser verbatim. */}
+            {input.type === 'file' && (
+              <div className="space-y-1">
+                <Input
+                  value={input.accept ?? ''}
+                  onChange={(e) =>
+                    onUpdateInput(index, {
+                      accept: e.target.value === '' ? undefined : e.target.value,
+                    })
+                  }
+                  placeholder="accept (optional) — e.g. image/*"
+                  className="h-7 w-full text-xs font-mono"
+                  aria-label={`What ${input.name || 'this input'} accepts`}
+                />
+                <div className="flex flex-wrap gap-1">
+                  {ACCEPT_SUGGESTIONS.map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      type="button"
+                      onClick={() => onUpdateInput(index, { accept: suggestion })}
+                      className="bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground hover:text-foreground"
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+                {input.accept?.startsWith('audio/') && (
+                  <p className="text-[9px] leading-normal text-muted-foreground/60">
+                    The page shows a record button as well as a file picker.
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Written by whoever writes the notebook, which is as often an agent as a
                 person. It reaches the page, the tool schema and this panel — so leaving
@@ -441,7 +499,13 @@ export function ContractPanel({
               <span className="w-24 shrink-0 truncate text-[10px] font-mono text-muted-foreground">
                 {input.name}
               </span>
-              {choicesOf(input).length > 0 && !input.multiple ? (
+              {input.type === 'file' ? (
+                // Nothing typed here could become a stored file, and an empty box that
+                // silently does nothing is worse than saying so.
+                <span className="flex-1 text-[10px] leading-normal text-muted-foreground/60">
+                  Upload from the page — a file cannot be typed in.
+                </span>
+              ) : choicesOf(input).length > 0 && !input.multiple ? (
                 <Select
                   value={testArgs[input.name] ?? ''}
                   onValueChange={(value) => onTestArgChange(input.name, value)}

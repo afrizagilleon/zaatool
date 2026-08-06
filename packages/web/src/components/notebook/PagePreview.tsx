@@ -97,6 +97,10 @@ function Pending({ status }: { status: PreviewStatus }) {
 
 export function PagePreview({ onRun, isRunning }: PagePreviewProps) {
   const name = useNotebookStore((s) => s.name);
+  // Without this, a `file` input in the preview posted to `/api/notebooks//uploads`
+  // and got a 404 — the one screen where you would try a picker first was the one
+  // screen where it could not work.
+  const notebookId = useNotebookStore((s) => s.id);
   const inputs = useNotebookStore((s) => s.inputs);
   const declared = useNotebookStore((s) => s.outputs);
   const cellRuns = useNotebookStore((s) => s.cellRuns);
@@ -153,6 +157,7 @@ export function PagePreview({ onRun, isRunning }: PagePreviewProps) {
               <InputField
                 key={input.name}
                 input={input}
+                notebookId={notebookId}
                 value={testArgs[input.name] ?? ''}
                 onChange={(next) => setTestArg(input.name, next)}
               />
