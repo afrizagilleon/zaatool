@@ -12,6 +12,8 @@ import {
 } from '@phosphor-icons/react';
 import { isFixtureName, type NotebookPage } from '@zaa-tool/shared';
 import { ListControls, Pager } from '../notebook/ListControls';
+import { ListFreshness } from '../notebook/ListFreshness';
+import { useCatalogRefresh } from '../../hooks/useCatalogRefresh';
 import { readShowFixtures, writeShowFixtures } from '../../lib/list-preferences';
 import {
   PAGE_SIZE,
@@ -69,8 +71,51 @@ function Pending({ status }: { status: OutputStatus }) {
   );
 }
 
-function PageRunner({ page, onBack }: { page: NotebookPage; onBack: () => void }) {
+/**
+ * What an open page does when the notebook behind it moves.
+ *
+ * Not swap. Someone is halfway through a form, and replacing the fields under their hands
+ * — dropping one they had filled in, adding an empty required one — is the app deciding
+ * that a deploy in another window matters more than what they are doing. Nor stay silent:
+ * pressing Run would then send yesterday's arguments to today's contract and be refused
+ * for reasons nothing on screen could explain.
+ *
+ * So it says so, and the choice is a button.
+ */
+function PageMoved({ gone, onReload }: { gone: boolean; onReload: () => void }) {
+  return (
+    <div
+      role="status"
+      className="flex flex-wrap items-center gap-2 border border-border/60 bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+    >
+      <span>
+        {gone
+          ? 'This app has been taken out of production. What you see is the version you opened.'
+          : 'A new version of this app has been deployed. You are looking at the one you opened.'}
+      </span>
+      {!gone && (
+        <Button size="sm" variant="secondary" className="ml-auto h-6 px-2 text-[11px]" onClick={onReload}>
+          Load it
+        </Button>
+      )}
+    </div>
+  );
+}
+
+function PageRunner({
+  page,
+  latest,
+  onReload,
+  onBack,
+}: {
+  page: NotebookPage;
+  /** The same app as the catalogue currently has it, or null once it is unpublished. */
+  latest: NotebookPage | null;
+  onReload: () => void;
+  onBack: () => void;
+}) {
   const [values, setValues] = useState<Record<string, string>>(() => initialValues(page.inputs));
+  const moved = latest === null || JSON.stringify(latest) !== JSON.stringify(page);
   const { status, values: outputs, isRunning, error, start } = usePageRun(page.id, page.outputs);
 
   const hasResult = Object.keys(status).length > 0;
@@ -102,6 +147,8 @@ function PageRunner({ page, onBack }: { page: NotebookPage; onBack: () => void }
             Share
           </Button>
         </div>
+
+        {moved && <PageMoved gone={latest === null} onReload={onReload} />}
 
         {/* A notebook with no contract is not an app, it is something somebody wrote —
             and this is the reading of it. The engine only fills `notes` in that case, so
@@ -244,7 +291,14 @@ function PageRunner({ page, onBack }: { page: NotebookPage; onBack: () => void }
  */
 export function AppsPage() {
   const [pages, setPages] = useState<NotebookPage[] | null>(null);
-  const [openId, setOpenId] = useState<string | null>(null);
+  /**
+   * The page as it was when it was opened, not a lookup into the list.
+   *
+   * A lookup was fine while the list never changed. Now that it refetches by itself, a
+   * lookup would mean a deploy in another window silently rewriting the form somebody is
+   * standing in front of.
+   */
+  const [open, setOpen] = useState<NotebookPage | null>(null);
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<NotebookSort>('name');
   const [tag, setTag] = useState<string | null>(null);
@@ -258,12 +312,20 @@ export function AppsPage() {
   };
   const [page, setPage] = useState(1);
 
-  useEffect(() => {
+  const reload = () =>
     notebooksApi
       .pages()
       .then(setPages)
       .catch(() => setPages([]));
+
+  useEffect(() => {
+    void reload();
   }, []);
+
+  // The milestone's own test: deploy in one tab, and this changes in the other. Apps is
+  // the screen where being stale is worst — a page that is not here yet reads as a deploy
+  // that failed.
+  const live = useCatalogRefresh(() => void reload());
 
   const all = pages ?? [];
   const tags = useMemo(() => tagCounts(all), [all]);
@@ -301,8 +363,20 @@ export function AppsPage() {
     setPage(1);
   };
 
-  const open = pages?.find((item) => item.id === openId);
-  if (open) return <PageRunner page={open} onBack={() => setOpenId(null)} />;
+  if (open) {
+    const latest = pages?.find((item) => item.id === open.id) ?? null;
+    return (
+      <PageRunner
+        // Keyed on the version, so taking the new one resets the form rather than leaving
+        // half of yesterday's answers in today's fields.
+        key={JSON.stringify(open)}
+        page={open}
+        latest={latest}
+        onReload={() => latest && setOpen(latest)}
+        onBack={() => setOpen(null)}
+      />
+    );
+  }
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -342,6 +416,8 @@ export function AppsPage() {
           />
         )}
 
+        <ListFreshness live={live} onRefresh={() => void reload()} />
+
         {pages?.length === 0 && (
           <div className="flex flex-col items-center gap-2 text-center py-16">
             <AppWindow size={28} weight="duotone" className="text-muted-foreground/50" />
@@ -374,7 +450,7 @@ export function AppsPage() {
             <button
               key={item.id}
               type="button"
-              onClick={() => setOpenId(item.id)}
+              onClick={() => setOpen(item)}
               className={cn(
                 // No fixed height: a card with no description used to reserve the space
                 // for one anyway, so a list of undescribed apps was mostly empty card.
