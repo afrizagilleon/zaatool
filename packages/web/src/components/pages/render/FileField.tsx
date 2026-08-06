@@ -22,6 +22,25 @@ function wantsAudio(input: NotebookParam): boolean {
   return (input.accept ?? '').toLowerCase().includes('audio');
 }
 
+/**
+ * Why the microphone will not open, in the words that say what to do about it.
+ *
+ * `getUserMedia` needs a secure context. `https://` and `localhost` are secure;
+ * `http://192.168.1.7:5173` is not, and the browser does not merely refuse — on most it
+ * does not expose `navigator.mediaDevices` at all, so the call throws a `TypeError` about
+ * a missing property and the old message called that "the microphone was not available".
+ *
+ * That was the sentence you would have hit on your phone, and it named neither the cause
+ * nor the way round it. The way round it is real and costs nothing: a phone's file picker
+ * offers its own recorder for `accept="audio/*"`, so **Choose a file** records too.
+ */
+function microphoneProblem(): string | null {
+  if (typeof window === 'undefined') return null;
+  if (window.isSecureContext && navigator.mediaDevices) return null;
+
+  return `Recording needs a secure connection, and this page is on ${window.location.origin}. Use “Choose a file” — your phone's picker can record — or open the app over HTTPS.`;
+}
+
 function readable(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
@@ -72,6 +91,15 @@ export function FileField({
 
   const startRecording = async () => {
     setRecordError(null);
+
+    // Asked before the call rather than after it fails, so the answer is the reason
+    // instead of whatever exception a missing API happens to throw.
+    const blocked = microphoneProblem();
+    if (blocked) {
+      setRecordError(blocked);
+      return;
+    }
+
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const recorder = new MediaRecorder(stream);
@@ -89,9 +117,16 @@ export function FileField({
       recorderRef.current = recorder;
       recorder.start();
       setRecording(true);
-    } catch {
-      // Refusing the microphone is a normal answer, not a failure worth a stack trace.
-      setRecordError('The microphone was not available.');
+    } catch (err) {
+      // Refusing the microphone is a normal answer, not a failure worth a stack trace —
+      // but it is a different answer from having no microphone, and telling someone to
+      // check their permissions when the device has no input is its own dead end.
+      const denied = (err as Error)?.name === 'NotAllowedError';
+      setRecordError(
+        denied
+          ? 'Recording was blocked. Allow the microphone for this site and try again.'
+          : 'No microphone was available on this device.'
+      );
       setRecording(false);
     }
   };
