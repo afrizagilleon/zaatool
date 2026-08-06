@@ -17,9 +17,38 @@ import type { RunEventSink } from "../core/run-emitter.js";
 /** When this process came up. Restarts are the thing you are usually checking for. */
 const STARTED_AT = new Date().toISOString();
 
+/**
+ * Which origins a browser may call this engine from.
+ *
+ * It was `cors()` with no argument, which reflects whatever origin asks — every route
+ * guarded by a session, and the door held open for any page on the internet to try one.
+ * After M18 put a lock on the routes that was the odd one out.
+ *
+ * The intended shape is that there is no cross-origin request at all: the app and the
+ * engine share an origin, nginx in production and the Vite proxy in development, so a
+ * browser never sends `Origin` and CORS never comes up. What remains is the deployment
+ * where the bundle really is served from somewhere else, and that one has to say so —
+ * `CORS_ORIGINS=https://app.example.com,https://staging.example.com`.
+ *
+ * Unset outside production stays permissive, because a phone reaching a laptop over a LAN
+ * address nobody can predict is the normal case while building and refusing it would make
+ * every first attempt fail. Unset *in* production allows same-origin only, which is what a
+ * correct deployment already is.
+ */
+export function corsPolicy(): cors.CorsOptions {
+  const declared = (process.env.CORS_ORIGINS ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter((origin) => origin !== "");
+
+  if (declared.length > 0) return { origin: declared, credentials: true };
+  if (process.env.NODE_ENV === "production") return { origin: false };
+  return { origin: true, credentials: true };
+}
+
 export function createApp(publishRunEvent: RunEventSink) {
   const app = express();
-  app.use(cors());
+  app.use(cors(corsPolicy()));
   app.use(express.json({ limit: "50mb" }));
 
   // Mounted before the auth guard: a webhook's slug is its credential, so these
