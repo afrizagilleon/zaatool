@@ -18,6 +18,7 @@ import {
 } from "../services/notebook-execution.service.js";
 import { NotebookCompileError } from "../core/notebook-compiler.js";
 import { ContractError } from "../core/notebook-contract.js";
+import { normaliseTags } from "@zaa-tool/shared";
 import type { RunEventSink } from "../core/run-emitter.js";
 import type {
   NotebookAction,
@@ -162,6 +163,9 @@ export class NotebooksController {
           id: summary.id,
           name: document.name,
           description: firstNoteOf(document),
+          // The deployed document's tags, not the draft's: this list describes what is
+          // running, and a tag added to the draft this morning has not been published.
+          tags: normaliseTags(document.tags ?? []),
           inputs: document.inputs ?? [],
           // Normalised here rather than in the browser: a page has to decide how to show
           // each value, and it should not also have to know there are two ways to write

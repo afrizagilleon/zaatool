@@ -11,6 +11,8 @@
  * results from a previous session.
  */
 
+import type { NotebookRunStatus } from "./notebook-run.js";
+
 /** One notebook, one language. Values crossing a cell boundary must be JSON. */
 export type NotebookRuntime = "node" | "python";
 
@@ -108,6 +110,9 @@ export interface WebhookTrigger {
 }
 
 export type NotebookTrigger = CronTrigger | WebhookTrigger;
+
+/** How a notebook gets started, named on its own so a list can group by it. */
+export type NotebookTriggerKind = NotebookTrigger["kind"];
 
 /**
  * The reuse boundary.
@@ -344,6 +349,15 @@ export interface NotebookJson {
    * engine ships, because those load into this process rather than a throwaway environment.
    */
   packages?: string[];
+  /**
+   * Labels the author puts on this notebook, for finding it again.
+   *
+   * Twenty-nine notebooks in one flat column is a list you scroll rather than a list you
+   * search, and it will be sixty. Tags rather than folders because a notebook that
+   * fetches a rate *and* posts a report belongs in both places, and a folder makes you
+   * choose. Normalised to lower case, so `Daily` and `daily` are one tag.
+   */
+  tags?: string[];
   triggers?: NotebookTrigger[];
   /** Values a caller supplies, seeded into scope before the first cell. */
   inputs?: NotebookParam[];
@@ -414,6 +428,8 @@ export interface NotebookPage {
   id: string;
   name: string;
   description: string;
+  /** The deployed document's tags — what the Apps list filters and groups on. */
+  tags: string[];
   /**
    * The notebook's cell notes, and only when it has no contract at all.
    *
@@ -451,10 +467,31 @@ export interface NotebookShare {
   token?: string;
 }
 
+/**
+ * A notebook as it appears in a list, without loading the document.
+ *
+ * Everything here is something the list itself has to answer: which of these is live,
+ * which ran today, which one broke, what is this one for. Before, the answer to *"which
+ * of my twenty-nine notebooks is deployed"* was to open all twenty-nine — the list knew
+ * nothing but a name and a timestamp, so it could neither sort nor filter on anything a
+ * person actually cares about.
+ *
+ * `snake_case` because these come straight off the row; the two timestamps were already
+ * spelled that way and one convention beats a tidier half.
+ */
 export interface NotebookSummary {
   id: string;
   name: string;
   runtime: NotebookRuntime;
   created_at: string;
   updated_at: string;
+  /** True when a version is pinned — that is, when triggers and pages can reach it. */
+  deployed: boolean;
+  /** When it last ran, by any route. Null when it never has. */
+  last_run_at: string | null;
+  /** The status of that run, so a list can show a notebook that has been failing. */
+  last_run_status: NotebookRunStatus | null;
+  /** Distinct kinds of enabled trigger — how this notebook gets started. */
+  trigger_kinds: NotebookTriggerKind[];
+  tags: string[];
 }

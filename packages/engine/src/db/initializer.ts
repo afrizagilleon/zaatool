@@ -98,6 +98,19 @@ export async function initDb() {
       END $$;
     `);
 
+    // Tags, indexed beside the document for the same reason triggers are: the list
+    // filters on them, and filtering by parsing twenty-nine documents is a scan. The
+    // document stays the source of truth — `save` writes this column from it, so the
+    // column can be rebuilt and never has to be believed over the document itself.
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE notebooks ADD COLUMN tags TEXT[] NOT NULL DEFAULT '{}';
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
+
     // Notebook triggers, indexed rather than discovered by scanning documents —
     // the scheduler queries this table instead of parsing every notebook each minute.
     await client.query(`

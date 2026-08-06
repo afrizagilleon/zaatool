@@ -37,7 +37,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const notebooksApi = {
-  list: (): Promise<NotebookSummary[]> => request("/api/notebooks"),
+  /**
+   * Every notebook as a list row.
+   *
+   * The array fields are defaulted rather than trusted. During a rolling deploy the
+   * browser can be newer than the engine answering it, and `tags.includes(...)` on an
+   * absent field is not a missing filter — it is a blank page with a TypeError behind it.
+   */
+  list: async (): Promise<NotebookSummary[]> => {
+    const rows = await request<NotebookSummary[]>("/api/notebooks");
+    return rows.map((row) => ({
+      ...row,
+      tags: row.tags ?? [],
+      trigger_kinds: row.trigger_kinds ?? [],
+      deployed: row.deployed ?? false,
+      last_run_at: row.last_run_at ?? null,
+      last_run_status: row.last_run_status ?? null,
+    }));
+  },
 
   /** The derived system map: notebooks, their triggers, and who calls whom. */
   map: (): Promise<NotebookMap> => request("/api/notebooks/map"),

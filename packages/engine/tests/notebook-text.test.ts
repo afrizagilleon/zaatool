@@ -526,5 +526,33 @@ check("a round trip through the text form keeps both", () => {
   assert.deepEqual(after.actions, arranged.actions);
 });
 
+// ── tags ──────────────────────────────────────────────────────────────────────
+// A field that survives a round trip in the browser but not here is a field an agent
+// silently deletes: it reads the notebook, edits one cell, writes it back, and the tags
+// are gone. The same trap `packages` fell into, checked the same way.
+
+check("tags survive a round trip", () => {
+  const after = roundTrip(doc({ tags: ["finance", "daily"] }));
+  assert.deepEqual(after.tags, ["finance", "daily"]);
+});
+
+check("two spellings of one tag never become two tags", () => {
+  const after = roundTrip(doc({ tags: ["Finance", " finance ", "DAILY"] }));
+  assert.deepEqual(after.tags, ["finance", "daily"]);
+});
+
+check("a tag with a space in it is refused rather than quietly kept", () => {
+  // It would become one label that no filter can ever match by clicking, and the author
+  // is reading this answer now rather than discovering it in a list next week.
+  refuses(
+    toMarkdown(doc({})).replace("version:", "tags: ['daily report']\nversion:"),
+    "cannot contain spaces"
+  );
+});
+
+check("a notebook with no tags grows none", () => {
+  assert.equal(roundTrip(doc({})).tags, undefined);
+});
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed === 0 ? 0 : 1);

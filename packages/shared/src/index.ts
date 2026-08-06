@@ -3,3 +3,4 @@ export * from "./notebook.js";
 export * from "./notebook-run.js";
 export * from "./notebook-map.js";
 export * from "./packages.js";
+export * from "./fixtures.js";

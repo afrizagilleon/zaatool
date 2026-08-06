@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import { notebookTriggersService } from "./notebook-triggers.service.js";
 import { stampAuthors } from "../core/notebook-provenance.js";
 import { toolNameFor } from "../core/notebook-tool-name.js";
+import { normaliseTags } from "@zaa-tool/shared";
 import type {
   NotebookDeployState,
   NotebookJson,
@@ -20,9 +21,41 @@ export interface NotebookRecord {
 }
 
 export class NotebooksService {
+  /**
+   * Every notebook as a list row, without reading a single document.
+   *
+   * The list used to know a name and a timestamp, which meant *"which of these is
+   * deployed"* could only be answered by opening all of them one at a time. Everything
+   * added here is something the list itself has to sort, filter or group by, and each
+   * comes from an index rather than from parsing JSON: the deploy pointer, the trigger
+   * table, the run table, the tags column.
+   *
+   * Two lateral joins rather than two grouped joins — each notebook wants its own single
+   * most recent run, and `LIMIT 1` inside the lateral is how that stays one row per
+   * notebook however long the history gets. Both are covered by indexes that already
+   * exist for other reasons (`notebook_runs_notebook_started_idx`,
+   * `notebook_triggers_notebook_idx`).
+   */
   async getSummary(): Promise<NotebookSummary[]> {
     const { rows } = await pool.query(
-      "SELECT id, name, runtime, created_at, updated_at FROM notebooks ORDER BY updated_at DESC"
+      `SELECT n.id, n.name, n.runtime, n.created_at, n.updated_at,
+              (n.deployed_version_id IS NOT NULL) AS deployed,
+              COALESCE(n.tags, '{}') AS tags,
+              last_run.started_at AS last_run_at,
+              last_run.status     AS last_run_status,
+              COALESCE(kinds.list, '{}') AS trigger_kinds
+       FROM notebooks n
+       LEFT JOIN LATERAL (
+         SELECT started_at, status FROM notebook_runs
+         WHERE notebook_id = n.id
+         ORDER BY started_at DESC
+         LIMIT 1
+       ) last_run ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT array_agg(DISTINCT kind) AS list FROM notebook_triggers
+         WHERE notebook_id = n.id AND enabled
+       ) kinds ON TRUE
+       ORDER BY n.updated_at DESC`
     );
     return rows;
   }
@@ -81,15 +114,21 @@ export class NotebooksService {
       writer
     );
 
+    // The column is an index of the document, written from it on every save, exactly as
+    // the trigger table is. Normalised here as well as in the editor, because an agent
+    // writing the text form never passes through the editor.
+    const tags = normaliseTags(stored.tags ?? []);
+
     await pool.query(
-      `INSERT INTO notebooks (id, name, runtime, document)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO notebooks (id, name, runtime, document, tags)
+       VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (id) DO UPDATE
        SET name = EXCLUDED.name,
            runtime = EXCLUDED.runtime,
            document = EXCLUDED.document,
+           tags = EXCLUDED.tags,
            updated_at = CURRENT_TIMESTAMP`,
-      [id, name, runtime, JSON.stringify(stored)]
+      [id, name, runtime, JSON.stringify(stored), tags]
     );
 
     // The document is the source of truth; the trigger index follows it.

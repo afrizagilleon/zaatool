@@ -15,7 +15,7 @@ import type {
   NotebookTrigger,
   ParallelStep,
 } from "@zaa-tool/shared";
-import { PARAM_TYPES } from "@zaa-tool/shared";
+import { PARAM_TYPES, normaliseTags, tagProblem } from "@zaa-tool/shared";
 import { OUTPUT_RENDERS } from "./notebook-outputs.js";
 
 export { PARAM_TYPES };
@@ -75,6 +75,7 @@ export function toMarkdown(notebook: NotebookJson): string {
     id: notebook.id,
     version: notebook.version || DEFAULT_VERSION,
   };
+  if (notebook.tags?.length) meta.tags = normaliseTags(notebook.tags);
   if (notebook.secrets?.length) meta.secrets = notebook.secrets;
   if (notebook.packages?.length) meta.packages = notebook.packages;
   if (notebook.inputs?.length) meta.inputs = notebook.inputs;
@@ -254,6 +255,17 @@ export function fromMarkdown(text: string, options?: FromMarkdownOptions): Noteb
 
   const secrets = readStringList(meta.secrets, "secrets", issues);
   if (secrets.length > 0) notebook.secrets = secrets;
+
+  // Judged before normalising, so `daily report` is refused rather than quietly becoming
+  // one tag with a space in it that no filter will ever match by clicking.
+  const tags = readStringList(meta.tags, "tags", issues);
+  if (tags.length > 0) {
+    for (const tag of tags) {
+      const problem = tagProblem(tag);
+      if (problem) issues.push(problem);
+    }
+    notebook.tags = normaliseTags(tags);
+  }
 
   const packages = readStringList(meta.packages, "packages", issues);
   if (packages.length > 0) {

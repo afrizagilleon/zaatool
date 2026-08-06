@@ -13,6 +13,7 @@ import {
 import { ContractError } from "../core/notebook-contract.js";
 import { NotebookCompileError } from "../core/notebook-compiler.js";
 import { outputSpecs } from "../core/notebook-outputs.js";
+import { normaliseTags } from "@zaa-tool/shared";
 import { actionSpecs } from "../core/notebook-actions.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 import type { NotebookJson, NotebookPage } from "@zaa-tool/shared";
@@ -90,6 +91,9 @@ function pageOf(id: string, document: NotebookJson): NotebookPage {
     id,
     name: document.name,
     description: firstNoteOf(document),
+    // Carried so a shared page describes itself the same way the Apps list does; nobody
+    // browsing a single link filters on them.
+    tags: normaliseTags(document.tags ?? []),
     // A written notebook can be shared as what it is: the thing somebody wrote.
     notes: hasContract ? [] : notesOf(document),
     inputs: document.inputs ?? [],
