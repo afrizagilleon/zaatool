@@ -10,26 +10,14 @@
  * nesting bugs live. Two invariants the compiler depends on are asserted directly: a
  * lane is never empty, and a group never has zero lanes.
  *
- *   pnpm --filter @zaa-tool/web exec tsx tests/notebook-tree.test.ts
+ *   pnpm --filter @zaa-tool/web test
  */
+import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 import type { NotebookStep, ParallelStep } from "@zaa-tool/shared";
 import * as tree from "../src/lib/notebook-tree.js";
 
-let passed = 0;
-let failed = 0;
-
-function check(name: string, run: () => void): void {
-  try {
-    run();
-    passed += 1;
-    console.log(`  ok   ${name}`);
-  } catch (err) {
-    failed += 1;
-    console.log(`  FAIL ${name}`);
-    console.log(`       ${(err as Error).message.split("\n").join("\n       ")}`);
-  }
-}
+describe("the shapes the editor can build", () => {
 
 /** Depth of the deepest parallel group, counting the outermost as 1. */
 function depthOf(steps: NotebookStep[]): number {
@@ -51,7 +39,7 @@ function groupsIn(steps: NotebookStep[]): ParallelStep[] {
 
 console.log("\nnesting");
 
-check("a group can be appended to a lane", () => {
+it("a group can be appended to a lane", () => {
   const group = tree.newParallelGroup();
   const steps: NotebookStep[] = [group];
 
@@ -61,7 +49,7 @@ check("a group can be appended to a lane", () => {
   assert.equal(groupsIn(next).length, 2);
 });
 
-check("nesting three deep still resolves", () => {
+it("nesting three deep still resolves", () => {
   const outer = tree.newParallelGroup();
   let steps: NotebookStep[] = [outer];
 
@@ -74,7 +62,7 @@ check("nesting three deep still resolves", () => {
   assert.equal(depthOf(steps), 3);
 });
 
-check("appending to a lane leaves the sibling lane alone", () => {
+it("appending to a lane leaves the sibling lane alone", () => {
   const group = tree.newParallelGroup();
   const steps = tree.appendToLane(group.lanes.length ? [group] : [], group.id, group.lanes[0].id, tree.newParallelGroup());
 
@@ -83,7 +71,7 @@ check("appending to a lane leaves the sibling lane alone", () => {
   assert.equal(depthOf(updated.lanes[1].steps), 0, "lane 2 was untouched");
 });
 
-check("a cell added to a nested lane lands there and nowhere else", () => {
+it("a cell added to a nested lane lands there and nowhere else", () => {
   const outer = tree.newParallelGroup();
   const inner = tree.newParallelGroup();
   let steps: NotebookStep[] = tree.appendToLane([outer], outer.id, outer.lanes[0].id, inner);
@@ -99,19 +87,19 @@ check("a cell added to a nested lane lands there and nowhere else", () => {
 
 console.log("\ninvariants the compiler depends on");
 
-check("a new group always has two non-empty lanes", () => {
+it("a new group always has two non-empty lanes", () => {
   const group = tree.newParallelGroup();
   assert.equal(group.lanes.length, 2);
   for (const lane of group.lanes) assert.ok(lane.steps.length > 0, "lane is not empty");
 });
 
-check("removing the last lane dissolves the group rather than leaving it invalid", () => {
+it("removing the last lane dissolves the group rather than leaving it invalid", () => {
   const group = tree.newParallelGroup(1);
   const steps = tree.removeLane([group], group.id, group.lanes[0].id);
   assert.equal(groupsIn(steps).length, 0);
 });
 
-check("removing a nested group's last lane dissolves only that group", () => {
+it("removing a nested group's last lane dissolves only that group", () => {
   const outer = tree.newParallelGroup();
   const inner = tree.newParallelGroup(1);
   let steps: NotebookStep[] = tree.appendToLane([outer], outer.id, outer.lanes[0].id, inner);
@@ -123,14 +111,14 @@ check("removing a nested group's last lane dissolves only that group", () => {
   assert.equal(groupsIn(steps)[0].lanes.length, 2);
 });
 
-check("removing every step leaves one cell, never an empty notebook", () => {
+it("removing every step leaves one cell, never an empty notebook", () => {
   const cell = tree.newCell();
   assert.equal(tree.removeStep([cell], cell.id).length, 1);
 });
 
 console.log("\nreading the tree through nesting");
 
-check("allCells finds cells at every depth, in execution order", () => {
+it("allCells finds cells at every depth, in execution order", () => {
   const outer = tree.newParallelGroup();
   const inner = tree.newParallelGroup();
   const steps = tree.appendToLane([outer], outer.id, outer.lanes[0].id, inner);
@@ -139,7 +127,7 @@ check("allCells finds cells at every depth, in execution order", () => {
   assert.equal(tree.allCells(steps).length, 4);
 });
 
-check("cellsAfter crosses out of a nested lane but never into a sibling lane", () => {
+it("cellsAfter crosses out of a nested lane but never into a sibling lane", () => {
   const outer = tree.newParallelGroup();
   const inner = tree.newParallelGroup();
   const tail = tree.newCell();
@@ -161,7 +149,7 @@ check("cellsAfter crosses out of a nested lane but never into a sibling lane", (
   );
 });
 
-check("stepLabel names a cell by the lanes containing it", () => {
+it("stepLabel names a cell by the lanes containing it", () => {
   const outer = tree.newParallelGroup();
   const inner = tree.newParallelGroup();
   const steps = tree.appendToLane([outer], outer.id, outer.lanes[0].id, inner);
@@ -169,6 +157,4 @@ check("stepLabel names a cell by the lanes containing it", () => {
   const label = tree.stepLabel(steps, inner.lanes[1].steps[0].id);
   assert.equal(label, "Lane 1 · Lane 2 · Cell 1");
 });
-
-console.log(`\n${passed} passed, ${failed} failed\n`);
-process.exit(failed === 0 ? 0 : 1);
+});

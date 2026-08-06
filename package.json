@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "pnpm -r --sequential run test",
     "dev": "pnpm --parallel -r run dev",
     "dev:web": "pnpm --filter @zaa-tool/web run dev",
     "dev:engine": "pnpm --filter @zaa-tool/engine run dev"
