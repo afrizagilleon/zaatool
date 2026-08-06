@@ -5,6 +5,7 @@ import { Button } from '../ui/button';
 import { useUiStore } from '../../store/uiStore';
 import { useNotebookStore } from '../../store/notebookStore';
 import { useNotebookRun } from '../../hooks/useNotebookRun';
+import { useRunActivity } from '../../hooks/useRunActivity';
 import { computeStaleCells } from '../../lib/notebook-staleness';
 import * as tree from '../../lib/notebook-tree';
 import { NotebookToolbar } from './NotebookToolbar';
@@ -80,6 +81,10 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
   const restoreRun = useNotebookStore((s) => s.restoreRun);
 
   const { run, runAll, save } = useNotebookRun();
+  // What this notebook is doing when it is not this browser doing it: a schedule firing,
+  // an agent calling the deployed tool. Only used to know when the run history is out of
+  // date, which is the one thing the editor could not previously find out.
+  const elsewhere = useRunActivity(Boolean(notebookId))[notebookId];
   // Kept here rather than in the store: which half of the editor you are looking at is
   // a property of this screen, not of the notebook.
   const [isPreviewing, setIsPreviewing] = useState(false);
@@ -248,8 +253,11 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
           <RunHistory
             notebookId={notebookId}
             activeRunId={runId}
-            // A run that just finished should show up without reopening the panel.
-            refreshKey={isRunning}
+            // A run that just finished should show up without reopening the panel —
+            // including one this browser did not start. `isRunning` alone only knew about
+            // the Run button, so a cron firing at 3am or an agent calling the tool left
+            // the history showing yesterday until it was closed and reopened.
+            refreshKey={`${isRunning}-${elsewhere?.status ?? ''}-${elsewhere?.runId ?? ''}`}
             onOpenRun={(id) => void openRun(id)}
           />
         }

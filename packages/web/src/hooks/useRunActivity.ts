@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { RunActivityEvent, RunWatchMessage } from '@zaa-tool/shared';
-import { WS_BASE_URL } from '../lib/api.js';
-import { authenticateSocket } from '../lib/run-socket.js';
+import { watchRunActivity } from '../lib/watch-socket.js';
 
 /** How long a finished notebook keeps its colour before fading back to idle. */
 const SETTLE_MS = 4000;
@@ -27,6 +25,10 @@ export interface NotebookActivityState {
  * client got from starting the run. The runs worth watching here are the ones nobody in
  * this browser started: a cron at 3am, an agent working over MCP. So the socket asks to
  * watch, and the engine sends lifecycle only.
+ *
+ * The connection is not this hook's any more. It used to open its own, which was fine
+ * while the map was the only thing watching and stopped being fine the moment the lists
+ * wanted the same channel — see `watch-socket.ts`, which also survives losing it.
  */
 export function useRunActivity(enabled: boolean): Record<string, NotebookActivityState> {
   const [activity, setActivity] = useState<Record<string, NotebookActivityState>>({});
@@ -35,7 +37,6 @@ export function useRunActivity(enabled: boolean): Record<string, NotebookActivit
   useEffect(() => {
     if (!enabled) return;
 
-    const socket = new WebSocket(WS_BASE_URL);
     const pending = timers.current;
 
     const forget = (notebookId: string) => {
@@ -46,21 +47,7 @@ export function useRunActivity(enabled: boolean): Record<string, NotebookActivit
       }
     };
 
-    socket.onopen = () => {
-      authenticateSocket(socket);
-      const message: RunWatchMessage = { action: 'watch' };
-      socket.send(JSON.stringify(message));
-    };
-
-    socket.onmessage = (event) => {
-      let parsed: RunActivityEvent;
-      try {
-        parsed = JSON.parse(event.data as string) as RunActivityEvent;
-      } catch {
-        return;
-      }
-      if (parsed.type !== 'run:activity' || !parsed.notebookId) return;
-
+    const stopWatching = watchRunActivity((parsed) => {
       if (parsed.status === 'running') {
         forget(parsed.notebookId);
         setActivity((current) =>
@@ -88,10 +75,10 @@ export function useRunActivity(enabled: boolean): Record<string, NotebookActivit
           pending.delete(parsed.notebookId);
         }, SETTLE_MS)
       );
-    };
+    });
 
     return () => {
-      socket.close();
+      stopWatching();
       for (const timer of pending.values()) window.clearTimeout(timer);
       pending.clear();
     };

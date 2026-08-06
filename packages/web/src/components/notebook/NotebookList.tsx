@@ -14,6 +14,8 @@ import type { NotebookRuntime, NotebookSummary } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
 import { ListControls, Pager } from './ListControls';
+import { ListFreshness } from './ListFreshness';
+import { useCatalogRefresh } from '../../hooks/useCatalogRefresh';
 import {
   DEFAULT_FILTERS,
   filterNotebooks,
@@ -92,21 +94,31 @@ export function NotebookList({ onOpen, onCreate }: NotebookListProps) {
   const [confirming, setConfirming] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  const refresh = async () => {
-    setIsLoading(true);
+  /**
+   * `quietly` is for the fetches nobody asked for. A notebook saved in another tab must
+   * not throw this list into its loading state — the rows are still on screen, they are
+   * merely about to be a little more correct, and blanking them would be a worse lie than
+   * being briefly stale.
+   */
+  const refresh = async ({ quietly = false } = {}) => {
+    if (!quietly) setIsLoading(true);
     try {
       setNotebooks(await notebooksApi.list());
       setError(null);
     } catch (err) {
       setError((err as Error).message);
     } finally {
-      setIsLoading(false);
+      if (!quietly) setIsLoading(false);
     }
   };
 
   useEffect(() => {
     refresh();
   }, []);
+
+  // Deploy in the editor, and this list knows. Before it, every screen was a photograph
+  // of the moment it opened and the only way to find out was to press reload.
+  const live = useCatalogRefresh(() => void refresh({ quietly: true }));
 
   const removeSelected = async () => {
     if (!selected || selected.size === 0) return;
@@ -281,6 +293,8 @@ export function NotebookList({ onOpen, onCreate }: NotebookListProps) {
             }}
           />
         )}
+
+        <ListFreshness live={live} onRefresh={() => void refresh()} />
 
         {error && (
           <div className="mb-3 px-3 py-2 text-xs text-status-error border border-status-error/40">{error}</div>

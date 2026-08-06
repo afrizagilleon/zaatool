@@ -63,7 +63,7 @@ interface SystemMapProps {
 }
 
 function MapCanvas({ onOpenNotebook }: SystemMapProps) {
-  const { map, isLoading, error, refresh } = useNotebookMap();
+  const { map, isLoading, error, refresh, live } = useNotebookMap();
   const activity = useRunActivity(true);
   const { fitView } = useReactFlow();
 
@@ -273,7 +273,9 @@ function MapCanvas({ onOpenNotebook }: SystemMapProps) {
 
         <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px]" onClick={() => void refresh()}>
           <ArrowClockwise size={12} className="mr-1.5" />
-          {isLoading ? 'Reading…' : 'Refresh'}
+          {/* The map redraws itself now, so this button is for the case where it cannot:
+              the socket is down and Refresh is the only way left to be current. */}
+          {isLoading ? 'Reading…' : live ? 'Refresh' : 'Not live — refresh'}
         </Button>
 
         {inside && (
