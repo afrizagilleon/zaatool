@@ -1,5 +1,6 @@
 import dagre from 'dagre';
 import type { Edge, Node } from '@xyflow/react';
+import { layoutSystem, type SystemLayout } from './map-layout';
 import type {
   NotebookJson,
   NotebookMap,
@@ -21,10 +22,13 @@ export interface NotebookNodeData extends Record<string, unknown> {
   notebook: NotebookMapNotebook;
   /** Set while a run of this notebook is in flight, or briefly after it ends. */
   status?: 'running' | 'done' | 'error';
+  /** True when something else is focused and this is not part of it. */
+  dimmed?: boolean;
 }
 
 export interface TriggerNodeData extends Record<string, unknown> {
   trigger: NotebookMapTrigger;
+  dimmed?: boolean;
 }
 
 /**
@@ -36,6 +40,7 @@ export interface TriggerNodeData extends Record<string, unknown> {
 export interface UnresolvedNodeData extends Record<string, unknown> {
   label: string;
   reason: 'missing' | 'ambiguous' | 'computed';
+  dimmed?: boolean;
 }
 
 export interface CellNodeData extends Record<string, unknown> {
@@ -55,10 +60,16 @@ export interface CallOutNodeData extends Record<string, unknown> {
   notebookId?: string;
 }
 
-const SIZES = {
-  notebook: { width: 260, height: 116 },
-  trigger: { width: 210, height: 58 },
-  unresolved: { width: 190, height: 52 },
+/**
+ * Sizes here and in the components have to agree, or dagre lays out boxes of one size and
+ * the screen draws another. The system-level boxes shrank in FX6: at 260×116, twenty-nine
+ * notebooks could not be read at any zoom that fitted them, so a box now carries a name
+ * and four marks and everything else waits for the pointer.
+ */
+export const SIZES = {
+  notebook: { width: 190, height: 46 },
+  trigger: { width: 170, height: 44 },
+  unresolved: { width: 170, height: 44 },
   cell: { width: 240, height: 76 },
   callOut: { width: 180, height: 46 },
 };
@@ -73,7 +84,16 @@ function sizeFor(type: string | undefined): { width: number; height: number } {
 
 // ── system level ──────────────────────────────────────────────────────────────
 
-export function buildMapGraph(map: NotebookMap): { nodes: Node[]; edges: Edge[] } {
+/**
+ * What is on the system map. Where it goes is `map-layout.ts`.
+ *
+ * Split because they are different questions and only one of them was wrong: the graph
+ * was right all along and the placement put thirty-three notebooks in a 4531px ribbon.
+ */
+export function buildMapGraph(
+  map: NotebookMap,
+  options: { showStandalone?: boolean } = {}
+): SystemLayout {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
 
@@ -137,7 +157,7 @@ export function buildMapGraph(map: NotebookMap): { nodes: Node[]; edges: Edge[] 
     });
   });
 
-  return { nodes: layout(nodes, edges, 'LR'), edges };
+  return layoutSystem(map, nodes, edges, options);
 }
 
 // ── notebook level ────────────────────────────────────────────────────────────
@@ -278,6 +298,9 @@ function layout(nodes: Node[], edges: Edge[], rankdir: 'LR' | 'TB'): Node[] {
     return {
       ...node,
       position: { x: placed.x - placed.width / 2, y: placed.y - placed.height / 2 },
+      // Declared rather than measured, for the same reason as the system level: nothing
+      // that reads a node's size can find one xyflow measured into a copy we replace.
+      ...sizeFor(node.type),
     };
   });
 }
