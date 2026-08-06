@@ -16,6 +16,7 @@ import { cn } from '../../lib/utils';
 import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { NotebookSecrets } from './NotebookSecrets';
+import { NotebookPackages } from './NotebookPackages';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import {
   DropdownMenu,
@@ -62,6 +63,7 @@ interface NotebookToolbarProps {
   name: string;
   runtime: NotebookRuntime;
   secrets: string[];
+  packages: string[];
   isDirty: boolean;
   isSaving: boolean;
   isRunning: boolean;
@@ -88,6 +90,7 @@ interface NotebookToolbarProps {
   onNameChange: (name: string) => void;
   onRuntimeChange: (runtime: NotebookRuntime) => void;
   onSecretsChange: (secrets: string[]) => void;
+  onPackagesChange: (packages: string[]) => void;
   onSave: () => void;
   onRun: () => void;
   onBack: () => void;
@@ -97,6 +100,7 @@ export function NotebookToolbar({
   name,
   runtime,
   secrets,
+  packages,
   isDirty,
   isSaving,
   isRunning,
@@ -115,6 +119,7 @@ export function NotebookToolbar({
   onNameChange,
   onRuntimeChange,
   onSecretsChange,
+  onPackagesChange,
   onSave,
   onRun,
   onBack,
@@ -123,7 +128,7 @@ export function NotebookToolbar({
   // One number on the button, so folding the three panels away does not also hide the
   // fact that there is anything in them.
   const setupCount =
-    contractShape.inputs + contractShape.outputs + triggerCount + secrets.length;
+    contractShape.inputs + contractShape.outputs + triggerCount + secrets.length + packages.length;
 
   return (
     <div className="flex items-center gap-2 px-3 h-11 border-b border-border shrink-0">
@@ -243,6 +248,18 @@ export function NotebookToolbar({
           <SetupSection label="Secrets" hint={secrets.length > 0 ? `${secrets.length} allowed` : 'none'}>
             <div className="p-3">
               <NotebookSecrets selectedKeys={secrets} onChange={onSecretsChange} />
+            </div>
+          </SetupSection>
+          <SetupSection
+            label="Packages"
+            hint={packages.length > 0 ? `${packages.length} declared` : 'standard library only'}
+          >
+            <div className="p-3">
+              <NotebookPackages
+                runtime={runtime}
+                packages={packages}
+                onChange={onPackagesChange}
+              />
             </div>
           </SetupSection>
         </PopoverContent>

@@ -18,29 +18,17 @@
  * package is installed into a throwaway environment for that run. A JavaScript one is
  * loaded into a worker inside this process, which is why that side is a fixed list and
  * `pnpm add` is not part of writing a notebook.
+ *
+ * The list and the requirement shape moved to `@zaa-tool/shared` so the editor can refuse
+ * `pg` while it is being typed rather than after a deploy. The judging stayed here: this
+ * is the side that actually loads the thing.
  */
 
-/**
- * JavaScript packages a cell may require, beyond node's own built-ins.
- *
- * Short on purpose. Everything here ships with the engine, so nothing is fetched at run
- * time and nothing can be added by writing a notebook — growing this list is a change to
- * the engine, reviewed like any other.
- *
- * Notably absent, and permanently: `pg`, `minio`, and anything else that holds a
- * connection to infrastructure this application owns.
- */
-export const ALLOWED_JS_PACKAGES = ["yaml", "uuid", "zod"] as const;
+import { ALLOWED_JS_PACKAGES, PYTHON_REQUIREMENT_SOURCE } from "@zaa-tool/shared";
 
-/**
- * A Python requirement, as `uv` will read it.
- *
- * Deliberately permissive about *which* package and strict about the shape: `pandas`,
- * `pandas==2.2.0`, `python-dateutil>=2.8` are all fine, and anything carrying a path, a
- * URL, a shell character or a flag is not. A requirement is a name and a version, and
- * everything else people put in that field is a way of running something else.
- */
-const PYTHON_REQUIREMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*(\[[A-Za-z0-9,._-]+\])?((==|>=|<=|~=|!=|>|<)[A-Za-z0-9._*+-]+)?$/;
+export { ALLOWED_JS_PACKAGES };
+
+const PYTHON_REQUIREMENT = new RegExp(PYTHON_REQUIREMENT_SOURCE);
 
 export type Runtime = "node" | "python";
 
