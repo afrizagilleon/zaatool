@@ -9,7 +9,7 @@
  */
 import assert from "node:assert/strict";
 import { buildNotebookMap, renderNotebookMap } from "../src/core/notebook-map.js";
-import type { NotebookJson } from "@zaa-tool/shared";
+import { connectedNotebooks, mapRoles, type NotebookJson } from "@zaa-tool/shared";
 
 let passed = 0;
 let failed = 0;
@@ -223,6 +223,77 @@ check("the written map names who calls whom, in both directions", () => {
 
 check("an empty workspace says so instead of rendering nothing", () => {
   assert.match(renderNotebookMap(buildNotebookMap([])), /No notebooks yet/);
+});
+
+console.log("\nhow a notebook is reached");
+
+/**
+ * A schedule, something that schedule calls, and something nobody reaches. The three
+ * cases the whole grouping exists to tell apart.
+ */
+const threeWays = () =>
+  buildNotebookMap([
+    doc({
+      id: "a",
+      name: "nightly",
+      triggers: [{ id: "t1", kind: "cron", cron: "0 3 * * *" }],
+      steps: [cell("c1", "await notebooks.run('adder');")],
+    }),
+    doc({ id: "b", name: "adder", outputs: ["sum"] }),
+    doc({ id: "c", name: "scratch" }),
+  ]);
+
+check("a trigger, a caller and neither are told apart", () => {
+  const roles = mapRoles(threeWays());
+  assert.equal(roles.get("a"), "entry");
+  assert.equal(roles.get("b"), "reused");
+  assert.equal(roles.get("c"), "idle");
+});
+
+check("a disabled trigger is a paused entry point, not a loose notebook", () => {
+  // Moving it to "Neither" would hide the exact thing you opened the map to check.
+  const map = buildNotebookMap([
+    doc({
+      id: "a",
+      name: "paused",
+      triggers: [{ id: "t1", kind: "cron", cron: "0 3 * * *", enabled: false }],
+    }),
+  ]);
+  assert.equal(mapRoles(map).get("a"), "entry");
+});
+
+check("calling itself does not make a notebook called by others", () => {
+  const map = buildNotebookMap([
+    doc({ id: "a", name: "loop", steps: [cell("c1", "await notebooks.run('loop');")] }),
+  ]);
+  assert.equal(mapRoles(map).get("a"), "idle");
+});
+
+check("standing alone is not the same question as having no role", () => {
+  // `scratch` calls something, so it is joined to the graph, and it is still reached by
+  // nothing. Drawing it among the arrows says something; putting it under "Called by
+  // others" would be a lie.
+  const map = buildNotebookMap([
+    doc({ id: "c", name: "scratch", steps: [cell("c1", "await notebooks.run('adder');")] }),
+    doc({ id: "b", name: "adder" }),
+    doc({ id: "d", name: "alone" }),
+  ]);
+  assert.equal(mapRoles(map).get("c"), "idle");
+  assert.deepEqual([...connectedNotebooks(map)].sort(), ["b", "c"]);
+});
+
+check("the written map is grouped by the same rule the canvas uses", () => {
+  // The rule was written here and only here, so `notebook_about` described a system in
+  // three parts while the map on screen drew one heap. One rule, two renderers.
+  const text = renderNotebookMap(threeWays(), { grouped: true });
+  const order = ["Starts on its own", "Called by others", "Neither"].map((title) =>
+    text.indexOf(title)
+  );
+  assert.ok(
+    order.every((at) => at >= 0),
+    `expected all three sections, got:\n${text}`
+  );
+  assert.deepEqual(order, [...order].sort((a, b) => a - b), "sections out of reading order");
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

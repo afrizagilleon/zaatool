@@ -62,13 +62,18 @@ export class NotebooksService {
   }
 
   /** Every document at once, for anything that has to look at the whole workspace. */
-  async getAllDocuments(): Promise<{ document: NotebookJson; updatedAt: string }[]> {
+  async getAllDocuments(): Promise<
+    { document: NotebookJson; updatedAt: string; deployed: boolean }[]
+  > {
     const { rows } = await pool.query(
       "SELECT * FROM notebooks ORDER BY updated_at DESC"
     );
-    return (rows as NotebookRecord[]).map((row) => ({
+    return (rows as (NotebookRecord & { deployed_version_id: string | null })[]).map((row) => ({
       document: this.parseDocument(row),
       updatedAt: new Date(row.updated_at).toISOString(),
+      // The map draws it, so it has to travel with the document rather than be a second
+      // query the map's caller is expected to remember.
+      deployed: row.deployed_version_id !== null,
     }));
   }
 

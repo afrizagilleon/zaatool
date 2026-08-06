@@ -7,6 +7,7 @@ import type {
   NotebookParam,
   NotebookStep,
 } from "@zaa-tool/shared";
+import { MAP_ROLE_LABELS, MAP_ROLE_NOTES, MAP_ROLE_ORDER, mapRoles } from "@zaa-tool/shared";
 import { outputNames } from "./notebook-outputs.js";
 
 /**
@@ -75,7 +76,7 @@ function resolveTarget(
 }
 
 export function buildNotebookMap(
-  documents: { document: NotebookJson; updatedAt: string }[]
+  documents: { document: NotebookJson; updatedAt: string; deployed?: boolean }[]
 ): NotebookMap {
   const byId = new Map<string, NotebookJson>();
   const byName = new Map<string, NotebookJson[]>();
@@ -90,7 +91,7 @@ export function buildNotebookMap(
   const triggers: NotebookMapTrigger[] = [];
   const calls: NotebookMapCall[] = [];
 
-  for (const { document, updatedAt } of documents) {
+  for (const { document, updatedAt, deployed } of documents) {
     const cells: CellSource[] = [];
     const counts = { parallel: 0 };
     collectCells(document.steps, cells, counts);
@@ -105,6 +106,7 @@ export function buildNotebookMap(
       packages: [...(document.packages ?? [])],
       cellCount: cells.length,
       parallelCount: counts.parallel,
+      deployed: deployed ?? false,
       updatedAt,
     });
 
@@ -241,25 +243,20 @@ export function renderNotebookMap(map: NotebookMap, options: MapRenderOptions = 
    * look for before writing anything, and in a flat list it sits between two schedules
    * looking exactly like them. Sorting by how a notebook is reached is the difference
    * between a list of files and a description of a system.
+   *
+   * The rule itself is in `shared` now. It was written here and only here, so the agent
+   * read a system in three parts while the map on screen drew one heap — the same rule
+   * with one of its two renderers missing.
    */
-  const entryPoints = shown.filter((notebook) => triggersFor(notebook.id).length > 0);
-  const reused = shown.filter(
-    (notebook) => triggersFor(notebook.id).length === 0 && callersOf(notebook.id).length > 0
-  );
-  const idle = shown.filter(
-    (notebook) => triggersFor(notebook.id).length === 0 && callersOf(notebook.id).length === 0
-  );
+  const roles = mapRoles(map);
 
-  const section = (title: string, group: typeof shown, note: string): void => {
-    if (group.length === 0) return;
+  for (const role of MAP_ROLE_ORDER) {
+    const group = shown.filter((notebook) => roles.get(notebook.id) === role);
+    if (group.length === 0) continue;
     if (lines.length > 0) lines.push("");
-    lines.push(`## ${title} — ${note}`);
+    lines.push(`## ${MAP_ROLE_LABELS[role]} — ${MAP_ROLE_NOTES[role]}`);
     for (const notebook of group) describe(notebook);
-  };
-
-  section("Starts on its own", entryPoints, "a schedule or a webhook sets these off");
-  section("Called by others", reused, "these exist to be reused — check here before writing");
-  section("Neither", idle, "run by hand, or not finished");
+  }
 
   return lines.join("\n");
 }

@@ -25,6 +25,14 @@ export interface NotebookMapNotebook {
   cellCount: number;
   /** Parallel groups, which is what makes a notebook worth drawing rather than listing. */
   parallelCount: number;
+  /**
+   * Whether production is running a version of this.
+   *
+   * On the map because it changes what an arrow *means*: a call into an undeployed
+   * notebook still runs — a call reads the draft — but a trigger on one does nothing, and
+   * a box that cannot say which it is leaves you to open it and find out.
+   */
+  deployed: boolean;
   updatedAt: string;
 }
 
