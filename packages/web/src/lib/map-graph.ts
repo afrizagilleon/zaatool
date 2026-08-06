@@ -1,5 +1,5 @@
 import dagre from 'dagre';
-import type { Edge, Node } from '@xyflow/react';
+import { MarkerType, type Edge, type Node } from '@xyflow/react';
 import { layoutSystem, type SystemLayout } from './map-layout';
 import type {
   NotebookJson,
@@ -31,15 +31,35 @@ export interface TriggerNodeData extends Record<string, unknown> {
   dimmed?: boolean;
 }
 
-/**
- * A call whose target could not be resolved.
- *
- * Drawn rather than dropped: an arrow into a box marked "no such notebook" is the
- * whole point of a map that reads the code instead of trusting a drawing.
- */
-export interface UnresolvedNodeData extends Record<string, unknown> {
+/** One thing a notebook calls, as it appears on that notebook's `calls:` chip. */
+export interface CallTarget {
   label: string;
-  reason: 'missing' | 'ambiguous' | 'computed';
+  /** Set when the call resolves, so the line can be clicked to travel there. */
+  notebookId?: string;
+  /**
+   * Why it does not resolve, when it does not.
+   *
+   * Kept rather than dropped: "no such notebook" is the whole point of a map that reads
+   * the code instead of trusting a drawing, and it stays visible — it just stopped being
+   * a box of its own on the far side of a long arrow.
+   */
+  problem?: 'missing' | 'ambiguous' | 'computed';
+}
+
+/**
+ * Everything one notebook calls, gathered into a chip that sits under it.
+ *
+ * These used to be edges: one line per call, notebook to notebook, across the whole map.
+ * With nine notebooks calling four shared ones that is thirteen long curves crossing every
+ * band — a spider's web, and the honest word for it is unreadable. Worse, it scales the
+ * wrong way: the more a system reuses, the less its map can be read.
+ *
+ * A list attached to its caller says the same thing in one place. It reads in the
+ * direction the eye is already going, it grows downwards instead of outwards, and the
+ * names stay clickable, so travelling still works.
+ */
+export interface CallsNodeData extends Record<string, unknown> {
+  targets: CallTarget[];
   dimmed?: boolean;
 }
 
@@ -69,20 +89,36 @@ export interface CallOutNodeData extends Record<string, unknown> {
 export const SIZES = {
   notebook: { width: 190, height: 46 },
   trigger: { width: 170, height: 44 },
-  unresolved: { width: 170, height: 44 },
   cell: { width: 240, height: 76 },
   callOut: { width: 180, height: 46 },
 };
 
-function sizeFor(type: string | undefined): { width: number; height: number } {
-  if (type === 'mapTrigger') return SIZES.trigger;
-  if (type === 'mapUnresolved') return SIZES.unresolved;
-  if (type === 'mapCell') return SIZES.cell;
-  if (type === 'mapCallOut') return SIZES.callOut;
+/** The `calls:` chip grows with what it lists, so its height is computed, not fixed. */
+export const CALLS_CHIP = { width: 168, headerHeight: 15, lineHeight: 13, padding: 6 };
+
+export function callsChipSize(targets: number): { width: number; height: number } {
+  return {
+    width: CALLS_CHIP.width,
+    height: CALLS_CHIP.headerHeight + targets * CALLS_CHIP.lineHeight + CALLS_CHIP.padding,
+  };
+}
+
+export function sizeFor(node: Node): { width: number; height: number } {
+  if (node.type === 'mapTrigger') return SIZES.trigger;
+  if (node.type === 'mapCell') return SIZES.cell;
+  if (node.type === 'mapCallOut') return SIZES.callOut;
+  if (node.type === 'mapCalls') {
+    return callsChipSize((node.data as CallsNodeData).targets.length);
+  }
   return SIZES.notebook;
 }
 
 // ── system level ──────────────────────────────────────────────────────────────
+
+/** The name a call should read as. Falls back to the reference the code actually wrote. */
+function nameOf(map: NotebookMap, notebookId: string): string | undefined {
+  return map.notebooks.find((notebook) => notebook.id === notebookId)?.name;
+}
 
 /**
  * What is on the system map. Where it goes is `map-layout.ts`.
@@ -109,6 +145,10 @@ export function buildMapGraph(
       source: `trigger-${trigger.id}`,
       target: `notebook-${trigger.notebookId}`,
       className: trigger.enabled ? 'map-edge-trigger' : 'map-edge-disabled',
+      // Moving, and only when the trigger is live. An arrowhead says which way; the flow
+      // says this is a thing that happens on its own, which is the fact a schedule is.
+      animated: trigger.enabled,
+      markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14 },
     });
   }
 
@@ -121,41 +161,42 @@ export function buildMapGraph(
     });
   }
 
-  map.calls.forEach((call, index) => {
-    const source = `notebook-${call.fromNotebookId}`;
+  /**
+   * One chip per caller, not one edge per call.
+   *
+   * Gathered by source so a notebook that calls four things is four lines in one box
+   * rather than four lines across the map. Duplicates collapse: a cell calling the same
+   * notebook in a loop is still one dependency.
+   */
+  const byCaller = new Map<string, CallTarget[]>();
+  for (const call of map.calls) {
+    const targets = byCaller.get(call.fromNotebookId) ?? [];
+    const label =
+      (call.toNotebookId && nameOf(map, call.toNotebookId)) || call.reference || 'unnamed';
+    const problem: CallTarget['problem'] = call.resolved
+      ? undefined
+      : call.dynamic
+        ? 'computed'
+        : call.ambiguous
+          ? 'ambiguous'
+          : 'missing';
 
-    if (call.resolved && call.toNotebookId) {
-      edges.push({
-        id: `call-${index}`,
-        source,
-        target: `notebook-${call.toNotebookId}`,
-        label: 'calls',
-        className: 'map-edge-call',
-      });
-      return;
-    }
+    if (targets.some((target) => target.label === label && target.problem === problem)) continue;
+    targets.push({ label, notebookId: call.toNotebookId ?? undefined, problem });
+    byCaller.set(call.fromNotebookId, targets);
+  }
 
-    const reason: UnresolvedNodeData['reason'] = call.dynamic
-      ? 'computed'
-      : call.ambiguous
-        ? 'ambiguous'
-        : 'missing';
-    const id = `unresolved-${index}`;
-
+  for (const [callerId, targets] of byCaller) {
     nodes.push({
-      id,
-      type: 'mapUnresolved',
+      id: `calls-${callerId}`,
+      type: 'mapCalls',
       position: { x: 0, y: 0 },
-      data: { label: call.reference, reason } satisfies UnresolvedNodeData,
+      // Not selectable and not clickable as a whole: the clickable things are the names
+      // inside it, and a chip that swallowed the click would stop them working.
+      selectable: false,
+      data: { targets } satisfies CallsNodeData,
     });
-    edges.push({
-      id: `call-${index}`,
-      source,
-      target: id,
-      label: 'calls',
-      className: 'map-edge-unresolved',
-    });
-  });
+  }
 
   return layoutSystem(map, nodes, edges, options);
 }
@@ -209,6 +250,10 @@ export function buildNotebookGraph(
         target: to,
         label: laneLabel,
         className: 'map-edge-call',
+        // A notebook is a sequence, and the drawing should say so without being read.
+        // Which cell follows which was previously only inferable from the numbers.
+        animated: true,
+        markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14 },
       });
     }
   };
@@ -268,6 +313,7 @@ export function buildNotebookGraph(
           target: outId,
           label: 'calls',
           className: call.resolved ? 'map-edge-call' : 'map-edge-unresolved',
+          markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14 },
         });
       }
     }
@@ -283,12 +329,15 @@ export function buildNotebookGraph(
 
 function layout(nodes: Node[], edges: Edge[], rankdir: 'LR' | 'TB'): Node[] {
   const graph = new dagre.graphlib.Graph();
-  graph.setGraph({ rankdir, nodesep: 36, ranksep: 90 });
+  // 90px of air between one cell and the next put a five-cell notebook past the bottom of
+  // the screen for no reason: vertically the gap is pure scrolling, and the arrow does not
+  // read any better for being long.
+  graph.setGraph({ rankdir, nodesep: 36, ranksep: rankdir === 'TB' ? 44 : 90 });
   graph.setDefaultEdgeLabel(() => ({}));
 
   // A fresh object per node: dagre writes the computed position into whatever it is
   // handed, so sharing one would place every node of that kind on top of the others.
-  for (const node of nodes) graph.setNode(node.id, { ...sizeFor(node.type) });
+  for (const node of nodes) graph.setNode(node.id, { ...sizeFor(node) });
   for (const edge of edges) graph.setEdge(edge.source, edge.target);
 
   dagre.layout(graph);
@@ -300,7 +349,7 @@ function layout(nodes: Node[], edges: Edge[], rankdir: 'LR' | 'TB'): Node[] {
       position: { x: placed.x - placed.width / 2, y: placed.y - placed.height / 2 },
       // Declared rather than measured, for the same reason as the system level: nothing
       // that reads a node's size can find one xyflow measured into a copy we replace.
-      ...sizeFor(node.type),
+      ...sizeFor(node),
     };
   });
 }

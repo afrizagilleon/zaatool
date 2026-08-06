@@ -7,7 +7,7 @@ import {
   type MapRole,
   type NotebookMap,
 } from '@zaa-tool/shared';
-import { SIZES } from './map-graph';
+import { SIZES, sizeFor } from './map-graph';
 
 /**
  * Where the boxes go, and nothing else.
@@ -64,36 +64,38 @@ export interface SystemLayout {
   bands: MapBand[];
 }
 
-/**
- * Written onto every placed node, not only handed to dagre.
- *
- * xyflow measures nodes and stores the result in its own copy; this map hands it fresh
- * node objects on every render, so that measurement never survives — and anything reading
- * dimensions from the nodes, the minimap included, saw none and drew nothing. A minimap
- * of an empty workspace, on a workspace with thirty-three notebooks.
- *
- * Declaring the size is better than persisting the measurement anyway: dagre has already
- * assumed these exact numbers, so saying them out loud makes the assumption true instead
- * of hoping the CSS agrees.
- */
-function sizeFor(type: string | undefined): { width: number; height: number } {
-  if (type === 'mapTrigger') return SIZES.trigger;
-  if (type === 'mapUnresolved') return SIZES.unresolved;
-  return SIZES.notebook;
-}
+/** How far a `calls:` chip sits below and to the right of the notebook that owns it. */
+const CHIP_OFFSET = { x: 26, y: 6 };
 
-/** Runs dagre over one band and returns the placed nodes plus the height they occupy. */
-function placeBand(nodes: Node[], edges: Edge[]): { nodes: Node[]; height: number } {
+/**
+ * Runs dagre over one band and returns the placed nodes plus the height they occupy.
+ *
+ * `chips` are not laid out by dagre at all. A chip belongs to exactly one notebook and
+ * has to stay glued underneath it, which is not something a graph engine can be asked
+ * for — so its owner is declared taller by the height of the chip, dagre keeps that space
+ * clear, and the chip is dropped into it afterwards.
+ */
+function placeBand(
+  nodes: Node[],
+  edges: Edge[],
+  chips: Map<string, Node>
+): { nodes: Node[]; height: number } {
   if (nodes.length === 0) return { nodes: [], height: 0 };
 
   const graph = new dagre.graphlib.Graph();
   graph.setGraph({ rankdir: 'LR', nodesep: 24, ranksep: 70, marginx: 0, marginy: 0 });
   graph.setDefaultEdgeLabel(() => ({}));
 
+  const reservedFor = (node: Node) => {
+    const size = sizeFor(node);
+    const chip = chips.get(node.id);
+    return chip ? { ...size, height: size.height + CHIP_OFFSET.y + sizeFor(chip).height } : size;
+  };
+
   const present = new Set(nodes.map((node) => node.id));
   // A fresh object per node: dagre writes the computed position into whatever it is
   // handed, so sharing one would place every node of that kind on top of the others.
-  for (const node of nodes) graph.setNode(node.id, { ...sizeFor(node.type) });
+  for (const node of nodes) graph.setNode(node.id, { ...reservedFor(node) });
   for (const edge of edges) {
     if (present.has(edge.source) && present.has(edge.target)) {
       graph.setEdge(edge.source, edge.target);
@@ -103,12 +105,25 @@ function placeBand(nodes: Node[], edges: Edge[]): { nodes: Node[]; height: numbe
   dagre.layout(graph);
 
   let lowest = 0;
-  const placed = nodes.map((node) => {
+  const placed: Node[] = [];
+
+  for (const node of nodes) {
     const at = graph.node(node.id);
+    const size = sizeFor(node);
+    const x = at.x - at.width / 2;
     const y = at.y - at.height / 2;
     lowest = Math.max(lowest, y + at.height);
-    return { ...node, position: { x: at.x - at.width / 2, y }, ...sizeFor(node.type) };
-  });
+    placed.push({ ...node, position: { x, y }, ...size });
+
+    const chip = chips.get(node.id);
+    if (chip) {
+      placed.push({
+        ...chip,
+        position: { x: x + CHIP_OFFSET.x, y: y + size.height + CHIP_OFFSET.y },
+        ...sizeFor(chip),
+      });
+    }
+  }
 
   return { nodes: placed, height: lowest };
 }
@@ -148,7 +163,22 @@ export function layoutSystem(
   const notebookIdOf = (node: Node) =>
     node.type === 'mapNotebook' ? node.id.slice('notebook-'.length) : null;
 
-  const alone = nodes.filter((node) => {
+  /**
+   * Chips, pulled out and keyed by the notebook they belong under.
+   *
+   * They are passengers, not participants: they never enter a band on their own, they
+   * never count towards anything, and they go wherever their owner went — including
+   * nowhere, when the owner is one of the unconnected ones being hidden.
+   */
+  const chips = new Map<string, Node>();
+  for (const node of nodes) {
+    if (node.type === 'mapCalls') {
+      chips.set(`notebook-${node.id.slice('calls-'.length)}`, node);
+    }
+  }
+  const carried = nodes.filter((node) => node.type !== 'mapCalls');
+
+  const alone = carried.filter((node) => {
     const id = notebookIdOf(node);
     return id !== null && !joined.has(id);
   });
@@ -162,15 +192,14 @@ export function layoutSystem(
    * for the filter, and the test could not be made to fail: there is no input that
    * reaches it. A guard against an impossible state is a guard nobody can check.
    */
-  const kept = showStandalone ? nodes : nodes.filter((node) => !standing.has(node.id));
+  const kept = showStandalone ? carried : carried.filter((node) => !standing.has(node.id));
 
   /**
    * Which band a node belongs to.
    *
-   * A trigger sits with the notebook it fires, and an unresolved call sits with the
-   * notebook that makes it — both are attributes of that notebook rather than things in
-   * their own right, and putting them in a band of their own would separate an arrow
-   * from both of its ends.
+   * A trigger sits with the notebook it fires — it is an attribute of that notebook
+   * rather than a thing in its own right, and a band of its own would put the two ends of
+   * one arrow in different regions.
    */
   const bandOf = (node: Node): MapRole => {
     const own = notebookIdOf(node);
@@ -181,9 +210,7 @@ export function layoutSystem(
       return trigger ? (roles.get(trigger.notebookId) ?? 'entry') : 'entry';
     }
 
-    const from = edges.find((edge) => edge.target === node.id)?.source;
-    const owner = from?.startsWith('notebook-') ? from.slice('notebook-'.length) : undefined;
-    return owner ? (roles.get(owner) ?? 'idle') : 'idle';
+    return 'idle';
   };
 
   const placedNodes: Node[] = [];
@@ -196,7 +223,7 @@ export function layoutSystem(
     const inBand = kept.filter((node) => !standing.has(node.id) && bandOf(node) === role);
     if (inBand.length === 0) continue;
 
-    const { nodes: placed, height } = placeBand(inBand, edges);
+    const { nodes: placed, height } = placeBand(inBand, edges, chips);
     for (const node of placed) {
       placedNodes.push({ ...node, position: { x: node.position.x, y: node.position.y + top } });
     }

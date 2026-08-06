@@ -13,10 +13,10 @@ import {
 import { cn } from '../../lib/utils';
 import type {
   CallOutNodeData,
+  CallsNodeData,
   CellNodeData,
   NotebookNodeData,
   TriggerNodeData,
-  UnresolvedNodeData,
 } from '../../lib/map-graph';
 
 /**
@@ -210,36 +210,58 @@ export function MapCallOutNode({ data }: NodeProps<Node<CallOutNodeData, 'mapCal
   );
 }
 
-const UNRESOLVED_COPY = {
+const PROBLEM_COPY = {
   missing: { icon: Warning, text: 'no such notebook' },
   ambiguous: { icon: Warning, text: 'more than one notebook has this name' },
   computed: { icon: Question, text: 'target decided at run time' },
 } as const;
 
-export function MapUnresolvedNode({ data }: NodeProps<Node<UnresolvedNodeData, 'mapUnresolved'>>) {
-  const { icon: Icon, text } = UNRESOLVED_COPY[data.reason];
-  const isBroken = data.reason !== 'computed';
-
+/**
+ * Everything one notebook calls, listed under it.
+ *
+ * This replaces an edge per call. With nine notebooks calling four shared ones, that was
+ * thirteen long curves crossing every band of the map — and it got worse the more the
+ * system reused, which is exactly backwards: reuse is the thing a map should reward.
+ *
+ * A list reads in the direction the eye is already travelling and grows downwards rather
+ * than outwards. The names stay clickable, so the map is still a way to get somewhere.
+ * Calls that resolve to nothing stay in the list rather than becoming a box of their own:
+ * a broken call is a fact about *this* notebook, and that is where it belongs.
+ */
+export function MapCallsNode({ data }: NodeProps<Node<CallsNodeData, 'mapCalls'>>) {
   return (
     <div
       className={cn(
-        'w-[170px] h-[44px] border border-dashed px-2.5 bg-background flex flex-col justify-center',
+        'w-[168px] border border-dashed border-border/70 bg-background/80 px-1.5 pb-1.5 pt-0.5',
         'transition-opacity',
-        isBroken ? 'border-status-error/60' : 'border-border',
         data.dimmed && 'opacity-25'
       )}
-      title={`${data.label} — ${text}`}
     >
-      <Handle type="target" position={Position.Left} className="!bg-muted-foreground !w-2 !h-2" />
-      <div className="flex items-center gap-1.5">
-        <Icon
-          size={11}
-          weight="duotone"
-          className={cn('shrink-0', isBroken ? 'text-status-error' : 'text-muted-foreground')}
-        />
-        <span className="font-mono text-[10px] truncate">{data.label}</span>
-      </div>
-      <div className="text-[8px] text-muted-foreground/70 truncate">{text}</div>
+      <div className="text-[8px] uppercase tracking-widest text-muted-foreground/60">calls</div>
+      <ul>
+        {data.targets.map((target, index) => {
+          const problem = target.problem ? PROBLEM_COPY[target.problem] : null;
+          const Icon = problem?.icon;
+          return (
+            <li
+              key={`${target.label}-${index}`}
+              // `nodrag` so a click reaches the name instead of starting a pan, and the
+              // id is what `onNodeClick` reads to know where to travel.
+              data-call-target={target.notebookId ?? ''}
+              title={problem ? `${target.label} — ${problem.text}` : `Open ${target.label}`}
+              className={cn(
+                'nodrag flex h-[13px] items-center gap-1 font-mono text-[9px] leading-none',
+                target.notebookId
+                  ? 'cursor-pointer text-foreground/80 hover:text-primary hover:underline'
+                  : 'text-status-error'
+              )}
+            >
+              {Icon && <Icon size={9} weight="duotone" className="shrink-0" />}
+              <span className="truncate">{target.label}</span>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
