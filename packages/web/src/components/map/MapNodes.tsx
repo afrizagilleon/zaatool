@@ -7,6 +7,8 @@ import {
   Question,
   ArrowsSplit,
   ArrowSquareOut,
+  Key,
+  Package,
 } from '@phosphor-icons/react';
 import { cn } from '../../lib/utils';
 import type {
@@ -25,56 +27,91 @@ import type {
  * once drew and forgot to update.
  */
 
+/**
+ * One notebook, small enough that twenty-nine of them fit.
+ *
+ * It was 260×116 and carried the whole contract in monospace. At twenty-nine notebooks
+ * that is unreadable at every zoom that fits them on a screen — so the box is now 190×46
+ * and says only what you scan for: whether it is deployed, what it is called, and four
+ * marks. Everything else is in `title`, one hover away, which is the right place for the
+ * detail you want about *one* of them.
+ *
+ * The deploy square is first because it changes what the box means. A trigger on an
+ * undeployed notebook fires nothing, and until now the only way to know was to open it.
+ */
 export function MapNotebookNode({ data, selected }: NodeProps<Node<NotebookNodeData, 'mapNotebook'>>) {
-  const { notebook, status } = data;
+  const { notebook, status, dimmed } = data;
   const contract =
     notebook.inputs.length > 0 || notebook.outputs.length > 0
       ? `(${notebook.inputs.join(', ') || 'no inputs'}) → {${notebook.outputs.join(', ') || 'nothing'}}`
       : 'no contract';
 
+  const detail = [
+    notebook.name,
+    notebook.deployed ? 'deployed' : 'not deployed',
+    contract,
+    `${notebook.cellCount} cell${notebook.cellCount === 1 ? '' : 's'}`,
+    notebook.parallelCount > 0 ? `${notebook.parallelCount} parallel` : null,
+    notebook.secrets.length > 0 ? `secrets: ${notebook.secrets.join(', ')}` : null,
+    // On the map because changing it is a production change, and it was in the data all
+    // along without ever being drawn.
+    notebook.packages.length > 0 ? `packages: ${notebook.packages.join(', ')}` : null,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
   return (
     <div
+      title={detail}
       className={cn(
-        'w-[260px] border bg-node-bg shadow-sm transition-all cursor-pointer',
+        'w-[190px] h-[46px] border bg-node-bg shadow-sm transition-opacity cursor-pointer',
+        'flex flex-col justify-center px-2.5 py-1',
         selected ? 'border-primary shadow-md' : 'border-border hover:border-primary/50',
         status === 'running' && 'border-status-running',
-        status === 'error' && 'border-status-error'
+        status === 'error' && 'border-status-error',
+        // Dimmed rather than removed while something else is focused: a map that deletes
+        // its context to show you one thing has stopped being a map.
+        dimmed && 'opacity-25'
       )}
     >
       <Handle type="target" position={Position.Left} className="!bg-muted-foreground !w-2 !h-2" />
 
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border/60 bg-muted/20">
+      <div className="flex items-center gap-1.5">
+        {/* Filled when production runs a version of this; hollow when nothing does. */}
         <div
+          aria-label={notebook.deployed ? 'Deployed' : 'Not deployed'}
           className={cn(
-            'w-1.5 h-1.5 shrink-0',
-            status === 'running' && 'bg-status-running status-running-pulse',
-            status === 'done' && 'bg-status-done',
-            status === 'error' && 'bg-status-error',
-            !status && 'bg-status-idle'
+            'w-1.5 h-1.5 shrink-0 border',
+            status === 'running'
+              ? 'bg-status-running border-status-running status-running-pulse'
+              : status === 'error'
+                ? 'bg-status-error border-status-error'
+                : notebook.deployed
+                  ? 'bg-status-done border-status-done'
+                  : 'border-muted-foreground/50'
           )}
         />
-        <span className="text-xs font-bold truncate flex-1">{notebook.name}</span>
+        <span className="text-[11px] font-bold truncate flex-1">{notebook.name}</span>
         <span className="text-[9px] uppercase tracking-wider text-muted-foreground/70 shrink-0">
           {notebook.runtime === 'python' ? 'py' : 'js'}
         </span>
       </div>
 
-      <div className="px-3 py-2 space-y-1.5">
-        <div className="font-mono text-[10px] text-muted-foreground truncate" title={contract}>
-          {contract}
-        </div>
-        <div className="flex items-center gap-2 text-[10px] text-muted-foreground/70">
-          <span>
-            {notebook.cellCount} cell{notebook.cellCount === 1 ? '' : 's'}
+      <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground/70 mt-0.5">
+        <span>{notebook.cellCount}c</span>
+        {notebook.parallelCount > 0 && (
+          <ArrowsSplit size={9} weight="bold" className="text-primary/80" />
+        )}
+        {notebook.secrets.length > 0 && <Key size={9} weight="duotone" />}
+        {notebook.packages.length > 0 && (
+          <span className="flex items-center gap-0.5">
+            <Package size={9} weight="duotone" />
+            {notebook.packages.length}
           </span>
-          {notebook.parallelCount > 0 && (
-            <span className="flex items-center gap-1 text-primary/80">
-              <ArrowsSplit size={11} weight="bold" />
-              {notebook.parallelCount} parallel
-            </span>
-          )}
-          {notebook.secrets.length > 0 && <span>{notebook.secrets.length} secret</span>}
-        </div>
+        )}
+        {notebook.inputs.length + notebook.outputs.length === 0 && (
+          <span className="italic opacity-70">no contract</span>
+        )}
       </div>
 
       <Handle type="source" position={Position.Right} className="!bg-muted-foreground !w-2 !h-2" />
@@ -83,25 +120,28 @@ export function MapNotebookNode({ data, selected }: NodeProps<Node<NotebookNodeD
 }
 
 export function MapTriggerNode({ data }: NodeProps<Node<TriggerNodeData, 'mapTrigger'>>) {
-  const { trigger } = data;
+  const { trigger, dimmed } = data;
   const Icon = trigger.kind === 'cron' ? Clock : Globe;
 
   return (
     <div
+      title={`${trigger.kind} ${trigger.label}${trigger.enabled ? '' : ' — switched off'}`}
       className={cn(
-        'w-[210px] border bg-background px-3 py-2 flex items-center gap-2 shadow-sm',
-        trigger.enabled ? 'border-primary/40' : 'border-border border-dashed opacity-60'
+        'w-[170px] h-[44px] border bg-background px-2.5 flex items-center gap-1.5 shadow-sm',
+        'transition-opacity',
+        trigger.enabled ? 'border-primary/40' : 'border-border border-dashed opacity-60',
+        // Dims with the notebook it fires. A bright trigger wired to a faded box is an
+        // arrow whose two ends disagree about whether you are looking at them.
+        dimmed && 'opacity-25'
       )}
     >
-      <Icon size={14} weight="duotone" className="text-primary shrink-0" />
+      <Icon size={13} weight="duotone" className="text-primary shrink-0" />
       <div className="min-w-0 flex-1">
-        <div className="text-[9px] uppercase tracking-widest text-muted-foreground/70">
+        <div className="text-[8px] uppercase tracking-widest text-muted-foreground/70">
           {trigger.kind}
           {!trigger.enabled && ' · off'}
         </div>
-        <div className="font-mono text-[11px] truncate" title={trigger.label}>
-          {trigger.label}
-        </div>
+        <div className="font-mono text-[10px] truncate">{trigger.label}</div>
       </div>
       <Handle type="source" position={Position.Right} className="!bg-primary !w-2 !h-2" />
     </div>
@@ -183,21 +223,23 @@ export function MapUnresolvedNode({ data }: NodeProps<Node<UnresolvedNodeData, '
   return (
     <div
       className={cn(
-        'w-[190px] border border-dashed px-3 py-2 bg-background',
-        isBroken ? 'border-status-error/60' : 'border-border'
+        'w-[170px] h-[44px] border border-dashed px-2.5 bg-background flex flex-col justify-center',
+        'transition-opacity',
+        isBroken ? 'border-status-error/60' : 'border-border',
+        data.dimmed && 'opacity-25'
       )}
-      title={text}
+      title={`${data.label} — ${text}`}
     >
       <Handle type="target" position={Position.Left} className="!bg-muted-foreground !w-2 !h-2" />
       <div className="flex items-center gap-1.5">
         <Icon
-          size={12}
+          size={11}
           weight="duotone"
           className={cn('shrink-0', isBroken ? 'text-status-error' : 'text-muted-foreground')}
         />
-        <span className="font-mono text-[11px] truncate">{data.label}</span>
+        <span className="font-mono text-[10px] truncate">{data.label}</span>
       </div>
-      <div className="text-[9px] text-muted-foreground/70 mt-0.5">{text}</div>
+      <div className="text-[8px] text-muted-foreground/70 truncate">{text}</div>
     </div>
   );
 }

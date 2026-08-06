@@ -3,8 +3,10 @@ import {
   Background,
   BackgroundVariant,
   Controls,
+  MiniMap,
   ReactFlow,
   ReactFlowProvider,
+  ViewportPortal,
   useReactFlow,
   type Node,
 } from '@xyflow/react';
@@ -27,6 +29,7 @@ import {
 } from '../../lib/map-graph';
 import { RunReplayPicker } from './RunReplayPicker';
 import { CellResultPanel } from './CellResultPanel';
+import { BandTitles, MapLegend, MapSearch, StandaloneToggle } from './MapControls';
 import {
   MapCallOutNode,
   MapCellNode,
@@ -71,6 +74,15 @@ function MapCanvas({ onOpenNotebook }: SystemMapProps) {
   const [inside, setInside] = useState<string | undefined>();
   const [document, setDocument] = useState<NotebookJson | null>(null);
   const [insideError, setInsideError] = useState<string | null>(null);
+  /** Typed at the system level: dims everything that is not a match or next to one. */
+  const [query, setQuery] = useState('');
+  /**
+   * Whether the notebooks joined to nothing are drawn.
+   *
+   * Off by default. Twenty-nine of thirty-three have no trigger, no caller and call
+   * nobody, and drawing them among the four that matter is what made the map 4531px tall.
+   */
+  const [showStandalone, setShowStandalone] = useState(false);
   /** A past run laid over the drawing; undefined means live. */
   const [replayRunId, setReplayRunId] = useState<string | undefined>();
   const [replay, setReplay] = useState<NotebookRunDetail | null>(null);
@@ -104,14 +116,49 @@ function MapCanvas({ onOpenNotebook }: SystemMapProps) {
 
   const graph = useMemo(() => {
     if (inside && document) {
-      return buildNotebookGraph(
-        document,
-        (map?.calls ?? []).filter((call) => call.fromNotebookId === inside),
-        nameOf
-      );
+      return {
+        ...buildNotebookGraph(
+          document,
+          (map?.calls ?? []).filter((call) => call.fromNotebookId === inside),
+          nameOf
+        ),
+        standaloneCount: 0,
+        bands: [],
+      };
     }
-    return map ? buildMapGraph(map) : { nodes: [], edges: [] };
-  }, [map, inside, document, nameOf]);
+    return map
+      ? buildMapGraph(map, { showStandalone })
+      : { nodes: [], edges: [], standaloneCount: 0, bands: [] };
+  }, [map, inside, document, nameOf, showStandalone]);
+
+  /**
+   * What a search lights up: the matches, and whatever they are joined to.
+   *
+   * The neighbours are the point. "Where is the notebook that touches Xendit" is rarely
+   * the whole question — the next one is always "and what sets it off", and a search that
+   * dims the trigger firing the thing you searched for has answered half of it.
+   *
+   * Null when nothing is typed, which is different from "nothing matched": one means draw
+   * everything normally, the other means draw everything dimmed, and a search with no
+   * hits should look like a search with no hits.
+   */
+  const lit = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (needle === '' || !map) return null;
+
+    const hits = new Set(
+      map.notebooks
+        .filter((notebook) => notebook.name.toLowerCase().includes(needle))
+        .map((notebook) => `notebook-${notebook.id}`)
+    );
+
+    const withNeighbours = new Set(hits);
+    for (const edge of graph.edges) {
+      if (hits.has(edge.source)) withNeighbours.add(edge.target);
+      if (hits.has(edge.target)) withNeighbours.add(edge.source);
+    }
+    return { hits, withNeighbours };
+  }, [query, map, graph.edges]);
 
   // While you are looking inside a notebook that happens to be running, follow that run
   // properly: the watch channel says only that it is busy, but it hands over the run id,
@@ -152,7 +199,10 @@ function MapCanvas({ onOpenNotebook }: SystemMapProps) {
         if (node.type === 'mapNotebook') {
           const data = node.data as NotebookNodeData;
           const status = activity[data.notebook.id]?.status;
-          return status === data.status ? node : { ...node, data: { ...data, status } };
+          const dimmed = lit ? !lit.withNeighbours.has(node.id) : false;
+          return status === data.status && dimmed === data.dimmed
+            ? node
+            : { ...node, data: { ...data, status, dimmed } };
         }
 
         if (node.type === 'mapCell') {
@@ -165,9 +215,15 @@ function MapCanvas({ onOpenNotebook }: SystemMapProps) {
             : { ...node, data: { ...data, status, ms } };
         }
 
-        return node;
+        // Triggers and unresolved calls dim with whatever they are attached to, so a
+        // search never leaves a bright arrow pointing at a faded box.
+        if (lit) {
+          const dimmed = !lit.withNeighbours.has(node.id);
+          return dimmed === node.data.dimmed ? node : { ...node, data: { ...node.data, dimmed } };
+        }
+        return node.data.dimmed ? { ...node, data: { ...node.data, dimmed: false } } : node;
       }),
-    [graph.nodes, activity, cellStatus, replay]
+    [graph.nodes, activity, cellStatus, replay, lit]
   );
 
   // Changing altitude replaces the whole layout, and the viewport has to follow or you
@@ -250,7 +306,10 @@ function MapCanvas({ onOpenNotebook }: SystemMapProps) {
     <div className="flex-1 flex flex-col min-w-0">
       {/* A bar rather than a floating overlay: at the system level the leftmost trigger
           sits at the edge of the fitted viewport, and anything floating covers it. */}
-      <div className="h-9 shrink-0 border-b border-border bg-muted/20 flex items-center gap-1.5 px-2">
+      {/* Wraps rather than overflowing. FX3 fixed exactly this in the editor and FX6
+          reintroduced it here: adding a search box and a toggle pushed "Hide the
+          unconnected" off the right edge of a 375px screen, unreachable. */}
+      <div className="min-h-9 shrink-0 border-b border-border bg-muted/20 flex flex-wrap items-center gap-1.5 px-2 py-1">
         <div className="flex items-center border border-border bg-background">
           <button
             type="button"
@@ -278,6 +337,19 @@ function MapCanvas({ onOpenNotebook }: SystemMapProps) {
           {isLoading ? 'Reading…' : live ? 'Refresh' : 'Not live — refresh'}
         </Button>
 
+        {/* Only at the system level. Inside a notebook there are six cells, and a search
+            box over six things is furniture. */}
+        {!inside && (
+          <>
+            <MapSearch query={query} onQueryChange={setQuery} matches={lit?.hits.size ?? 0} />
+            <StandaloneToggle
+              count={graph.standaloneCount}
+              showing={showStandalone}
+              onChange={setShowStandalone}
+            />
+          </>
+        )}
+
         {inside && (
           <RunReplayPicker
             notebookId={inside}
@@ -297,7 +369,9 @@ function MapCanvas({ onOpenNotebook }: SystemMapProps) {
           </Button>
         )}
 
-        <span className="ml-auto text-[10px] text-muted-foreground/70 truncate">
+        {/* The hint is the first thing to go when the row is tight: it explains what a
+            click does, and a click is discoverable without it. */}
+        <span className="ml-auto hidden truncate text-[10px] text-muted-foreground/70 lg:inline">
           {inside
             ? insideError
               ? `Could not read it: ${insideError}`
@@ -315,7 +389,11 @@ function MapCanvas({ onOpenNotebook }: SystemMapProps) {
             edges={graph.edges}
             nodeTypes={nodeTypes}
             fitView
-            fitViewOptions={{ padding: 0.15 }}
+            // Capped, because fitting twenty-nine notebooks without a limit zooms until
+            // every label is a grey smudge — a view that technically shows everything and
+            // lets you read none of it.
+            fitViewOptions={{ padding: 0.15, maxZoom: 1 }}
+            minZoom={0.2}
             nodesDraggable={false}
             nodesConnectable={false}
             proOptions={{ hideAttribution: true }}
@@ -324,7 +402,45 @@ function MapCanvas({ onOpenNotebook }: SystemMapProps) {
           >
             <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
             <Controls showInteractive={false} />
+
+            {/* Inside the viewport rather than over it, so the titles pan and zoom with
+                the boxes they name. Fixed to the frame they would start lying the moment
+                you scrolled. */}
+            {!inside && (
+              <ViewportPortal>
+                <BandTitles bands={graph.bands} />
+              </ViewportPortal>
+            )}
+
+            {/* Top right. Bottom left put it on top of the last band — a minimap that
+                covers the thing it is a map of. */}
+            {!inside && (
+              <MiniMap
+                pannable
+                zoomable
+                // Left at its own size. Forcing the container smaller than the SVG it
+                // draws showed the empty top-left corner of a bigger picture — which
+                // looks exactly like a minimap of an empty workspace, and I nearly
+                // shipped it as one.
+                nodeStrokeWidth={2}
+                // Given explicitly: the boxes are styled by class, and a minimap reading
+                // computed background off a bordered div drew thirty white rectangles on
+                // white — a minimap of nothing.
+                nodeColor={(node) =>
+                  node.type === 'mapTrigger'
+                    ? 'var(--color-primary)'
+                    : node.type === 'mapUnresolved'
+                      ? 'var(--color-status-error)'
+                      : 'var(--color-muted-foreground)'
+                }
+                // Hidden on a phone: 200×150 of overview on a 375px screen costs more
+                // room than the overview is worth.
+                className="!right-3 !top-3 !bottom-auto !left-auto !m-0 hidden !border !border-border !bg-background/90 sm:!block"
+              />
+            )}
           </ReactFlow>
+
+          {!inside && <MapLegend />}
         </div>
 
         {openCellId && (
