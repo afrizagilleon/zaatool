@@ -47,7 +47,11 @@ function App() {
       {/* Main content area */}
       <main className="flex-1 flex overflow-hidden relative">
         {activeTab === 'apps' && <AppsPage />}
-        {activeTab === 'map' && <SystemMap onOpenNotebook={openNotebook} />}
+        {/* `#/map/<id>` opens the map already inside that notebook. Keyed on the id so
+            arriving from the editor re-enters even when the map was already mounted. */}
+        {activeTab === 'map' && (
+          <SystemMap key={notebookId ?? 'system'} openInside={notebookId} onOpenNotebook={openNotebook} />
+        )}
         {/* A typed `#/notebooks` from a viewer lands on Apps rather than on an editor whose
             every save comes back 403. The navbar already hides these; this is the URL. */}
         {activeTab === 'notebooks' &&

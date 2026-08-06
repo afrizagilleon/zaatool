@@ -14,7 +14,11 @@ export type LocationTab = 'apps' | 'map' | 'notebooks' | 'resources' | 'gallery'
 
 export interface AppLocation {
   tab: LocationTab;
-  /** Only meaningful on the notebooks tab: the notebook being edited. */
+  /**
+   * On `notebooks`, the notebook being edited. On `map`, the notebook being looked
+   * inside — the map's second altitude, which until now could only be reached by finding
+   * the box and clicking it, and could not be linked to at all.
+   */
   notebookId?: string;
 }
 
@@ -50,13 +54,15 @@ export function parseLocation(hash: string): AppLocation {
 
   if (tab && RETIRED[tab]) return { tab: RETIRED[tab] };
   if (!TABS.includes(tab as LocationTab)) return DEFAULT_LOCATION;
-  if (tab === 'notebooks' && detail) return { tab: 'notebooks', notebookId: detail };
+  if ((tab === 'notebooks' || tab === 'map') && detail) {
+    return { tab: tab as LocationTab, notebookId: detail };
+  }
   return { tab: tab as LocationTab };
 }
 
 export function formatLocation(location: AppLocation): string {
-  return location.tab === 'notebooks' && location.notebookId
-    ? `#/notebooks/${location.notebookId}`
+  return (location.tab === 'notebooks' || location.tab === 'map') && location.notebookId
+    ? `#/${location.tab}/${location.notebookId}`
     : `#/${location.tab}`;
 }
 

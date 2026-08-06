@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Background,
   BackgroundVariant,
@@ -30,13 +30,7 @@ import {
 import { RunReplayPicker } from './RunReplayPicker';
 import { CellResultPanel } from './CellResultPanel';
 import { BandTitles, MapLegend, MapSearch, StandaloneToggle } from './MapControls';
-import {
-  MapCallOutNode,
-  MapCellNode,
-  MapNotebookNode,
-  MapTriggerNode,
-  MapUnresolvedNode,
-} from './MapNodes';
+import { MapCallOutNode, MapCallsNode, MapCellNode, MapNotebookNode, MapTriggerNode } from './MapNodes';
 
 /**
  * The system, as the notebooks describe it.
@@ -56,22 +50,30 @@ import {
 const nodeTypes = {
   mapNotebook: MapNotebookNode,
   mapTrigger: MapTriggerNode,
-  mapUnresolved: MapUnresolvedNode,
+  mapCalls: MapCallsNode,
   mapCell: MapCellNode,
   mapCallOut: MapCallOutNode,
 };
 
+/** Inside a notebook: readable, and starting where the notebook starts. */
+const INSIDE_ZOOM = 1;
+const TOP_MARGIN = 24;
+
 interface SystemMapProps {
   onOpenNotebook: (id: string) => void;
+  /** Start inside this notebook, from `#/map/<id>` or the editor's Map button. */
+  openInside?: string;
 }
 
-function MapCanvas({ onOpenNotebook }: SystemMapProps) {
+function MapCanvas({ onOpenNotebook, openInside }: SystemMapProps) {
   const { map, isLoading, error, refresh, live } = useNotebookMap();
   const activity = useRunActivity(true);
-  const { fitView } = useReactFlow();
+  const { fitView, setViewport } = useReactFlow();
+  /** Measured to centre the notebook view across; xyflow's own fit does not do top-aligned. */
+  const pane = useRef<HTMLDivElement>(null);
 
   /** Which notebook is being looked inside; undefined means the system level. */
-  const [inside, setInside] = useState<string | undefined>();
+  const [inside, setInside] = useState<string | undefined>(openInside);
   const [document, setDocument] = useState<NotebookJson | null>(null);
   const [insideError, setInsideError] = useState<string | null>(null);
   /** Typed at the system level: dims everything that is not a match or next to one. */
@@ -226,29 +228,71 @@ function MapCanvas({ onOpenNotebook }: SystemMapProps) {
     [graph.nodes, activity, cellStatus, replay, lit]
   );
 
-  // Changing altitude replaces the whole layout, and the viewport has to follow or you
-  // are left looking at empty space where the last one was. The first fit is the
-  // `fitView` prop below; this handles every one after it, two frames later so the new
-  // nodes have been laid out and measured.
+  /**
+   * Where to be looking after the drawing changes.
+   *
+   * The two altitudes want opposite things. A system is a shape, so fitting it is right.
+   * A notebook is a *sequence*: it starts at cell one and runs downwards, and fitting it
+   * centres a long one — which meant opening a twenty-cell notebook put you in the middle
+   * of it, zoomed too far out to read, having to scroll up to find the beginning.
+   *
+   * So inside a notebook: the top, at a zoom you can read, and let it run off the bottom.
+   * That is what a sequence is supposed to do.
+   */
   useEffect(() => {
     if (graph.nodes.length === 0) return;
     let cancelled = false;
 
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
-        if (!cancelled) void fitView({ padding: 0.15, duration: 200 });
+        if (cancelled) return;
+        if (!inside) {
+          void fitView({ padding: 0.15, maxZoom: 1, duration: 200 });
+          return;
+        }
+
+        const left = Math.min(...graph.nodes.map((node) => node.position.x));
+        const right = Math.max(...graph.nodes.map((node) => node.position.x + (node.width ?? 0)));
+        const top = Math.min(...graph.nodes.map((node) => node.position.y));
+        const paneWidth = pane.current?.getBoundingClientRect().width ?? 0;
+
+        /**
+         * Wide enough to fit across, never zoomed *in* past readable.
+         *
+         * Only the width is fitted. Height is what a sequence spends, and forcing a long
+         * notebook to fit vertically is exactly the shrink-to-nothing this replaced.
+         */
+        const zoom = Math.min(
+          INSIDE_ZOOM,
+          paneWidth > 0 ? (paneWidth - TOP_MARGIN * 2) / Math.max(right - left, 1) : INSIDE_ZOOM
+        );
+
+        // Centred across, pinned to the top.
+        setViewport(
+          { x: paneWidth / 2 - ((left + right) / 2) * zoom, y: TOP_MARGIN - top * zoom, zoom },
+          { duration: 200 }
+        );
       })
     );
 
     return () => {
       cancelled = true;
     };
-  }, [graph.nodes, fitView]);
+  }, [graph.nodes, inside, fitView, setViewport]);
 
   const insideName = inside ? nameOf(inside) : undefined;
 
   const onNodeClick = useCallback(
-    (_event: React.MouseEvent, node: Node) => {
+    (event: React.MouseEvent, node: Node) => {
+      // A name on a `calls:` chip is its own destination, so the click is read off the
+      // line that was actually pressed rather than off the box containing it.
+      if (node.type === 'mapCalls') {
+        const line = (event.target as HTMLElement).closest('[data-call-target]');
+        const target = line?.getAttribute('data-call-target');
+        if (target) setInside(target);
+        return;
+      }
+
       if (node.id.startsWith('notebook-')) {
         setInside(node.id.slice('notebook-'.length));
         return;
@@ -383,7 +427,7 @@ function MapCanvas({ onOpenNotebook }: SystemMapProps) {
       </div>
 
       <div className="flex-1 flex min-h-0">
-        <div className="flex-1 relative min-w-0">
+        <div ref={pane} className="flex-1 relative min-w-0">
           <ReactFlow
             nodes={nodes}
             edges={graph.edges}

@@ -82,6 +82,8 @@ interface NotebookToolbarProps {
   staleCount: number;
   /** Rendered between the fold toggles and Save; owned by the editor. */
   runHistory?: React.ReactNode;
+  /** Opens the map already inside this notebook. */
+  mapButton?: React.ReactNode;
   /** The deploy gate, owned by the editor because it needs the saved notebook's id. */
   deployButton?: React.ReactNode;
   /** Downloads the notebook as the text form. Absent until it has been saved once. */
@@ -132,6 +134,7 @@ export function NotebookToolbar({
   isRunning,
   staleCount,
   runHistory,
+  mapButton,
   deployButton,
   exportButton,
   triggerPanel,
@@ -309,6 +312,7 @@ export function NotebookToolbar({
         {viewMenu}
         {pageToggle}
         {runHistory}
+        {mapButton}
         {exportButton}
         <Divider />
         <Popover>
@@ -377,6 +381,7 @@ export function NotebookToolbar({
               {pageToggle}
               {viewMenu}
               {runHistory}
+              {mapButton}
               {exportButton}
             </DrawerRow>
 

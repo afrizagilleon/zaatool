@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus, ArrowsSplit, ClockCounterClockwise } from '@phosphor-icons/react';
+import { Plus, ArrowsSplit, ClockCounterClockwise, MapTrifold } from '@phosphor-icons/react';
 import type { NotebookStep } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { useUiStore } from '../../store/uiStore';
@@ -249,6 +249,25 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
           ) : null
         }
         exportButton={notebookId ? <ExportButton notebookId={notebookId} name={name} /> : null}
+        mapButton={
+          notebookId ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 shrink-0 px-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground hover:text-foreground"
+              title="See this notebook drawn as it runs"
+              // A link, not a mode: the map's second altitude was reachable only by
+              // finding the right box among thirty-three and clicking it, and could not
+              // be sent to anybody.
+              onClick={() => {
+                window.location.hash = `#/map/${notebookId}`;
+              }}
+            >
+              <MapTrifold size={13} className="mr-1.5" weight="duotone" />
+              Map
+            </Button>
+          ) : null
+        }
         runHistory={
           <RunHistory
             notebookId={notebookId}
