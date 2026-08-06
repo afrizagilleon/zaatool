@@ -11,6 +11,7 @@ import {
   Package,
 } from '@phosphor-icons/react';
 import { cn } from '../../lib/utils';
+import { BOX_CLASS } from '../../lib/map-graph';
 import type {
   CallOutNodeData,
   CallsNodeData,
@@ -20,12 +21,26 @@ import type {
 } from '../../lib/map-graph';
 
 /**
- * The map's three kinds of box.
+ * The map's kinds of box.
  *
  * Presentational only — no fetching, no store. What they show comes from the derived
  * map, so a box on screen is a fact about the notebooks rather than something someone
  * once drew and forgot to update.
  */
+
+/**
+ * Where an edge attaches, drawn as nothing.
+ *
+ * A handle is a control for *making* a connection by dragging. This map is derived: there
+ * is no connection anyone can make, `nodesConnectable` is off, and so every one of these
+ * was a grey square advertising an action that does not exist — including on the first
+ * cell, which has nothing above it, and the last, which has nothing below. He is right
+ * that they look strange: they are the only things on the map that mean nothing.
+ *
+ * Kept at their size rather than removed, because an edge's endpoint is this element's
+ * position — take the box away and every arrow moves.
+ */
+const HANDLE = '!h-2 !w-2 !border-0 !bg-transparent';
 
 /**
  * One notebook, small enough that twenty-nine of them fit.
@@ -64,7 +79,8 @@ export function MapNotebookNode({ data, selected }: NodeProps<Node<NotebookNodeD
     <div
       title={detail}
       className={cn(
-        'w-[190px] h-[46px] border bg-node-bg shadow-sm transition-opacity cursor-pointer',
+        BOX_CLASS.notebook,
+        'border bg-node-bg shadow-sm transition-opacity cursor-pointer',
         'flex flex-col justify-center px-2.5 py-1',
         selected ? 'border-primary shadow-md' : 'border-border hover:border-primary/50',
         status === 'running' && 'border-status-running',
@@ -74,7 +90,7 @@ export function MapNotebookNode({ data, selected }: NodeProps<Node<NotebookNodeD
         dimmed && 'opacity-25'
       )}
     >
-      <Handle type="target" position={Position.Left} className="!bg-muted-foreground !w-2 !h-2" />
+      <Handle type="target" position={Position.Left} className={HANDLE} />
 
       <div className="flex items-center gap-1.5">
         {/* Filled when production runs a version of this; hollow when nothing does. */}
@@ -114,7 +130,7 @@ export function MapNotebookNode({ data, selected }: NodeProps<Node<NotebookNodeD
         )}
       </div>
 
-      <Handle type="source" position={Position.Right} className="!bg-muted-foreground !w-2 !h-2" />
+      <Handle type="source" position={Position.Right} className={HANDLE} />
     </div>
   );
 }
@@ -127,7 +143,8 @@ export function MapTriggerNode({ data }: NodeProps<Node<TriggerNodeData, 'mapTri
     <div
       title={`${trigger.kind} ${trigger.label}${trigger.enabled ? '' : ' — switched off'}`}
       className={cn(
-        'w-[170px] h-[44px] border bg-background px-2.5 flex items-center gap-1.5 shadow-sm',
+        BOX_CLASS.trigger,
+        'border bg-background px-2.5 flex items-center gap-1.5 shadow-sm',
         'transition-opacity',
         trigger.enabled ? 'border-primary/40' : 'border-border border-dashed opacity-60',
         // Dims with the notebook it fires. A bright trigger wired to a faded box is an
@@ -143,19 +160,25 @@ export function MapTriggerNode({ data }: NodeProps<Node<TriggerNodeData, 'mapTri
         </div>
         <div className="font-mono text-[10px] truncate">{trigger.label}</div>
       </div>
-      <Handle type="source" position={Position.Right} className="!bg-primary !w-2 !h-2" />
+      <Handle type="source" position={Position.Right} className={HANDLE} />
     </div>
   );
 }
 
-/** One cell inside a notebook, at the second altitude. */
+/**
+ * One cell inside a notebook, at the second altitude.
+ *
+ * `h-[62px]` matches `SIZES.cell` exactly. It used to draw 52 against a declared 76, and
+ * the extra 24px was empty box below the border with the edge's endpoint floating in it.
+ */
 export function MapCellNode({ data, selected }: NodeProps<Node<CellNodeData, 'mapCell'>>) {
   const { index, label, hasCode, laneLabel, status, ms } = data;
 
   return (
     <div
       className={cn(
-        'w-[240px] border bg-node-bg shadow-sm px-3 py-2',
+        BOX_CLASS.cell,
+        'flex flex-col justify-center overflow-hidden border bg-node-bg shadow-sm px-3 py-2',
         selected ? 'border-primary' : 'border-border',
         !hasCode && 'border-dashed opacity-70',
         status === 'running' && 'border-status-running',
@@ -163,7 +186,7 @@ export function MapCellNode({ data, selected }: NodeProps<Node<CellNodeData, 'ma
         status === 'error' && 'border-status-error'
       )}
     >
-      <Handle type="target" position={Position.Top} className="!bg-muted-foreground !w-2 !h-2" />
+      <Handle type="target" position={Position.Top} className={HANDLE} />
 
       <div className="flex items-center gap-2">
         <span className="text-[9px] font-bold text-muted-foreground/60 shrink-0">{index}</span>
@@ -186,7 +209,7 @@ export function MapCellNode({ data, selected }: NodeProps<Node<CellNodeData, 'ma
         <div className="text-[9px] uppercase tracking-widest text-primary/70 mt-1">{laneLabel}</div>
       )}
 
-      <Handle type="source" position={Position.Bottom} className="!bg-muted-foreground !w-2 !h-2" />
+      <Handle type="source" position={Position.Bottom} className={HANDLE} />
     </div>
   );
 }
@@ -196,12 +219,13 @@ export function MapCallOutNode({ data }: NodeProps<Node<CallOutNodeData, 'mapCal
   return (
     <div
       className={cn(
-        'w-[180px] border border-dashed px-3 py-2 bg-background',
+        BOX_CLASS.callOut,
+        'flex items-center border border-dashed px-3 bg-background',
         data.notebookId ? 'border-primary/50 cursor-pointer' : 'border-status-error/60'
       )}
       title={data.notebookId ? 'Open this notebook' : 'This call resolves to nothing'}
     >
-      <Handle type="target" position={Position.Top} className="!bg-muted-foreground !w-2 !h-2" />
+      <Handle type="target" position={Position.Top} className={HANDLE} />
       <div className="flex items-center gap-1.5">
         <ArrowSquareOut size={12} weight="duotone" className="text-primary shrink-0" />
         <span className="font-mono text-[11px] truncate">{data.label}</span>

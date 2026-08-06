@@ -86,12 +86,36 @@ export interface CallOutNodeData extends Record<string, unknown> {
  * notebooks could not be read at any zoom that fitted them, so a box now carries a name
  * and four marks and everything else waits for the pointer.
  */
+/**
+ * These are not hints. Declaring a size *sets* the node's box, so every one of them has to
+ * be the height the component actually draws — a cell was declared 76 and drew 52, and the
+ * handle an edge leaves from sat 24px below the visible border, floating in space with a
+ * gap between it and the box it belonged to.
+ *
+ * Every component here pins itself to the matching `h-[…]`, so the two cannot drift again.
+ */
 export const SIZES = {
   notebook: { width: 190, height: 46 },
   trigger: { width: 170, height: 44 },
-  cell: { width: 240, height: 76 },
-  callOut: { width: 180, height: 46 },
+  cell: { width: 240, height: 62 },
+  callOut: { width: 180, height: 44 },
 };
+
+/**
+ * The same numbers as Tailwind classes, which is the only way the components may state
+ * their size.
+ *
+ * Written out rather than built from `SIZES` at run time because Tailwind scans source
+ * text: a class assembled from a variable is a class that never reaches the stylesheet.
+ * So the two forms are checked against each other instead — `map-boxes.test.tsx` fails if
+ * they ever disagree, which is what shipped the floating handles.
+ */
+export const BOX_CLASS = {
+  notebook: 'w-[190px] h-[46px]',
+  trigger: 'w-[170px] h-[44px]',
+  cell: 'w-[240px] h-[62px]',
+  callOut: 'w-[180px] h-[44px]',
+} satisfies Record<keyof typeof SIZES, string>;
 
 /** The `calls:` chip grows with what it lists, so its height is computed, not fixed. */
 export const CALLS_CHIP = { width: 168, headerHeight: 15, lineHeight: 13, padding: 6 };
@@ -242,13 +266,24 @@ export function buildNotebookGraph(
   const edges: Edge[] = [];
   let index = 0;
 
+  /**
+   * The branch name on the arrow entering it, kept short.
+   *
+   * Two lanes are two labels side by side at the same height, and a full sentence in each
+   * runs into its neighbour — which tightening the rank spacing made worse rather than
+   * caused. Short is enough: the cell it points at carries the whole label anyway, so
+   * this only has to be enough to tell one arrow from the other.
+   */
+  const branchLabel = (laneLabel?: string) =>
+    laneLabel && laneLabel.length > 16 ? `${laneLabel.slice(0, 15)}…` : laneLabel;
+
   const connect = (from: string[], to: string, laneLabel?: string) => {
     for (const source of from) {
       edges.push({
         id: `flow-${source}-${to}`,
         source,
         target: to,
-        label: laneLabel,
+        label: branchLabel(laneLabel),
         className: 'map-edge-call',
         // A notebook is a sequence, and the drawing should say so without being read.
         // Which cell follows which was previously only inferable from the numbers.
