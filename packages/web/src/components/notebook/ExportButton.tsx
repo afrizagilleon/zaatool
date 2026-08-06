@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { DownloadSimple } from '@phosphor-icons/react';
+import { ArrowSquareOut } from '@phosphor-icons/react';
 import { Button } from '../ui/button';
 import { notebooksApi } from '../../lib/notebooks-api';
 
@@ -43,7 +43,7 @@ export function ExportButton({ notebookId, name }: { notebookId: string; name: s
       disabled={isWorking}
       title="Download this notebook as .md — the same text an agent reads"
     >
-      <DownloadSimple size={12} className="mr-1" />
+      <ArrowSquareOut size={12} className="mr-1" />
       Export
     </Button>
   );
