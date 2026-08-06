@@ -76,9 +76,9 @@ export function ParallelGroup({
         isNested ? 'bg-muted/45' : 'bg-muted/20'
       )}
     >
-      <div className="flex items-center gap-2 px-2 h-8 border-b border-border bg-muted/40">
+      <div className="flex min-w-0 items-center gap-1.5 px-2 h-8 border-b border-border bg-muted/40 sm:gap-2">
         <ArrowsSplit size={13} className="text-muted-foreground shrink-0" />
-        <span className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground shrink-0">
+        <span className="hidden shrink-0 text-[9px] font-semibold uppercase tracking-widest text-muted-foreground sm:inline">
           Parallel
         </span>
         {isNested && (
@@ -90,7 +90,7 @@ export function ParallelGroup({
           </span>
         )}
 
-        <div className="flex items-center gap-0.5 shrink-0">
+        <div className="flex min-w-0 shrink items-center gap-0.5">
           <Button
             variant="ghost"
             size="icon"
@@ -117,7 +117,7 @@ export function ParallelGroup({
             <button
               type="button"
               onClick={() => setRenamingLaneId(activeLane.id)}
-              className="px-1.5 text-[11px] font-semibold text-foreground hover:underline max-w-[10rem] truncate"
+              className="min-w-0 max-w-[6rem] truncate px-1.5 text-[11px] font-semibold text-foreground hover:underline sm:max-w-[10rem]"
               title="Click to rename this lane"
             >
               {laneName}
@@ -154,7 +154,12 @@ export function ParallelGroup({
           ))}
         </div>
 
-        <span className="text-[9px] text-muted-foreground/60 truncate">
+        {/* `truncate` alone does not shrink inside a flex row — the default `min-width:
+            auto` keeps it at its full sentence width, which is what pushed every button
+            after it past the right edge. `min-w-0` is what makes the ellipsis work, and
+            below `lg` the sentence is gone entirely: it is an explanation, and there is
+            no room to explain anything on a phone. */}
+        <span className="hidden min-w-0 truncate text-[9px] text-muted-foreground/60 lg:inline">
           {group.lanes.length} lanes start together · each reads the scope as it is now, and
           writes privately
         </span>
@@ -168,8 +173,8 @@ export function ParallelGroup({
           title="Add a lane to this group"
           onClick={onAddLane}
         >
-          <Plus size={10} className="mr-1" />
-          Lane
+          <Plus size={10} />
+          <span className="ml-1 hidden sm:inline">Lane</span>
         </Button>
         <Button
           variant="ghost"

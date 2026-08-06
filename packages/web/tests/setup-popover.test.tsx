@@ -15,7 +15,7 @@
  *   pnpm --filter @zaa-tool/web test
  */
 import { describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { NotebookRuntime } from "@zaa-tool/shared";
 import { NotebookToolbar } from "../src/components/notebook/NotebookToolbar";
@@ -71,6 +71,22 @@ describe("the Setup popover", () => {
 
     expect(screen.getByLabelText("yaml")).toBeTruthy();
     expect(screen.queryByLabelText(/add a python requirement/i)).toBeNull();
+  });
+
+  it("is reachable from the drawer too, which is the only route on a phone", async () => {
+    // The narrow layout hides the Setup popover and offers a drawer instead. Both are in
+    // the DOM at once — CSS decides which is visible — so this asserts the drawer really
+    // carries the panels rather than a second, emptier copy of the idea.
+    const user = userEvent.setup();
+    toolbar();
+
+    await user.click(screen.getByRole("button", { name: /everything else/i }));
+
+    const drawer = screen.getByRole("dialog");
+    expect(within(drawer).getByText("Packages")).toBeTruthy();
+    expect(within(drawer).getByText("Contract")).toBeTruthy();
+    expect(within(drawer).getByText("Triggers")).toBeTruthy();
+    expect(within(drawer).getByText("Secrets")).toBeTruthy();
   });
 
   it("counts declared packages on the button, so a closed panel is not a hidden one", async () => {

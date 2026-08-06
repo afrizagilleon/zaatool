@@ -139,14 +139,27 @@ export function Navbar() {
       {user && (
         <>
           <div className="h-4 w-px bg-border mx-1" />
-          <div className="flex items-center gap-2 pl-1">
+          <div className="flex min-w-0 items-center gap-2 pl-1">
+            {/* The name is worth 110px on a wide screen and it is the 110px that pushed
+                Logout off the right edge of a phone. Below `sm` it becomes the icon that
+                opens the same dialog, where the name is written out anyway. */}
             <button
               onClick={() => setIsProfileOpen(true)}
-              className="text-[11px] font-semibold text-muted-foreground max-w-[110px] truncate hover:text-primary hover:underline transition-all outline-none bg-transparent border-none p-0 cursor-pointer"
+              className="hidden max-w-[110px] truncate border-none bg-transparent p-0 text-[11px] font-semibold text-muted-foreground outline-none transition-all hover:text-primary hover:underline sm:inline-block"
               title={`${user.username} — view profile`}
             >
               {user.username}
             </button>
+            <Button
+              onClick={() => setIsProfileOpen(true)}
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 text-muted-foreground sm:hidden"
+              title={`${user.username} — view profile`}
+              aria-label={`${user.username} — view profile`}
+            >
+              <UserIcon size={14} weight="duotone" />
+            </Button>
             <Button
               onClick={logout}
               variant="ghost"
