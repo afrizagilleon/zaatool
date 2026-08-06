@@ -17,7 +17,7 @@
  *   pnpm --filter @zaa-tool/web test
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { NotebookSummary } from "@zaa-tool/shared";
 import { NotebookList } from "../src/components/notebook/NotebookList";
@@ -65,6 +65,9 @@ const NOTEBOOKS: NotebookSummary[] = [
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  // The fixture toggle is remembered between visits, which means it is also remembered
+  // between tests unless it is cleared here.
+  window.localStorage.clear();
   vi.spyOn(notebooksApi, "list").mockResolvedValue(NOTEBOOKS);
 });
 
@@ -90,6 +93,34 @@ describe("the fixtures I left in your workspace", () => {
     await list();
     expect(screen.queryByText("zz-uji-pandas")).toBeNull();
     expect(screen.getByRole("button", { name: /show 1 test fixture/i })).toBeTruthy();
+  });
+
+  it("says how many it is searching, not how many exist", async () => {
+    // The report: *"placeholder berkata Search 33 … tetapi yang muncul hanya 13. zz-*
+    // *dihapus semua kah?"* One number above a list of a different length reads as
+    // twenty notebooks having gone missing. Both numbers, or neither is honest.
+    await list();
+    expect(screen.getByLabelText("Search").getAttribute("placeholder")).toBe(
+      "Search 1 of 2 by name or tag"
+    );
+  });
+
+  it("says only one number when nothing is being held back", async () => {
+    await list({ withFixtures: true });
+    expect(screen.getByLabelText("Search").getAttribute("placeholder")).toBe(
+      "Search 2 by name or tag"
+    );
+  });
+
+  it("remembers that you asked, so the next visit does not ask again", async () => {
+    // Hiding is the right default for a workspace two-thirds scaffolding; it is not a
+    // verdict. Pressing the same button after every reload is the app forgetting
+    // something you already told it.
+    await list({ withFixtures: true });
+    cleanup();
+
+    render(<NotebookList onOpen={vi.fn()} onCreate={vi.fn()} />);
+    expect(await screen.findByText("zz-uji-pandas")).toBeTruthy();
   });
 
   it("are hidden, not deleted — asking brings it straight back", async () => {

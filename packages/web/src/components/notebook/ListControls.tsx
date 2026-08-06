@@ -26,7 +26,14 @@ import type { NotebookGrouping, NotebookSort } from '../../lib/notebook-list-vie
 export interface ListControlsProps {
   query: string;
   onQueryChange: (query: string) => void;
-  /** Placeholder carries the total, so the count is visible before you type. */
+  /**
+   * How many rows the search box would actually look at, and how many exist.
+   *
+   * Both, because one number is a lie whichever one you pick. "Search 33" above a list
+   * of 13 reads as twenty notebooks having gone missing; "Search 13" hides that there
+   * are twenty more a button away. When they differ the placeholder says so.
+   */
+  searchable: number;
   total: number;
   sort: NotebookSort;
   onSortChange: (sort: NotebookSort) => void;
@@ -55,6 +62,7 @@ const SORT_LABELS: Record<NotebookSort, string> = {
 export function ListControls({
   query,
   onQueryChange,
+  searchable,
   total,
   sort,
   onSortChange,
@@ -81,7 +89,11 @@ export function ListControls({
         <Input
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
-          placeholder={`Search ${total} by name or tag`}
+          placeholder={
+            searchable === total
+              ? `Search ${total} by name or tag`
+              : `Search ${searchable} of ${total} by name or tag`
+          }
           aria-label="Search"
           className="h-8 pl-8 text-xs"
         />

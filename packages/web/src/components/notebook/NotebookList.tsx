@@ -26,6 +26,7 @@ import {
   whenLabel,
   type NotebookFilters,
 } from '../../lib/notebook-list-view';
+import { readShowFixtures, writeShowFixtures } from '../../lib/list-preferences';
 import {
   Dialog,
   DialogContent,
@@ -64,7 +65,11 @@ interface NotebookListProps {
  */
 export function NotebookList({ onOpen, onCreate }: NotebookListProps) {
   const [notebooks, setNotebooks] = useState<NotebookSummary[]>([]);
-  const [filters, setFilters] = useState<NotebookFilters>(DEFAULT_FILTERS);
+  // Default hides fixtures; a decision to show them outlives the reload that follows it.
+  const [filters, setFilters] = useState<NotebookFilters>(() => ({
+    ...DEFAULT_FILTERS,
+    showFixtures: readShowFixtures('notebooks'),
+  }));
   const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -74,6 +79,12 @@ export function NotebookList({ onOpen, onCreate }: NotebookListProps) {
     // Any change to what is shown starts again at the front. Staying on page 3 while the
     // result shrinks to one page is how a filter appears to have found nothing.
     setPage(1);
+  };
+
+  /** One writer, because three buttons setting the same flag is three chances to forget. */
+  const setShowFixtures = (showFixtures: boolean) => {
+    writeShowFixtures('notebooks', showFixtures);
+    change({ showFixtures });
   };
 
   /** Null when not selecting. A set — empty — is how selecting starts. */
@@ -245,6 +256,9 @@ export function NotebookList({ onOpen, onCreate }: NotebookListProps) {
           <ListControls
             query={filters.query}
             onQueryChange={(query) => change({ query })}
+            // What the box would look at with the box empty — everything the other
+            // filters still allow.
+            searchable={filterNotebooks(notebooks, { ...filters, query: '' }).length}
             total={notebooks.length}
             sort={filters.sort}
             onSortChange={(sort) => change({ sort })}
@@ -256,10 +270,15 @@ export function NotebookList({ onOpen, onCreate }: NotebookListProps) {
             onTagChange={(tag) => change({ tag })}
             tags={tags}
             showFixtures={filters.showFixtures}
-            onShowFixturesChange={(showFixtures) => change({ showFixtures })}
+            onShowFixturesChange={setShowFixtures}
             hiddenFixtures={hiddenFixtures}
             isFiltered={anyFilterActive(filters)}
-            onClear={() => change(DEFAULT_FILTERS)}
+            onClear={() => {
+              // Clear resets the remembered answer too, or the next reload would
+              // contradict the screen you are looking at.
+              writeShowFixtures('notebooks', false);
+              change(DEFAULT_FILTERS);
+            }}
           />
         )}
 
@@ -279,7 +298,7 @@ export function NotebookList({ onOpen, onCreate }: NotebookListProps) {
                 size="sm"
                 variant="ghost"
                 className="mt-1 h-7 px-2.5 text-xs text-muted-foreground"
-                onClick={() => change({ showFixtures: true })}
+                onClick={() => setShowFixtures(true)}
               >
                 {hiddenFixtures} test {hiddenFixtures === 1 ? 'fixture is' : 'fixtures are'} hidden
               </Button>

@@ -12,6 +12,7 @@ import {
 } from '@phosphor-icons/react';
 import { isFixtureName, type NotebookPage } from '@zaa-tool/shared';
 import { ListControls, Pager } from '../notebook/ListControls';
+import { readShowFixtures, writeShowFixtures } from '../../lib/list-preferences';
 import {
   PAGE_SIZE,
   hiddenFixtureCount,
@@ -247,7 +248,14 @@ export function AppsPage() {
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<NotebookSort>('name');
   const [tag, setTag] = useState<string | null>(null);
-  const [showFixtures, setShowFixtures] = useState(false);
+  // Default hides my fixtures; a decision to show them outlives the reload after it.
+  const [showFixtures, setShowFixturesState] = useState(() => readShowFixtures('apps'));
+
+  /** One writer, because three buttons setting the same flag is three chances to forget. */
+  const setShowFixtures = (next: boolean) => {
+    writeShowFixtures('apps', next);
+    setShowFixturesState(next);
+  };
   const [page, setPage] = useState(1);
 
   useEffect(() => {
@@ -307,6 +315,13 @@ export function AppsPage() {
           <ListControls
             query={query}
             onQueryChange={(next) => change(() => setQuery(next))}
+            searchable={
+              all.filter(
+                (item) =>
+                  (showFixtures || !isFixtureName(item.name)) &&
+                  (tag === null || item.tags.includes(tag))
+              ).length
+            }
             total={all.length}
             sort={sort}
             onSortChange={(next) => change(() => setSort(next))}
