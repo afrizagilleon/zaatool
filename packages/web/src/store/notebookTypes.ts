@@ -46,6 +46,8 @@ export interface NotebookState {
   secrets: string[];
   /** Libraries the cells may import. The same sentence as `secrets`, about a different resource. */
   packages: string[];
+  /** Labels for finding it again in a list of twenty-nine. Normalised, lower case. */
+  tags: string[];
   steps: NotebookStep[];
 
   isDirty: boolean;
@@ -98,6 +100,7 @@ export interface NotebookState {
   setRuntime: (runtime: NotebookRuntime) => void;
   setSecrets: (secrets: string[]) => void;
   setPackages: (packages: string[]) => void;
+  setTags: (tags: string[]) => void;
 
   addCell: (afterStepId?: string) => string;
   addCellToLane: (groupId: string, laneId: string) => string;

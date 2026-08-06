@@ -18,6 +18,7 @@ import { Input } from '../ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { NotebookSecrets } from './NotebookSecrets';
 import { NotebookPackages } from './NotebookPackages';
+import { NotebookTags } from './NotebookTags';
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover';
 import {
   Drawer,
@@ -73,6 +74,8 @@ interface NotebookToolbarProps {
   runtime: NotebookRuntime;
   secrets: string[];
   packages: string[];
+  /** Labels this notebook carries, for finding it again in a list of twenty-nine. */
+  tags: string[];
   isDirty: boolean;
   isSaving: boolean;
   isRunning: boolean;
@@ -100,6 +103,7 @@ interface NotebookToolbarProps {
   onRuntimeChange: (runtime: NotebookRuntime) => void;
   onSecretsChange: (secrets: string[]) => void;
   onPackagesChange: (packages: string[]) => void;
+  onTagsChange: (tags: string[]) => void;
   onSave: () => void;
   onRun: () => void;
   onBack: () => void;
@@ -122,6 +126,7 @@ export function NotebookToolbar({
   runtime,
   secrets,
   packages,
+  tags,
   isDirty,
   isSaving,
   isRunning,
@@ -141,6 +146,7 @@ export function NotebookToolbar({
   onRuntimeChange,
   onSecretsChange,
   onPackagesChange,
+  onTagsChange,
   onSave,
   onRun,
   onBack,
@@ -246,6 +252,11 @@ export function NotebookToolbar({
       <SetupSection label="Secrets" hint={secrets.length > 0 ? `${secrets.length} allowed` : 'none'}>
         <div className="p-3">
           <NotebookSecrets selectedKeys={secrets} onChange={onSecretsChange} />
+        </div>
+      </SetupSection>
+      <SetupSection label="Tags" hint={tags.length > 0 ? `${tags.length} set` : 'none'}>
+        <div className="p-3">
+          <NotebookTags tags={tags} onChange={onTagsChange} />
         </div>
       </SetupSection>
       <SetupSection

@@ -31,6 +31,7 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
   const runtime = useNotebookStore((s) => s.runtime);
   const secrets = useNotebookStore((s) => s.secrets);
   const packages = useNotebookStore((s) => s.packages);
+  const tags = useNotebookStore((s) => s.tags);
   const triggers = useNotebookStore((s) => s.triggers);
   const addTrigger = useNotebookStore((s) => s.addTrigger);
   const updateTrigger = useNotebookStore((s) => s.updateTrigger);
@@ -58,6 +59,7 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
   const setRuntime = useNotebookStore((s) => s.setRuntime);
   const setSecrets = useNotebookStore((s) => s.setSecrets);
   const setPackages = useNotebookStore((s) => s.setPackages);
+  const setTags = useNotebookStore((s) => s.setTags);
   const addCell = useNotebookStore((s) => s.addCell);
   const updateCellNote = useNotebookStore((s) => s.updateCellNote);
   const updateCellCode = useNotebookStore((s) => s.updateCellCode);
@@ -225,6 +227,7 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
         runtime={runtime}
         secrets={secrets}
         packages={packages}
+        tags={tags}
         isDirty={isDirty}
         isSaving={isSaving}
         isRunning={isRunning}
@@ -283,6 +286,7 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
         onRuntimeChange={setRuntime}
         onSecretsChange={setSecrets}
         onPackagesChange={setPackages}
+        onTagsChange={setTags}
         onSave={() => void save()}
         onRun={() => void runAll()}
         onBack={onBack}

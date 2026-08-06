@@ -20,13 +20,16 @@ import userEvent from "@testing-library/user-event";
 import type { NotebookRuntime } from "@zaa-tool/shared";
 import { NotebookToolbar } from "../src/components/notebook/NotebookToolbar";
 
-function toolbar(overrides: { runtime?: NotebookRuntime; packages?: string[] } = {}) {
+function toolbar(
+  overrides: { runtime?: NotebookRuntime; packages?: string[]; tags?: string[] } = {}
+) {
   render(
     <NotebookToolbar
       name="zz-uji-pandas"
       runtime={overrides.runtime ?? "python"}
       secrets={[]}
       packages={overrides.packages ?? []}
+      tags={overrides.tags ?? []}
       isDirty={false}
       isSaving={false}
       isRunning={false}
@@ -41,6 +44,7 @@ function toolbar(overrides: { runtime?: NotebookRuntime; packages?: string[] } =
       onRuntimeChange={vi.fn()}
       onSecretsChange={vi.fn()}
       onPackagesChange={vi.fn()}
+      onTagsChange={vi.fn()}
       onSave={vi.fn()}
       onRun={vi.fn()}
       onBack={vi.fn()}
@@ -84,6 +88,7 @@ describe("the Setup popover", () => {
 
     const drawer = screen.getByRole("dialog");
     expect(within(drawer).getByText("Packages")).toBeTruthy();
+    expect(within(drawer).getByText("Tags")).toBeTruthy();
     expect(within(drawer).getByText("Contract")).toBeTruthy();
     expect(within(drawer).getByText("Triggers")).toBeTruthy();
     expect(within(drawer).getByText("Secrets")).toBeTruthy();

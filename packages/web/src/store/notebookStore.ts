@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import type { NotebookJson, NotebookTrigger } from '@zaa-tool/shared';
+import { normaliseTags, type NotebookJson, type NotebookTrigger } from '@zaa-tool/shared';
 import * as tree from '../lib/notebook-tree.js';
 import type { CellRunState, NotebookState } from './notebookTypes.js';
 
@@ -16,6 +16,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   runtime: 'node',
   secrets: [],
   packages: [],
+  tags: [],
   triggers: [],
   inputs: [],
   outputs: [],
@@ -42,6 +43,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
       runtime,
       secrets: [],
       packages: [],
+      tags: [],
       triggers: [],
       inputs: [],
       outputs: [],
@@ -67,6 +69,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
       runtime: document.runtime,
       secrets: document.secrets ?? [],
       packages: document.packages ?? [],
+      tags: document.tags ?? [],
       triggers: document.triggers ?? [],
       inputs: document.inputs ?? [],
       outputs: document.outputs ?? [],
@@ -90,7 +93,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   },
 
   getDocument: (): NotebookJson => {
-    const { id, name, runtime, secrets, packages, triggers, inputs, outputs, layout, actions, steps } =
+    const { id, name, runtime, secrets, packages, tags, triggers, inputs, outputs, layout, actions, steps } =
       get();
     return {
       version: NOTEBOOK_VERSION, id, name, runtime, secrets, triggers, inputs, outputs, steps,
@@ -102,6 +105,8 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
       // declaration — the store dropped what it did not render, and the next run lost
       // its libraries with nothing anywhere saying why.
       ...(packages.length > 0 ? { packages } : {}),
+      // Same reason as `packages`: a field the store forgets is a field Save deletes.
+      ...(tags.length > 0 ? { tags } : {}),
     };
   },
 
@@ -163,6 +168,8 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   setRuntime: (runtime) => set({ runtime, isDirty: true }),
   setSecrets: (secrets) => set({ secrets, isDirty: true }),
   setPackages: (packages) => set({ packages, isDirty: true }),
+  // Normalised on the way in, so the store never holds two spellings of one tag.
+  setTags: (tags) => set({ tags: normaliseTags(tags), isDirty: true }),
 
   addCell: (afterStepId) => {
     const cell = tree.newCell();
