@@ -7,7 +7,6 @@ import { buildNotebookMap } from "../core/notebook-map.js";
 import { outputSpecs } from "../core/notebook-outputs.js";
 import { actionSpecs } from "../core/notebook-actions.js";
 import { notebookSharesService } from "../services/notebook-shares.service.js";
-import { notifyCatalogChanged } from "../mcp/notebook-catalog.js";
 import { notebookRunsService } from "../services/notebook-runs.service.js";
 import {
   notebookExecutionService,
@@ -241,9 +240,6 @@ export class NotebooksController {
       );
       if (!result) return res.status(404).json({ error: "Notebook not found" });
 
-      // Deploying may have added or changed a tool, and an agent connected an hour ago
-      // should not have to reconnect to find out.
-      notifyCatalogChanged();
       res.json(result);
     } catch (err: unknown) {
       respondWithError(res, err);
@@ -262,8 +258,6 @@ export class NotebooksController {
       const result = await notebooksService.undeploy(String(req.params.id));
       if (!result) return res.status(404).json({ error: "Notebook not found" });
 
-      // An agent holding a session must not keep offering a tool that no longer runs.
-      notifyCatalogChanged();
       res.json(result);
     } catch (err: unknown) {
       respondWithError(res, err);
@@ -380,7 +374,6 @@ export class NotebooksController {
   remove = async (req: Request, res: Response) => {
     try {
       const result = await notebooksService.delete(String(req.params.id));
-      notifyCatalogChanged();
       res.json(result);
     } catch (err: unknown) {
       respondWithError(res, err);

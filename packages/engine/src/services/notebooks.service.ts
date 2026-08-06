@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import { notebookTriggersService } from "./notebook-triggers.service.js";
 import { stampAuthors } from "../core/notebook-provenance.js";
 import { toolNameFor } from "../core/notebook-tool-name.js";
+import { notifyCatalogChanged } from "../core/catalog-events.js";
 import { normaliseTags } from "@zaa-tool/shared";
 import type {
   NotebookDeployState,
@@ -134,6 +135,11 @@ export class NotebooksService {
     // The document is the source of truth; the trigger index follows it.
     await notebookTriggersService.syncForNotebook(id, stored.triggers ?? []);
 
+    // Announced here rather than by the caller. There are four ways into this method —
+    // the editor, an import, `notebook_write`, `notebook_edit_cell` — and the old
+    // arrangement, where each caller remembered, had announced none of them.
+    notifyCatalogChanged({ change: "saved", notebookId: id });
+
     return { id, name };
   }
 
@@ -159,6 +165,7 @@ export class NotebooksService {
       id,
     ]);
 
+    notifyCatalogChanged({ change: "deployed", notebookId: id });
     return { versionId };
   }
 
@@ -177,7 +184,11 @@ export class NotebooksService {
       "UPDATE notebooks SET deployed_version_id = NULL WHERE id = $1 AND deployed_version_id IS NOT NULL",
       [id]
     );
-    return { wasDeployed: (rowCount ?? 0) > 0 };
+    const wasDeployed = (rowCount ?? 0) > 0;
+    // Only when something actually moved. Announcing an undeploy of a notebook that was
+    // never deployed would send every open screen to refetch a list that did not change.
+    if (wasDeployed) notifyCatalogChanged({ change: "undeployed", notebookId: id });
+    return { wasDeployed };
   }
 
   /** What a trigger should run, or null when nothing has been deployed yet. */
@@ -259,6 +270,8 @@ export class NotebooksService {
     await pool.query("DELETE FROM notebook_versions WHERE notebook_id = $1", [id]);
     await notebookTriggersService.deleteByNotebook(id);
     await pool.query("DELETE FROM notebooks WHERE id = $1", [id]);
+
+    notifyCatalogChanged({ change: "deleted", notebookId: id });
     return { success: true };
   }
 

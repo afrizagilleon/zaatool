@@ -15,6 +15,7 @@ import { AddressInfo } from "node:net";
 import WebSocket from "ws";
 import { RunEventHub } from "../src/server/run-event-hub.js";
 import { WebSocketManager } from "../src/server/websocket-manager.js";
+import { notifyCatalogChanged } from "../src/core/catalog-events.js";
 import { jwtSecret } from "../src/config.js";
 import jwt from "jsonwebtoken";
 import type { RunEvent } from "@zaa-tool/shared";
@@ -145,6 +146,68 @@ await check("a watcher does not receive another run's detail either", async () =
   assert.deepEqual(watcher.messages, [], "the watcher saw a subscriber's output");
   watcher.close();
   subscriber.close();
+});
+
+console.log("\nwhat a watcher is told about the notebooks themselves");
+
+await check("a saved notebook reaches a watcher without it asking again", async () => {
+  const watcher = await watch();
+  notifyCatalogChanged({ change: "saved", notebookId: "nb9" });
+  await settle();
+
+  assert.deepEqual(watcher.messages, [
+    { type: "catalog:changed", change: "saved", notebookId: "nb9" },
+  ]);
+  watcher.close();
+});
+
+await check("deploying and deleting are distinguishable", async () => {
+  const watcher = await watch();
+  notifyCatalogChanged({ change: "deployed", notebookId: "nb9" });
+  notifyCatalogChanged({ change: "deleted", notebookId: "nb9" });
+  await settle();
+
+  assert.deepEqual(
+    watcher.messages.map((message) => message.change),
+    ["deployed", "deleted"]
+  );
+  watcher.close();
+});
+
+await check("it carries identity only, never the notebook", async () => {
+  // Same rule as run activity, for the same reason: this channel is not scoped to
+  // anything the client proved it may see. It says *that* something moved; what moved
+  // is fetched over HTTP, where the ordinary permissions apply.
+  const watcher = await watch();
+  notifyCatalogChanged({ change: "saved", notebookId: "nb9" });
+  await settle();
+
+  assert.deepEqual(Object.keys(watcher.messages[0]).sort(), ["change", "notebookId", "type"]);
+  watcher.close();
+});
+
+await check("a socket that only subscribed to one run is not told", async () => {
+  const { socket, messages } = await open();
+  socket.send(JSON.stringify({ action: "subscribe", runId: "r8" }));
+  await settle();
+  notifyCatalogChanged({ change: "saved", notebookId: "nb9" });
+  await settle();
+
+  assert.deepEqual(messages, [], `a subscriber received ${JSON.stringify(messages)}`);
+  socket.close();
+});
+
+await check("a watcher that closed is not still listening", async () => {
+  // The listener lives in the same map as the run subscription, so it is released by the
+  // same close handler. Left behind, every reconnect over a long session would add one
+  // more copy of the same send to a socket nobody is holding.
+  const watcher = await watch();
+  watcher.close();
+  await settle();
+
+  notifyCatalogChanged({ change: "saved", notebookId: "nb9" });
+  await settle();
+  assert.deepEqual(watcher.messages, []);
 });
 
 console.log("\na socket that never said who it is");

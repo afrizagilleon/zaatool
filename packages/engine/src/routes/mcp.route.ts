@@ -6,7 +6,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { agentTokensService, type AgentScope } from "../services/agent-tokens.service.js";
 import { registerNotebookTools } from "../mcp/notebook-tools.js";
 import { registerConventions } from "../mcp/conventions.js";
-import { catalogChanges, registerDeployedNotebooks } from "../mcp/notebook-catalog.js";
+import { onCatalogChanged, registerDeployedNotebooks } from "../mcp/notebook-catalog.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 
 /**
@@ -126,10 +126,10 @@ export function createMcpRouter(publishRunEvent: RunEventSink): Router {
           // A client that closed mid-notification is not an error worth logging.
         }
       };
-      catalogChanges.on("changed", onCatalogChange);
+      const stopWatchingCatalog = onCatalogChanged(onCatalogChange);
 
       transport.onclose = () => {
-        catalogChanges.off("changed", onCatalogChange);
+        stopWatchingCatalog();
         if (transport.sessionId) sessions.delete(transport.sessionId);
       };
 

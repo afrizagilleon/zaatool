@@ -1,12 +1,14 @@
 import { WebSocketServer, WebSocket } from "ws";
 import { Server } from "http";
 import type {
+  CatalogChangedEvent,
   RunActivityEvent,
   RunClientMessage,
   RunDeniedEvent,
   RunEvent,
 } from "@zaa-tool/shared";
 import type { RunEventHub } from "./run-event-hub.js";
+import { onCatalogChanged } from "../core/catalog-events.js";
 import { authService } from "../services/auth.service.js";
 import { notebookSharesService } from "../services/notebook-shares.service.js";
 
@@ -142,6 +144,20 @@ export class WebSocketManager {
               if (activity && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify(activity));
               }
+            })
+          );
+
+          // The same subscription carries the other kind of change, because a screen
+          // showing notebooks wants both and they are one question in practice: *is what
+          // I am looking at still true.* It is on the session-only channel for the same
+          // reason run activity is — it names notebooks by id across the whole
+          // installation, including ones a share link's reader has never been shown.
+          unsubscribes.set(
+            "catalog",
+            onCatalogChanged((notice) => {
+              if (ws.readyState !== WebSocket.OPEN) return;
+              const event: CatalogChangedEvent = { type: "catalog:changed", ...notice };
+              ws.send(JSON.stringify(event));
             })
           );
           return;

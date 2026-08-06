@@ -1,4 +1,5 @@
 export * from "./run.js";
+export * from "./catalog.js";
 export * from "./notebook.js";
 export * from "./notebook-run.js";
 export * from "./notebook-map.js";

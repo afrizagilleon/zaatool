@@ -1,4 +1,3 @@
-import { EventEmitter } from "node:events";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { notebooksService } from "../services/notebooks.service.js";
@@ -34,13 +33,11 @@ import { toolNameFor } from "../core/notebook-tool-name.js";
  * Sessions are long-lived — Hermes may hold one for days — so a notebook deployed this
  * afternoon has to reach a connection opened this morning. MCP has a notification for
  * exactly this; all that is needed is something to fire it.
+ *
+ * Re-exported rather than defined here now: a watching browser needs the same fact, and
+ * the announcement belongs somewhere neither side has to import the other to reach.
  */
-export const catalogChanges = new EventEmitter();
-// One listener per open session, and there is no useful ceiling on those.
-catalogChanges.setMaxListeners(0);
-export const notifyCatalogChanged = (): void => {
-  catalogChanges.emit("changed");
-};
+export { onCatalogChanged } from "../core/catalog-events.js";
 
 // Re-exported: the deploy screen needs the same rule, so it lives in core/ and the
 // existing import path here keeps working.
