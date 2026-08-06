@@ -1,6 +1,6 @@
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Play,
   Spinner,
@@ -10,7 +10,15 @@ import {
   WarningCircle,
   CircleDashed,
 } from '@phosphor-icons/react';
-import type { NotebookPage } from '@zaa-tool/shared';
+import { isFixtureName, type NotebookPage } from '@zaa-tool/shared';
+import { ListControls, Pager } from '../notebook/ListControls';
+import {
+  PAGE_SIZE,
+  hiddenFixtureCount,
+  matchesQuery,
+  tagCounts,
+  type NotebookSort,
+} from '../../lib/notebook-list-view';
 import { Button } from '../ui/button';
 import { usePageRun, type OutputStatus } from '../../hooks/usePageRun';
 import { notebooksApi } from '../../lib/notebooks-api';
@@ -221,9 +229,26 @@ function PageRunner({ page, onBack }: { page: NotebookPage; onBack: () => void }
   );
 }
 
+/**
+ * Every deployed page, findable.
+ *
+ * Twenty-four apps, fifteen of them my own test fixtures, and the first thirteen entries
+ * all mine — a list where the thing you came for is below the fold behind scaffolding
+ * somebody else left. So: fixtures hidden by default (hidden, never deleted), search over
+ * name, description and tags, a sort, and pages of twenty.
+ *
+ * The rules come from `notebook-list-view.ts`, the same ones the Notebooks list uses. A
+ * page is deployed by definition, so there is no deploy filter and nothing to group by a
+ * trigger it does not describe.
+ */
 export function AppsPage() {
   const [pages, setPages] = useState<NotebookPage[] | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<NotebookSort>('name');
+  const [tag, setTag] = useState<string | null>(null);
+  const [showFixtures, setShowFixtures] = useState(false);
+  const [page, setPage] = useState(1);
 
   useEffect(() => {
     notebooksApi
@@ -232,7 +257,43 @@ export function AppsPage() {
       .catch(() => setPages([]));
   }, []);
 
-  const open = pages?.find((page) => page.id === openId);
+  const all = pages ?? [];
+  const tags = useMemo(() => tagCounts(all), [all]);
+  const hiddenFixtures = hiddenFixtureCount(all, showFixtures);
+
+  const view = useMemo(() => {
+    const matched = all.filter((item) => {
+      if (!showFixtures && isFixtureName(item.name)) return false;
+      if (tag !== null && !item.tags.includes(tag)) return false;
+      return matchesQuery(item, query);
+    });
+
+    // Only the two orderings a page can answer. `pages` arrives newest-edited first, so
+    // that order is what "Last edited" means here — there is no timestamp on a page to
+    // sort by, and inventing one would be a sort that lies.
+    const ordered =
+      sort === 'name'
+        ? [...matched].sort((a, b) =>
+            a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+          )
+        : matched;
+
+    const pageCount = Math.max(1, Math.ceil(ordered.length / PAGE_SIZE));
+    const current = Math.min(Math.max(1, page), pageCount);
+    return {
+      items: ordered.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE),
+      page: current,
+      pageCount,
+      total: ordered.length,
+    };
+  }, [all, query, sort, tag, showFixtures, page]);
+
+  const change = (apply: () => void) => {
+    apply();
+    setPage(1);
+  };
+
+  const open = pages?.find((item) => item.id === openId);
   if (open) return <PageRunner page={open} onBack={() => setOpenId(null)} />;
 
   return (
@@ -241,6 +302,30 @@ export function AppsPage() {
         <h1 className="text-xs font-bold uppercase tracking-widest text-muted-foreground mb-4">
           Apps
         </h1>
+
+        {all.length > 0 && (
+          <ListControls
+            query={query}
+            onQueryChange={(next) => change(() => setQuery(next))}
+            total={all.length}
+            sort={sort}
+            onSortChange={(next) => change(() => setSort(next))}
+            tag={tag}
+            onTagChange={(next) => change(() => setTag(next))}
+            tags={tags}
+            showFixtures={showFixtures}
+            onShowFixturesChange={(next) => change(() => setShowFixtures(next))}
+            hiddenFixtures={hiddenFixtures}
+            isFiltered={query.trim() !== '' || tag !== null || showFixtures}
+            onClear={() =>
+              change(() => {
+                setQuery('');
+                setTag(null);
+                setShowFixtures(false);
+              })
+            }
+          />
+        )}
 
         {pages?.length === 0 && (
           <div className="flex flex-col items-center gap-2 text-center py-16">
@@ -253,28 +338,63 @@ export function AppsPage() {
           </div>
         )}
 
+        {all.length > 0 && view.total === 0 && (
+          <div className="py-10 text-center">
+            <p className="text-sm text-muted-foreground">Nothing matches those filters.</p>
+            {hiddenFixtures > 0 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="mt-1 h-7 px-2.5 text-xs text-muted-foreground"
+                onClick={() => change(() => setShowFixtures(true))}
+              >
+                {hiddenFixtures} test {hiddenFixtures === 1 ? 'fixture is' : 'fixtures are'} hidden
+              </Button>
+            )}
+          </div>
+        )}
+
         <div className="space-y-2">
-          {(pages ?? []).map((page) => (
+          {view.items.map((item) => (
             <button
-              key={page.id}
+              key={item.id}
               type="button"
-              onClick={() => setOpenId(page.id)}
+              onClick={() => setOpenId(item.id)}
               className={cn(
-                'w-full text-left border border-border px-4 py-3 bg-card',
+                // No fixed height: a card with no description used to reserve the space
+                // for one anyway, so a list of undescribed apps was mostly empty card.
+                'w-full text-left border border-border px-4 py-2.5 bg-card',
                 'hover:border-primary/50 transition-colors'
               )}
             >
-              <div className="text-sm font-bold">{page.name}</div>
-              {page.description && (
-                <div className="text-xs text-muted-foreground mt-0.5">{page.description}</div>
+              <div className="flex min-w-0 items-baseline gap-2">
+                <span className="truncate text-sm font-bold">{item.name}</span>
+                {item.tags.map((name) => (
+                  <span key={name} className="shrink-0 text-[10px] text-muted-foreground/70">
+                    #{name}
+                  </span>
+                ))}
+              </div>
+              {item.description && (
+                <div className="text-xs text-muted-foreground mt-0.5">{item.description}</div>
               )}
-              <div className="text-[10px] text-muted-foreground/60 mt-1.5 font-mono">
-                ({page.inputs.map((input) => input.name).join(', ') || 'no inputs'}) →{' '}
-                {page.outputs.map((output) => output.name).join(', ') || 'nothing'}
+              <div className="text-[10px] text-muted-foreground/60 mt-1 font-mono break-words">
+                ({item.inputs.map((input) => input.name).join(', ') || 'no inputs'}) →{' '}
+                {item.outputs.map((output) => output.name).join(', ') || 'nothing'}
               </div>
             </button>
           ))}
         </div>
+
+        {view.total > 0 && (
+          <Pager
+            page={view.page}
+            pageCount={view.pageCount}
+            total={view.total}
+            shown={view.items.length}
+            onPageChange={setPage}
+          />
+        )}
       </div>
     </div>
   );

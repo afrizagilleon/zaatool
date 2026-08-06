@@ -1,16 +1,31 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Plus,
   Notebook as NotebookIcon,
-  MagnifyingGlass,
   ArrowSquareIn,
   TrashSimple,
   X,
+  Broadcast,
+  Clock,
+  LinkSimple,
+  WarningCircle,
 } from '@phosphor-icons/react';
 import type { NotebookRuntime, NotebookSummary } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
-import { Input } from '../ui/input';
+import { ListControls, Pager } from './ListControls';
+import {
+  DEFAULT_FILTERS,
+  filterNotebooks,
+  groupNotebooks,
+  hiddenFixtureCount,
+  isFiltered as anyFilterActive,
+  paginate,
+  sortNotebooks,
+  tagCounts,
+  whenLabel,
+  type NotebookFilters,
+} from '../../lib/notebook-list-view';
 import {
   Dialog,
   DialogContent,
@@ -40,12 +55,26 @@ interface NotebookListProps {
  * press **Select**, tick what should go, confirm a dialog that names them. Two deliberate
  * acts and a sentence in between. The rest of the time there is no destructive control on
  * the screen at all.
+ *
+ * The row also says what it is now — deployed or not, when it last ran, whether that run
+ * failed, what it is tagged. Those were all questions you could previously only answer by
+ * opening the notebook, which for twenty-nine notebooks is twenty-nine answers you never
+ * got. Which of them to *show* is decided in `notebook-list-view.ts`, away from any
+ * rendering, so the rules can be tested for being right rather than for looking right.
  */
 export function NotebookList({ onOpen, onCreate }: NotebookListProps) {
   const [notebooks, setNotebooks] = useState<NotebookSummary[]>([]);
-  const [query, setQuery] = useState('');
+  const [filters, setFilters] = useState<NotebookFilters>(DEFAULT_FILTERS);
+  const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  const change = (patch: Partial<NotebookFilters>) => {
+    setFilters((current) => ({ ...current, ...patch }));
+    // Any change to what is shown starts again at the front. Staying on page 3 while the
+    // result shrinks to one page is how a filter appears to have found nothing.
+    setPage(1);
+  };
 
   /** Null when not selecting. A set — empty — is how selecting starts. */
   const [selected, setSelected] = useState<Set<string> | null>(null);
@@ -103,10 +132,17 @@ export function NotebookList({ onOpen, onCreate }: NotebookListProps) {
     }
   };
 
-  const needle = query.trim().toLowerCase();
-  const found = needle
-    ? notebooks.filter((notebook) => notebook.name.toLowerCase().includes(needle))
-    : notebooks;
+  // Filter, then sort, then page, then group — in that order, and grouping last on
+  // purpose: a page is a fixed amount of screen, and grouping before paging would make
+  // one page mean twenty rows and the next mean two hundred.
+  const view = useMemo(() => {
+    const matched = sortNotebooks(filterNotebooks(notebooks, filters), filters.sort);
+    const slice = paginate(matched, page);
+    return { slice, groups: groupNotebooks(slice.items, filters.grouping) };
+  }, [notebooks, filters, page]);
+
+  const tags = useMemo(() => tagCounts(notebooks), [notebooks]);
+  const hiddenFixtures = hiddenFixtureCount(notebooks, filters.showFixtures);
 
   const selecting = selected !== null;
 
@@ -205,21 +241,26 @@ export function NotebookList({ onOpen, onCreate }: NotebookListProps) {
           )}
         </div>
 
-        {/* Workflows has had one of these all along; notebooks are the artifact that
-            actually multiplies, so it needed one more. */}
         {notebooks.length > 0 && (
-          <div className="relative mb-3">
-            <MagnifyingGlass
-              size={13}
-              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
-            />
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={`Search ${notebooks.length} notebooks`}
-              className="h-8 pl-8 text-xs"
-            />
-          </div>
+          <ListControls
+            query={filters.query}
+            onQueryChange={(query) => change({ query })}
+            total={notebooks.length}
+            sort={filters.sort}
+            onSortChange={(sort) => change({ sort })}
+            grouping={filters.grouping}
+            onGroupingChange={(grouping) => change({ grouping })}
+            deployedOnly={filters.deployedOnly}
+            onDeployedOnlyChange={(deployedOnly) => change({ deployedOnly })}
+            tag={filters.tag}
+            onTagChange={(tag) => change({ tag })}
+            tags={tags}
+            showFixtures={filters.showFixtures}
+            onShowFixturesChange={(showFixtures) => change({ showFixtures })}
+            hiddenFixtures={hiddenFixtures}
+            isFiltered={anyFilterActive(filters)}
+            onClear={() => change(DEFAULT_FILTERS)}
+          />
         )}
 
         {error && (
@@ -228,10 +269,22 @@ export function NotebookList({ onOpen, onCreate }: NotebookListProps) {
 
         {isLoading && <p className="text-xs text-muted-foreground">Loading…</p>}
 
-        {!isLoading && notebooks.length > 0 && found.length === 0 && (
-          <p className="py-6 text-center text-xs text-muted-foreground">
-            Nothing matches “{query}”.
-          </p>
+        {/* Says what is hiding it. "Nothing matches" while a fixture filter silently
+            holds fifteen rows back is a lie by omission. */}
+        {!isLoading && notebooks.length > 0 && view.slice.total === 0 && (
+          <div className="py-6 text-center">
+            <p className="text-xs text-muted-foreground">Nothing matches those filters.</p>
+            {hiddenFixtures > 0 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="mt-1 h-7 px-2.5 text-xs text-muted-foreground"
+                onClick={() => change({ showFixtures: true })}
+              >
+                {hiddenFixtures} test {hiddenFixtures === 1 ? 'fixture is' : 'fixtures are'} hidden
+              </Button>
+            )}
+          </div>
         )}
 
         {!isLoading && notebooks.length === 0 && !error && (
@@ -243,42 +296,118 @@ export function NotebookList({ onOpen, onCreate }: NotebookListProps) {
           </div>
         )}
 
-        <div className="space-y-1">
-          {found.map((notebook) => (
-            <div
-              key={notebook.id}
-              // 44px tall, which is the smallest target a thumb hits reliably.
-              className="flex min-h-11 items-center gap-3 border border-border px-3 py-2 hover:border-primary/50 cursor-pointer"
-              onClick={() => (selecting ? toggle(notebook.id) : onOpen(notebook.id))}
-            >
-              {selecting ? (
-                <Checkbox
-                  checked={selected?.has(notebook.id) ?? false}
-                  // The row handles it. A second handler here would toggle twice.
-                  onClick={(event) => event.stopPropagation()}
-                  onCheckedChange={() => toggle(notebook.id)}
-                  className="shrink-0"
-                />
-              ) : (
-                <NotebookIcon size={14} className="shrink-0 text-muted-foreground" />
-              )}
+        {view.groups.map((group) => (
+          <section key={group.key} className="mb-3">
+            {group.label && (
+              <h2 className="mb-1 mt-3 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">
+                {group.label} <span className="font-normal">({group.items.length})</span>
+              </h2>
+            )}
+            <div className="space-y-1">
+              {group.items.map((notebook) => (
+                <div
+                  key={notebook.id}
+                  // 44px tall, which is the smallest target a thumb hits reliably.
+                  className="flex min-h-11 items-center gap-3 border border-border px-3 py-2 hover:border-primary/50 cursor-pointer"
+                  onClick={() => (selecting ? toggle(notebook.id) : onOpen(notebook.id))}
+                >
+                  {selecting ? (
+                    <Checkbox
+                      checked={selected?.has(notebook.id) ?? false}
+                      // The row handles it. A second handler here would toggle twice.
+                      onClick={(event) => event.stopPropagation()}
+                      onCheckedChange={() => toggle(notebook.id)}
+                      className="shrink-0"
+                    />
+                  ) : (
+                    <NotebookIcon size={14} className="shrink-0 text-muted-foreground" />
+                  )}
 
-              {/* Name above, time below. On one line the name was the only thing that
-                  could give way, so it was cut to `zz-uji-berka…` while a timestamp
-                  nobody was reading kept its full width. */}
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-xs font-semibold text-foreground">{notebook.name}</div>
-                <div className="text-[10px] text-muted-foreground/60">
-                  {new Date(notebook.updated_at).toLocaleString()}
+                  {/* Name above, everything else below. On one line the name was the only
+                      thing that could give way, so it was cut to `zz-uji-berka…` while a
+                      timestamp nobody was reading kept its full width. */}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <span className="truncate text-xs font-semibold text-foreground">
+                        {notebook.name}
+                      </span>
+                      {/* Live, and therefore reachable by a webhook, a schedule, an agent
+                          or a page. Previously the only way to know was to open it. */}
+                      {notebook.deployed && (
+                        <Broadcast
+                          size={11}
+                          weight="fill"
+                          className="shrink-0 text-status-success"
+                          aria-label="Deployed"
+                        />
+                      )}
+                      {notebook.trigger_kinds.includes('cron') && (
+                        <Clock size={11} className="shrink-0 text-muted-foreground/70" aria-label="On a schedule" />
+                      )}
+                      {notebook.trigger_kinds.includes('webhook') && (
+                        <LinkSimple size={11} className="shrink-0 text-muted-foreground/70" aria-label="Called by webhook" />
+                      )}
+                    </div>
+
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-2 text-[10px] text-muted-foreground/60">
+                      {/* Relative on the row, absolute in the tooltip: "3d ago" is what
+                          you read at a glance, and the exact moment is what you need
+                          about twice a month. */}
+                      <span title={new Date(notebook.updated_at).toLocaleString()}>
+                        edited {whenLabel(notebook.updated_at)}
+                      </span>
+                      {/* A notebook that has been failing since Tuesday looked exactly
+                          like one that has never been run. */}
+                      {notebook.last_run_at && (
+                        <span
+                          className={
+                            notebook.last_run_status === 'failed'
+                              ? 'flex items-center gap-1 text-status-error'
+                              : ''
+                          }
+                        >
+                          {notebook.last_run_status === 'failed' && (
+                            <WarningCircle size={10} weight="fill" />
+                          )}
+                          ran {whenLabel(notebook.last_run_at)}
+                        </span>
+                      )}
+                      {notebook.tags.map((tag) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          // Clicking a tag filters by it — the shortest path from
+                          // "these are related" to "show me only those".
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            change({ tag });
+                          }}
+                          className="text-muted-foreground/80 hover:text-foreground"
+                        >
+                          #{tag}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <span className="shrink-0 bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                    {notebook.runtime === 'python' ? 'py' : 'js'}
+                  </span>
                 </div>
-              </div>
-
-              <span className="shrink-0 bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-                {notebook.runtime === 'python' ? 'py' : 'js'}
-              </span>
+              ))}
             </div>
-          ))}
-        </div>
+          </section>
+        ))}
+
+        {!isLoading && view.slice.total > 0 && (
+          <Pager
+            page={view.slice.page}
+            pageCount={view.slice.pageCount}
+            total={view.slice.total}
+            shown={view.slice.items.length}
+            onPageChange={setPage}
+          />
+        )}
       </div>
 
       {/* Names them. "Delete 3 notebooks?" is a number; the names are what tells you
