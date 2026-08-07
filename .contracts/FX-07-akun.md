@@ -471,7 +471,7 @@ pnpm --filter @zaa-tool/engine test auth-accounts
 ```
 
 ### T-07 — `useAccounts` + tab "Accounts": buat dan lihat daftar
-- Status: TODO
+- Status: DONE
 - Depends: T-00, T-01 (butuh `active` di respons `GET /users`)
 - RQ: RQ-03, RQ-04
 - Lakukan: `packages/web/src/hooks/useAccounts.ts` — bentuk sama seperti `useSecrets.ts`:

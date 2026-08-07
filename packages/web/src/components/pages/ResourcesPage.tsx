@@ -5,9 +5,11 @@ import { TabsIcon } from '@phosphor-icons/react';
 import { useSecrets } from '../../hooks/useSecrets';
 import { useSkills } from '../../hooks/useSkills';
 import { useStorage } from '../../hooks/useStorage';
+import { useAccounts } from '../../hooks/useAccounts';
 import { SecretsTab } from '../resources/SecretsTab';
 import { SkillsTab } from '../resources/SkillsTab';
 import { StorageTab } from '../resources/StorageTab';
+import { AccountsTab } from '../resources/AccountsTab';
 import { BuildVersion } from '../resources/BuildVersion';
 
 export function ResourcesPage() {
@@ -16,6 +18,7 @@ export function ResourcesPage() {
   // Initialize custom hooks for separate concerns
   const { secrets, fetchSecrets, saveSecret, deleteSecret } = useSecrets();
   const { skills, fetchSkills, saveSkill, deleteSkill } = useSkills();
+  const { accounts, error: accountsError, fetchAccounts, createAccount, setActive: setAccountActive } = useAccounts();
   const {
     files,
     currentPath,
@@ -35,8 +38,9 @@ export function ResourcesPage() {
     if (activeTab === 'resources') {
       fetchSecrets();
       fetchSkills();
+      fetchAccounts();
     }
-  }, [activeTab, fetchSecrets, fetchSkills]);
+  }, [activeTab, fetchSecrets, fetchSkills, fetchAccounts]);
 
   if (activeTab !== 'resources') return null;
 
@@ -67,6 +71,12 @@ export function ResourcesPage() {
             >
               Files / Storage
             </TabsTrigger>
+            <TabsTrigger
+              value="accounts"
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-2 data-[state=active]:shadow-none text-xs"
+            >
+              Accounts
+            </TabsTrigger>
           </TabsList>
 
           {/* Secrets tab */}
@@ -96,6 +106,16 @@ export function ResourcesPage() {
               onNavigateRoot={navigateToRoot}
             />
           </TabsContent>
+
+          {/* Accounts tab */}
+          <TabsContent value="accounts" className="flex-1 overflow-auto outline-none">
+            <AccountsTab
+              accounts={accounts}
+              error={accountsError}
+              onCreate={createAccount}
+              onSetActive={setAccountActive}
+            />
+          </TabsContent>
         </Tabs>
 
         <BuildVersion />
@@ -103,3 +123,4 @@ export function ResourcesPage() {
     </div>
   );
 }
+
