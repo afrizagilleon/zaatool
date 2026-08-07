@@ -233,32 +233,12 @@ export async function initDb() {
       END $$;
     `);
 
-    // Seed test fixture zz-uji-rekam (D-2 / T-01)
-    await client.query(`
-      INSERT INTO notebooks (id, name, runtime, document)
-      VALUES (
-        'zz-uji-rekam',
-        'zz-uji-rekam',
-        'node',
-        '{"version":"1.0","id":"zz-uji-rekam","name":"zz-uji-rekam","runtime":"node","inputs":[{"name":"audio_input","type":"file","accept":"audio/*"}],"outputs":[{"name":"audio_output","render":"audio"}],"steps":[{"id":"c1","kind":"cell","code":"return { audio_output: inputs.audio_input };"}]}'
-      )
-      ON CONFLICT (id) DO NOTHING;
-    `);
-
-    // Seed test fixture zz-uji-prosa (T-04)
-    await client.query(`
-      INSERT INTO notebooks (id, name, runtime, document)
-      VALUES (
-        'zz-uji-prosa',
-        'zz-uji-prosa',
-        'node',
-        '{"version":"1.0","id":"zz-uji-prosa","name":"zz-uji-prosa","runtime":"node","steps":[{"id":"c1","kind":"cell","note":"# Catatan Prosa Uji\\nIni adalah notebook prosa tanpa input/output."}]}'
-      )
-      ON CONFLICT (id) DO NOTHING;
-    `);
-
-
-
+    // Test fixtures do not belong here, and two of them were briefly written into this
+    // function during FX8. `initDb()` runs on every start of every installation: seeding
+    // `zz-uji-rekam` and `zz-uji-prosa` from a schema migration put somebody else's test
+    // notebooks into every workspace this tool will ever create, forever, with hand-picked
+    // ids where every other notebook has a uuid. A fixture is made the way a person makes
+    // one — through the API, on the machine that needs it.
 
     // The canvas's tables — `flows` and `triggers` — are no longer created, and nothing
     // reads them. They are deliberately not dropped here: an install that has them holds
