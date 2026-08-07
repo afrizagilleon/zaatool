@@ -94,7 +94,7 @@ await check("T-02: authMiddleware re-reads DB role and active status per request
 await check("T-03: PATCH /api/auth/users/:id deactivates/reactivates accounts and prevents self-deactivation", async () => {
   const creator = await authService.createUser("zz-test-creator1", "password123", "creator");
   const target = await authService.createUser("zz-test-target1", "password123", "viewer");
-  const viewer = await authService.createUser("zz-test-viewer1", "password123", "viewer");
+  await authService.createUser("zz-test-viewer1", "password123", "viewer");
 
   const creatorLogin = await authService.login("zz-test-creator1", "password123");
   const viewerLogin = await authService.login("zz-test-viewer1", "password123");
@@ -151,7 +151,7 @@ await check("T-03: PATCH /api/auth/users/:id deactivates/reactivates accounts an
 });
 
 await check("T-04: POST /api/auth/me/password changes self password with current password verification", async () => {
-  const user = await authService.createUser("zz-test-pwd1", "password123", "viewer");
+  await authService.createUser("zz-test-pwd1", "password123", "viewer");
   const loginRes = await authService.login("zz-test-pwd1", "password123");
 
   // Wrong current password attempt
@@ -199,29 +199,47 @@ await check("T-04: POST /api/auth/me/password changes self password with current
   assert.ok(newLogin.token);
 });
 
-await check("T-05: reset-password script accepts --password flag or reads stdin without echo", async () => {
+await check("T-05: reset-password takes a password, prompts for one, or generates one", async () => {
   const { execFileSync, spawnSync } = await import("node:child_process");
+  const run = (...args: string[]) => ["--import", "tsx", "scripts/reset-password.ts", ...args];
 
   await authService.createUser("zz-test-reset1", "password123", "viewer");
 
-  // 1. With --password flag
-  execFileSync(process.execPath, ["--import", "tsx", "scripts/reset-password.ts", "zz-test-reset1", "--password", "flagpass123"], {
+  // 1. --password: the caller already knows what they want.
+  execFileSync(process.execPath, run("zz-test-reset1", "--password", "flagpass123"), {
     cwd: process.cwd(),
   });
-  const login1 = await authService.login("zz-test-reset1", "flagpass123");
-  assert.ok(login1.token);
+  assert.ok((await authService.login("zz-test-reset1", "flagpass123")).token);
 
-  // 2. Interactive prompt via stdin
-  const proc = spawnSync(process.execPath, ["--import", "tsx", "scripts/reset-password.ts", "zz-test-reset1"], {
+  // 2. --prompt: typed where nobody can read it off the screen or the shell history.
+  const prompted = spawnSync(process.execPath, run("zz-test-reset1", "--prompt"), {
     cwd: process.cwd(),
     input: "stdinpass123\n",
     encoding: "utf-8",
   });
-  assert.equal(proc.status, 0);
-  assert.ok(!proc.stdout.includes("stdinpass123"), "Characters typed should not be echoed to stdout");
+  assert.equal(prompted.status, 0);
+  assert.ok(!prompted.stdout.includes("stdinpass123"), "typed characters must not be echoed");
+  assert.ok((await authService.login("zz-test-reset1", "stdinpass123")).token);
 
-  const login2 = await authService.login("zz-test-reset1", "stdinpass123");
-  assert.ok(login2.token);
+  // 3. No flag: generated, printed once. This is the locked-out path, and it is the
+  //    default because a password invented at a prompt in a hurry is the one that gets
+  //    shared. FX7 deleted it; it is back.
+  const generatedRun = spawnSync(process.execPath, run("zz-test-reset1"), {
+    cwd: process.cwd(),
+    encoding: "utf-8",
+  });
+  assert.equal(generatedRun.status, 0);
+  assert.match(generatedRun.stdout, /Shown once/, "a generated password announces itself");
+
+  const printed = generatedRun.stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => /^[a-zA-Z2-9]{20}$/.test(line));
+  assert.ok(printed, `expected a generated password in:\n${generatedRun.stdout}`);
+  assert.ok(
+    (await authService.login("zz-test-reset1", printed)).token,
+    "the password it printed is the password it set"
+  );
 });
 
 await check("T-06: create-user script creates account with required --role and accepts --password", async () => {
