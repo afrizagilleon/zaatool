@@ -1,5 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, act } from '@testing-library/react';
 import { mediaSource } from '../src/lib/media-source';
+import { FileField } from '../src/components/pages/render/FileField';
 
 describe('mediaSource (T-00)', () => {
   it('returns blob URL for File or Blob instance', () => {
@@ -19,5 +21,61 @@ describe('mediaSource (T-00)', () => {
 
   it('formats object url descriptor with API_BASE_URL', () => {
     expect(mediaSource({ url: '/storage/audio.mp3' })).toContain('/storage/audio.mp3');
+  });
+});
+
+describe('FileField inline preview & duration (T-01, T-02)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('renders audio player for audio chosen file (T-01)', () => {
+    const fileVal = JSON.stringify({
+      name: 'voice.mp3',
+      path: 'storage/voice.mp3',
+      url: '/storage/voice.mp3',
+      size: 1024,
+      mime: 'audio/mp3',
+    });
+
+    const { container } = render(
+      <FileField
+        input={{ name: 'voice', type: 'file', accept: 'audio/*' }}
+        value={fileVal}
+        onChange={() => {}}
+        notebookId="zz-test"
+      />
+    );
+
+    const audioElement = container.querySelector('audio');
+    expect(audioElement).not.toBeNull();
+    expect(audioElement?.getAttribute('src')).toContain('/storage/voice.mp3');
+  });
+
+  it('renders image preview thumbnail for image chosen file (T-01)', () => {
+    const fileVal = JSON.stringify({
+      name: 'pic.png',
+      path: 'storage/pic.png',
+      url: '/storage/pic.png',
+      size: 2048,
+      mime: 'image/png',
+    });
+
+    const { container } = render(
+      <FileField
+        input={{ name: 'photo', type: 'file', accept: 'image/*' }}
+        value={fileVal}
+        onChange={() => {}}
+        notebookId="zz-test"
+      />
+    );
+
+    const imgElement = container.querySelector('img');
+    expect(imgElement).not.toBeNull();
+    expect(imgElement?.getAttribute('src')).toContain('/storage/pic.png');
   });
 });

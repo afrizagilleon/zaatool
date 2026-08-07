@@ -233,6 +233,19 @@ export async function initDb() {
       END $$;
     `);
 
+    // Seed test fixture zz-uji-rekam (D-2 / T-01)
+    await client.query(`
+      INSERT INTO notebooks (id, name, runtime, document)
+      VALUES (
+        'zz-uji-rekam',
+        'zz-uji-rekam',
+        'node',
+        '{"version":"1.0","id":"zz-uji-rekam","name":"zz-uji-rekam","runtime":"node","inputs":[{"name":"audio_input","type":"file","accept":"audio/*"}],"outputs":[{"name":"audio_output","render":"audio"}],"steps":[{"id":"c1","kind":"cell","code":"return { audio_output: inputs.audio_input };"}]}'
+      )
+      ON CONFLICT (id) DO NOTHING;
+    `);
+
+
 
     // The canvas's tables — `flows` and `triggers` — are no longer created, and nothing
     // reads them. They are deliberately not dropped here: an install that has them holds

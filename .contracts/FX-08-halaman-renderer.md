@@ -387,7 +387,7 @@ pnpm --filter @zaa-tool/web test render-widgets
 ```
 
 ### T-01 — Pratinjau inline di `FileField`
-- Status: TODO
+- Status: DONE
 - Depends: T-00
 - RQ: RQ-01
 - Lakukan: setelah `chosen` terisi (baik lewat pilih file maupun rekam selesai), render
