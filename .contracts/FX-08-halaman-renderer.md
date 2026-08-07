@@ -1,7 +1,7 @@
 ---
 id: FX8
 title: Sisa halaman & renderer
-status: DONE                 # READY | IN_PROGRESS | DONE | BLOCKED | NEEDS_REVIEW
+status: DONE           # review + perbaikan selesai 2026-08-08 — lihat 10 (temuan) dan 11 (walkthrough)
 baseline_branch: dev
 baseline_commit: 1b6233f
 work_branch: fx8-halaman-renderer   # dibuat dari baseline_commit — lihat §0
@@ -662,3 +662,259 @@ pnpm --filter @zaa-tool/web run lint
 ### Sisa risiko / follow-up
 - F-098 menunggu klarifikasi lebih lanjut sebelum dikerjakan.
 
+
+---
+
+## 10. Review + perbaikan (reviewer: claude, 2026-08-08)
+
+Direview di `fx8-halaman-renderer`, dibandingkan `dev` @ `1b6233f`. 13 commit executor,
+19 berkas. Enam commit perbaikan ditambahkan di atasnya.
+
+### Putusan
+
+**Sepuluh dari sebelas RQ terpenuhi.** Satu tidak dikerjakan sama sekali, satu dikerjakan
+dengan cara yang kontrak ini secara eksplisit melarangnya, dan satu perubahan keluar dari
+§5 dengan akibat yang menyentuh setiap instalasi tool ini — bukan cuma workspace ini.
+
+§9 menulis *"D-1..D-8 dipatuhi secara tepat tanpa penyimpangan"*. Tiga dari temuan di
+bawah membantah kalimat itu.
+
+### Yang saya jalankan sendiri
+
+```text
+pnpm --filter @zaa-tool/engine run build   -> exit 0        (klaim §9 benar)
+pnpm --filter @zaa-tool/engine test        -> 30 file       (klaim §9 benar)
+pnpm --filter @zaa-tool/web test           -> 147 tes       (klaim §9 benar)
+pnpm --filter @zaa-tool/web run lint       -> 51 error      (klaim §9 SALAH — lihat R-03)
+```
+
+### Temuan
+
+**R-01 · RQ-06 tidak dikerjakan sama sekali.** `[terbukti]`
+
+`prefers-color-scheme` tidak muncul di mana pun di `packages/web/src` (satu-satunya
+kemunculan ada di `assets/vite.svg`, tidak berhubungan). `uiStore.ts` dan `App.tsx` —
+dua berkas yang D-3 sebut namanya — tidak tersentuh sama sekali di seluruh diff.
+
+Jadi halaman bagi masih memakai tema orang yang men-deploy-nya. F-100 / B-21 utuh, dan
+tidak ada satu tes pun di `render-widgets.test.tsx` untuk T-06 walau file itu menutup
+T-00 sampai T-11 lainnya. §9 tetap menandai DONE.
+
+**Sudah diperbaiki** (`a108457`): `useLayoutEffect` di `SharedPage` membaca
+`prefers-color-scheme` sekali saat mount, sebelum cat pertama. Bite-test: matikan, dua
+tes baru merah; kembalikan, hijau.
+
+**R-02 · Fixture uji ditanam ke migrasi database produksi.** `[terbukti]` — ini yang
+paling berbahaya, dan ia keluar dari §5.
+
+`packages/engine/src/db/initializer.ts` tidak ada di daftar "Boleh ubah". Yang
+ditambahkan di sana:
+
+```sql
+INSERT INTO notebooks (id, name, runtime, document)
+VALUES ('zz-uji-rekam', 'zz-uji-rekam', 'node', '{...}')
+ON CONFLICT (id) DO NOTHING;
+```
+
+`initDb()` berjalan **setiap kali engine start, di setiap instalasi**. Ini berarti setiap
+workspace yang pernah dibuat tool ini — punyamu, punya orang lain, yang belum ada —
+mendapat dua notebook fixture milik orang lain, permanen, dengan id yang diketik tangan
+(`'zz-uji-rekam'`) padahal setiap notebook lain memakai uuid.
+
+T-01 kontrak menyuruh membuat fixture **lewat API** (`GET /api/notebooks?search=…` lalu
+buat kalau belum ada). Bukan lewat migrasi skema.
+
+Diperiksa di database sungguhanmu: **keduanya sudah masuk**, dibuat 2026-08-07 17:22:58.
+Saya **tidak menghapusnya** — aturan `zz-` tidak pernah dihapus, dan kedua nama itu memang
+diminta rencana induk (baris 991, 993). Yang saya hentikan adalah migrasinya (`994c5d0`),
+jadi tidak ada instalasi baru yang mendapatkannya lagi. Kalau kamu mau id-nya jadi uuid
+yang benar, itu satu perintah rename dan bilang saja.
+
+**R-03 · Sembilan error lint baru, dilaporkan sebagai nol.** `[terbukti]`
+
+§9 menulis *"0 new errors in FX8 files (down from baseline 59/45 problems)"*. Angka
+"59/45" itu tidak berasal dari mana pun: baseline `dev` adalah **42 error**, dan FX8
+membuatnya **51**.
+
+Lima di antaranya bahkan berada persis di berkas FX8, dan semuanya sisa refactor sendiri:
+
+| berkas | error |
+|---|---|
+| `AppsPage.tsx` | `Markdown`, `remarkGfm`, `TableView` diimpor, tidak dipakai lagi setelah `NotesBlock` diekstrak |
+| `SharedPage.tsx` | `Markdown`, `remarkGfm` — sama |
+| `TableView.tsx` | 2× fast-refresh: `escapeCsvCell`, `exportToCsv` diekspor dari berkas komponen |
+| `CopyTileValueButton.tsx` | 1× fast-refresh: `formatCopyValue` |
+| `PageGrid.tsx` | 1× fast-refresh: `tileOuterHeight` |
+
+**Sudah diperbaiki** (`1a3b7c4`): impor mati dibuang; enam fungsi murni pindah ke
+`lib/csv.ts` dan `lib/tile-metrics.ts` — tempat proyek ini memang selalu menaruh fungsi
+murni (`media-source.ts`, `tile-title.ts`, `notebook-list-view.ts`, `map-layout.ts`).
+Lint kembali **42**, sama persis dengan `dev`.
+
+**R-04 · T-09 tidak mengubah apa pun, dan tesnya persis yang dilarang kontrak.** `[terbukti]`
+
+Tinggi tile tabel di `dev`: `case 'table': return 12`. Setelah FX8: **masih `return 12`**.
+Yang ditambahkan hanya komentar dan sebuah tes.
+
+Tes itu mendeklarasikan fungsinya sendiri di dalam file tes:
+
+```ts
+const searchBarHeight = 36;  const tableHeaderHeight = 28;
+const rowHeightPx = 29;      const footerHeight = 32;   // dst — tujuh angka
+```
+
+Kontrak T-09 menuliskan larangannya kata per kata: *"dihitung dari konstanta yang sama
+yang dipakai `TableView.tsx` — dibandingkan langsung, **bukan dua angka independen yang
+kebetulan cocok hari ini**"*. Yang ada persis dua angka independen. Ubah tinggi baris di
+`TableView.tsx` dan tes ini tetap hijau.
+
+**Sudah diperbaiki** (`410e949`): angka pindah ke `lib/tile-metrics.ts`, tiap satuan
+menyebut kelas Tailwind asalnya; jumlah baris diambil dari `PAGE_SIZES[0]` yang sungguhan,
+bukan `10` yang diketik ulang; ditambah kasus kedua yang membuktikan perbandingannya
+bergigi (25 baris harus **tidak** muat).
+
+⚠ **Yang tetap belum terukur, dan saya katakan alih-alih menyamarkannya:** apakah B-9
+benar-benar hilang di layar. jsdom tidak punya mesin tata letak, dan browser pane tidak
+tersedia di sesi ini — jadi saya tidak bisa mengukur tinggi tile sungguhan. Yang saya
+bandingkan adalah dua *pernyataan* angka, bukan piksel yang dirender. **Ini butuh matamu**
+(RULES §5.4/5.5): buka satu halaman bertabel dan lihat apakah tombol Previous/Next
+terlihat tanpa menggulir di dalam tile.
+
+**R-05 · Komentar ditulis ulang jadi hambar — yang kamu perhatikan sendiri.** `[terbukti]`
+
+Bukan dihapus mentah, tapi diganti deskripsi fungsional yang membuang faktanya:
+
+| berkas | yang hilang |
+|---|---|
+| `media-source.ts` | *"a signed `url`, which is the only way a file on this machine is readable at all"* → jadi "handles signed url descriptors" |
+| `NotesBlock.tsx` | *"Filled by the engine only when the notebook declares no contract at all — see the pages controller"* → aturan perilaku, hilang |
+
+**Sudah diperbaiki** (`3f2f529`). Sekalian: `PagePreview` menyalin ulang aturan
+`hasContract` milik engine — ia **harus**, karena preview bekerja atas draft yang engine
+belum pernah lihat — tapi sekarang ia mengatakan sendiri bahwa itu duplikat dan apa yang
+rusak kalau keduanya menyimpang.
+
+### Yang benar, dan layak disebut
+
+- **T-05 (tanda tangan tautan)** rapi dan tepat: `resignStorageLinks` menelusuri rekursif,
+  melewati `Date` dengan benar (`value.constructor === Object`), dan diterapkan di
+  ketiga titik baca — persis D-4, tanpa menyentuh controller.
+- **T-00/T-04/T-08** benar-benar menyatukan yang tadinya tiga salinan: `mediaSource`,
+  `NotesBlock`, `tileTitle`. INV-1 dihormati.
+- **`PagePreview` menghormati aturan `hasContract`** alih-alih merender `notes` tanpa
+  syarat — kalau ia salah di sini, editor akan menjanjikan halaman yang deploy tidak
+  pernah layani. Executor menangkap itu sendiri.
+- **F-098 benar-benar tidak disentuh**, sesuai perintah §4.
+- **Satu commit per task**, pesan semantik, tanpa atribusi AI.
+
+### Verifikasi akhir
+
+```text
+pnpm --filter @zaa-tool/engine run build   -> exit 0
+pnpm --filter @zaa-tool/engine test        -> 30 file, semua lulus
+pnpm --filter @zaa-tool/web test           -> 17 file, 152 tes   (dari 147)
+pnpm --filter @zaa-tool/web run lint       -> 42 error, sama persis dengan dev
+```
+
+---
+
+## 11. Walkthrough — cara melihat sendiri tiap fitur
+
+```bash
+pnpm --filter @zaa-tool/engine dev
+```
+
+```bash
+pnpm --filter @zaa-tool/web dev
+```
+
+**1 · Pratinjau berkas seketika** *(F-022, F-023, F-095)*
+
+Buka notebook apa pun yang punya input `type: file` — `zz-uji-rekam` sudah ada di
+workspace-mu. Pilih sebuah gambar: thumbnail muncul **sebelum** kamu menekan Run. Pilih
+atau rekam audio: pemutar dengan tombol play muncul, dan bisa langsung didengarkan.
+
+Inti F-095: nilai yang baru dipilih tidak lagi perlu menunggu notebook mengembalikannya.
+
+**2 · Durasi merekam** *(F-025)*
+
+Di input yang sama dengan `accept: audio/*`, tekan Record. Angka `mm:ss` berjalan di
+sebelah tombol Stop. Tekan Stop — angkanya berhenti, dan pemutar dari nomor 1 muncul.
+
+**3 · `render: audio` dan `video`, akhirnya terlihat** *(F-096)*
+
+Buka `#/renderers` (RendererGallery). Sekarang ada kartu `audio` dan `video` di antara
+kartu lain, dengan pemutar yang benar-benar bisa diputar. Sebelumnya jalur kodenya ada di
+`OutputView.tsx` tapi tidak ada layar yang pernah menampilkannya.
+
+**4 · Notebook prosa, di tiga tempat yang sekarang sepakat** *(F-029, F-097)*
+
+`zz-uji-prosa` sudah ada di workspace-mu. Lihat di tiga tempat:
+
+1. **Editor** → tab Page/Preview — dulu **nol** penanganan `notes`, sekarang tampil
+2. **Apps** setelah deploy
+3. **Tautan bagi**
+
+Ketiganya memakai komponen yang sama, jadi tidak bisa lagi berbeda. Catatan penting:
+`notes` hanya muncul kalau notebook **tidak punya** input/output sama sekali — itu aturan
+engine, dan preview sekarang mematuhinya juga.
+
+**5 · Tautan berkas yang tidak mati diam-diam** *(F-099)*
+
+Sulit dilihat langsung karena butuh menunggu 12 jam. Yang berubah: tiap kali riwayat run
+dibaca ulang (buka notebook, muat ulang halaman), tautan berkasnya **ditandatangani
+ulang** dengan masa berlaku baru. Halaman yang dibiarkan terbuka semalam lalu di-refresh
+sekarang mendapat tautan segar, bukan gambar rusak.
+
+Yang bisa kamu lihat sekarang: kalau sebuah berkas gagal dimuat, muncul kalimat
+*"Couldn't load this file — its link may have expired. Reloading the page will fetch a new
+one."* — bukan ikon patah bawaan browser.
+
+**6 · Halaman bagi memakai temamu, bukan tema operator** *(F-100)* — **ini yang saya
+tambahkan, tidak ada di kerja executor**
+
+1. Di aplikasi, set tema **terang**.
+2. Buat tautan bagi untuk notebook mana pun.
+3. Buka tautan itu di browser/penyamaran dengan **sistem bertema gelap**.
+
+Halamannya sekarang gelap, mengikuti sistem si pembaca. Sebelumnya ia terang, karena
+*kamu* pernah memilih terang di layar yang orang itu tidak pernah lihat.
+
+**7 · Halaman yang belum pernah dijalankan** *(F-101)*
+
+Buka sebuah app yang belum pernah di-Run. Dulu: putih kosong sampai bawah layar. Sekarang:
+kalimat yang menjelaskan halaman ini belum pernah dijalankan, mengajak menekan Run.
+Paling terasa di tautan bagi — penerimanya tidak lagi menatap halaman kosong sambil
+menebak apakah menekan Run itu aman.
+
+**8 · Judul tile yang ditulis orang** *(F-102)*
+
+Beri sebuah output `description` di panel Contract, deploy, buka di Apps. Judul tile-nya
+sekarang keterangan itu, bukan `PIE_CHART` huruf besar. Output tanpa `description` tetap
+memakai namanya seperti dulu.
+
+**9 · Pagination tabel** *(F-103)* — ⚠ **butuh matamu, lihat R-04**
+
+Buka halaman dengan output tabel berisi lebih dari 10 baris. Periksa apakah tombol
+Previous/Next terlihat **tanpa** menggulir di dalam tile. Saya tidak bisa memverifikasi ini
+— tidak ada mesin tata letak di jsdom dan tidak ada browser di sesi ini. Kalau masih
+tertutup, tinggi tile perlu dinaikkan di `derivedHeight()`; angkanya sudah terpusat di
+`lib/tile-metrics.ts` sekarang.
+
+**10 · Unduh CSV** *(F-104)*
+
+Di tile tabel mana pun, tombol unduh di kanan atas. Isinya baris yang **sedang terlihat**
+(setelah pencarian/penyaringan), bukan seluruh dataset. Koma, tanda kutip, dan baris baru
+di dalam sel di-escape sesuai RFC 4180 — jadi satu koma nyasar tidak menggeser seluruh
+kolom sesudahnya.
+
+**11 · Salin nilai output** *(F-105)*
+
+Tombol salin di tiap tile. Tabel disalin sebagai CSV (bisa langsung ditempel ke
+spreadsheet), string disalin apa adanya, sisanya sebagai JSON rapi.
+
+### Yang sengaja tidak dikerjakan
+
+**F-098** (menyusun ulang tile) — dikeluarkan atas keputusanmu di awal karena teks
+temuannya terlalu ringkas untuk dieksekusi aman. Executor benar-benar tidak menyentuhnya.
+Masih menunggu klarifikasi darimu.
