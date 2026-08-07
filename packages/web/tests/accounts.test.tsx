@@ -91,3 +91,65 @@ describe('AccountsTab component', () => {
     expect(handleSetActive).toHaveBeenLastCalledWith('u3', true);
   });
 });
+
+describe('Navbar profile dialog (T-09 & T-10)', () => {
+  it('shows hidden tabs explanation for viewer role, but not for creator role (T-09)', async () => {
+    const { Navbar } = await import('../src/components/layout/Navbar');
+    const user = userEvent.setup();
+
+    // 1. Viewer role
+    useAuthStore.setState({
+      user: { id: 'u2', username: 'viewer-user', email: null, role: 'viewer' },
+      token: 'mock-token',
+    });
+
+    const { unmount } = render(<Navbar />);
+    const profileBtn = screen.getAllByTitle('viewer-user — view profile')[0];
+    await user.click(profileBtn);
+
+    const explanation = screen.getByTestId('viewer-explanation');
+    expect(explanation).toBeDefined();
+    expect(explanation.textContent).toContain('Notebooks, Resources');
+    unmount();
+
+    // 2. Creator role
+    useAuthStore.setState({
+      user: { id: 'u1', username: 'creator-user', email: 'creator@example.com', role: 'creator' },
+      token: 'mock-token',
+    });
+
+    render(<Navbar />);
+    const creatorBtn = screen.getAllByTitle('creator-user — view profile')[0];
+    await user.click(creatorBtn);
+
+    expect(screen.queryByTestId('viewer-explanation')).toBeNull();
+  });
+
+  it('submits change password form in profile dialog (T-10)', async () => {
+    const { Navbar } = await import('../src/components/layout/Navbar');
+    const user = userEvent.setup();
+
+    const changePasswordMock = vi.fn().mockResolvedValue(true);
+    useAuthStore.setState({
+      user: { id: 'u1', username: 'creator-user', email: 'creator@example.com', role: 'creator' },
+      token: 'mock-token',
+      changePassword: changePasswordMock,
+    });
+
+    render(<Navbar />);
+    const profileBtn = screen.getAllByTitle('creator-user — view profile')[0];
+    await user.click(profileBtn);
+
+
+    const currentPwdInput = screen.getByPlaceholderText('Current password');
+    const newPwdInput = screen.getByPlaceholderText('New password (min 8 chars)');
+    const submitBtn = screen.getByRole('button', { name: /Update Password/i });
+
+    await user.type(currentPwdInput, 'oldpass123');
+    await user.type(newPwdInput, 'newpass123');
+    await user.click(submitBtn);
+
+    expect(changePasswordMock).toHaveBeenCalledWith('oldpass123', 'newpass123');
+  });
+});
+

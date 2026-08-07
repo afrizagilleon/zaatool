@@ -507,7 +507,7 @@ pnpm --filter @zaa-tool/web test accounts
 ```
 
 ### T-09 — Kalimat penjelas untuk menu viewer yang lebih pendek
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-07
 - Lakukan: di `Navbar.tsx`, dialog profil (~baris 196-201, di bawah baris "System Role"),

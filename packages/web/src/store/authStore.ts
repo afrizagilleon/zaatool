@@ -17,7 +17,9 @@ interface AuthState {
 
   login: (username: string, passwordPlain: string) => Promise<boolean>;
   registerUser: (username: string, passwordPlain: string, email?: string) => Promise<boolean>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
   logout: () => void;
+
   checkAuth: () => Promise<boolean>;
   clearError: () => void;
 }
@@ -82,7 +84,30 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
+      changePassword: async (currentPassword, newPassword) => {
+        set({ isLoading: true, error: null });
+        try {
+          const res = await fetch(`${API_BASE_URL}/api/auth/me/password`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ currentPassword, newPassword }),
+          });
+
+          const data = await res.json();
+          if (!res.ok) {
+            throw new Error(data.error || 'Failed to change password');
+          }
+
+          set({ isLoading: false });
+          return true;
+        } catch (err: unknown) {
+          set({ error: describeRequestFailure(err), isLoading: false });
+          return false;
+        }
+      },
+
       logout: () => {
+
         set({ token: null, user: null, error: null });
         localStorage.removeItem('zaatool_token');
       },

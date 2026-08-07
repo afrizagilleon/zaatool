@@ -1,7 +1,8 @@
-import { Sun, Moon, SignOut, List, User as UserIcon } from '@phosphor-icons/react';
+import { Sun, Moon, SignOut, List, User as UserIcon, Key } from '@phosphor-icons/react';
 import { useUiStore } from '../../store/uiStore.js';
 import { useAuthStore } from '../../store/authStore.js';
 import { Button } from '../ui/button.js';
+import { Input } from '../ui/input.js';
 import { useState } from 'react';
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs.js';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog.js';
@@ -28,6 +29,8 @@ const navTabs = [
   { id: 'resources' as const, label: 'Resources', creatorOnly: true },
 ] as const;
 
+const hiddenTabsLabel = navTabs.filter((t) => t.creatorOnly).map((t) => t.label).join(', ');
+
 /**
  * Tailwind needs the class to exist in the source, so the count cannot be interpolated.
  * Four entries in, at most four out.
@@ -46,9 +49,27 @@ export function Navbar() {
   const setActiveTab = useUiStore((s) => s.setActiveTab);
 
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [pwdSuccess, setPwdSuccess] = useState(false);
 
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  const changePassword = useAuthStore((s) => s.changePassword);
+  const error = useAuthStore((s) => s.error);
+  const clearError = useAuthStore((s) => s.clearError);
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPwdSuccess(false);
+    clearError();
+    const ok = await changePassword(currentPassword, newPassword);
+    if (ok) {
+      setCurrentPassword('');
+      setNewPassword('');
+      setPwdSuccess(true);
+    }
+  };
 
   /**
    * A viewer is not shown the sections it cannot use.
@@ -78,8 +99,7 @@ export function Navbar() {
       {/* Divider */}
       <div className="w-px h-5 bg-border mr-1" />
 
-      {/* Section switcher. Collapses to a menu where four tabs would crowd the actions
-          on the right. Same list, same state, one source. */}
+      {/* Section switcher */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -140,18 +160,23 @@ export function Navbar() {
         <>
           <div className="h-4 w-px bg-border mx-1" />
           <div className="flex min-w-0 items-center gap-2 pl-1">
-            {/* The name is worth 110px on a wide screen and it is the 110px that pushed
-                Logout off the right edge of a phone. Below `sm` it becomes the icon that
-                opens the same dialog, where the name is written out anyway. */}
             <button
-              onClick={() => setIsProfileOpen(true)}
+              onClick={() => {
+                clearError();
+                setPwdSuccess(false);
+                setIsProfileOpen(true);
+              }}
               className="hidden max-w-[110px] truncate border-none bg-transparent p-0 text-[11px] font-semibold text-muted-foreground outline-none transition-all hover:text-primary hover:underline sm:inline-block"
               title={`${user.username} — view profile`}
             >
               {user.username}
             </button>
             <Button
-              onClick={() => setIsProfileOpen(true)}
+              onClick={() => {
+                clearError();
+                setPwdSuccess(false);
+                setIsProfileOpen(true);
+              }}
               variant="ghost"
               size="icon"
               className="h-6 w-6 text-muted-foreground sm:hidden"
@@ -184,20 +209,71 @@ export function Navbar() {
                 </DialogDescription>
               </DialogHeader>
 
-              <div className="py-4 space-y-4 text-xs">
-                <div className="flex justify-between items-center py-2 border-b border-border/20">
+              <div className="py-4 space-y-3 text-xs">
+                <div className="flex justify-between items-center py-1.5 border-b border-border/20">
                   <span className="text-muted-foreground font-medium">Username</span>
                   <span className="font-bold text-foreground">{user.username}</span>
                 </div>
-                <div className="flex justify-between items-center py-2 border-b border-border/20">
+                <div className="flex justify-between items-center py-1.5 border-b border-border/20">
                   <span className="text-muted-foreground font-medium">Email Address</span>
                   <span className="font-semibold text-foreground">{user.email || 'N/A'}</span>
                 </div>
-                <div className="flex justify-between items-center py-2 border-b border-border/20">
+                <div className="flex justify-between items-center py-1.5 border-b border-border/20">
                   <span className="text-muted-foreground font-medium">System Role</span>
                   <span className="font-bold px-2 py-0.5 rounded bg-primary/10 text-primary uppercase text-[10px]">
                     {user.role || 'viewer'}
                   </span>
+                </div>
+
+                {user.role !== 'creator' && (
+                  <div className="text-[11px] text-muted-foreground bg-muted/40 p-2.5 rounded-md border border-border/40" data-testid="viewer-explanation">
+                    As a viewer, creator-only sections ({hiddenTabsLabel}) are hidden from your navigation menu.
+                  </div>
+                )}
+
+                {/* Change Password section */}
+                <div className="pt-3 border-t border-border/40">
+                  <h4 className="font-bold text-xs flex items-center gap-1.5 text-foreground mb-2">
+                    <Key size={14} className="text-primary" /> Change Password
+                  </h4>
+                  <form onSubmit={handleChangePassword} className="space-y-2.5">
+                    {error && (
+                      <div className="p-2 rounded text-xs bg-destructive/10 text-destructive font-medium border border-destructive/20" data-testid="password-error">
+                        {error}
+                      </div>
+                    )}
+                    {pwdSuccess && (
+                      <div className="p-2 rounded text-xs bg-emerald-500/10 text-emerald-500 font-medium border border-emerald-500/20" data-testid="password-success">
+                        Password updated successfully.
+                      </div>
+                    )}
+                    <div>
+                      <Input
+                        type="password"
+                        placeholder="Current password"
+                        value={currentPassword}
+                        onChange={(e) => setCurrentPassword(e.target.value)}
+                        className="h-8 text-xs font-mono"
+                      />
+                    </div>
+                    <div>
+                      <Input
+                        type="password"
+                        placeholder="New password (min 8 chars)"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        className="h-8 text-xs font-mono"
+                      />
+                    </div>
+                    <Button
+                      type="submit"
+                      size="sm"
+                      disabled={!currentPassword || newPassword.length < 8}
+                      className="h-7 text-xs w-full"
+                    >
+                      Update Password
+                    </Button>
+                  </form>
                 </div>
               </div>
 
@@ -213,3 +289,4 @@ export function Navbar() {
     </header>
   );
 }
+
