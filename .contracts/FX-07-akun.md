@@ -450,7 +450,7 @@ pnpm --filter @zaa-tool/engine test auth-accounts
 (tes menjalankan skrip lewat `child_process.spawnSync("tsx", ["scripts/reset-password.ts", ...])` di proses tersendiri, sesuai catatan `run-all.ts` bahwa tiap file tes sudah proses sendiri — spawn tambahan di dalamnya aman.)
 
 ### T-06 — CLI baru: `create-user`
-- Status: TODO
+- Status: DONE
 - Depends: T-05 (menirukan pola parsing argumen yang sama)
 - RQ: RQ-02
 - Lakukan: buat `packages/engine/scripts/create-user.ts`, meniru struktur

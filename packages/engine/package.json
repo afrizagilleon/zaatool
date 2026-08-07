@@ -9,7 +9,9 @@
     "dev:cli": "tsx watch src/index.ts",
     "build": "tsc",
     "reset-password": "tsx scripts/reset-password.ts",
+    "create-user": "tsx scripts/create-user.ts",
     "agent-token": "tsx scripts/agent-token.ts"
+
   },
   "keywords": [],
   "author": "",

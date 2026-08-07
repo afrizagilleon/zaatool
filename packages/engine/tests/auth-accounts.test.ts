@@ -224,6 +224,27 @@ await check("T-05: reset-password script accepts --password flag or reads stdin 
   assert.ok(login2.token);
 });
 
+await check("T-06: create-user script creates account with required --role and accepts --password", async () => {
+  const { execFileSync, spawnSync } = await import("node:child_process");
+
+  // 1. Missing --role fails
+  const noRoleProc = spawnSync(process.execPath, ["--import", "tsx", "scripts/create-user.ts", "zz-test-norole", "--password", "password123"], {
+    cwd: process.cwd(),
+    encoding: "utf-8",
+  });
+  assert.notEqual(noRoleProc.status, 0);
+
+  // 2. Success with --role viewer and --password
+  const proc = spawnSync(process.execPath, ["--import", "tsx", "scripts/create-user.ts", "zz-test-create1", "--role", "viewer", "--password", "userpass123"], {
+    cwd: process.cwd(),
+    encoding: "utf-8",
+  });
+  assert.equal(proc.status, 0);
+
+  const loginRes = await authService.login("zz-test-create1", "userpass123");
+  assert.ok(loginRes.token);
+  assert.equal(loginRes.user.role, "viewer");
+});
 
 await pool.query("DELETE FROM users WHERE username LIKE 'zz-test-%'");
 
