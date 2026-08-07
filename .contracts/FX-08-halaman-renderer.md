@@ -420,7 +420,7 @@ pnpm --filter @zaa-tool/web test render-widgets
 ```
 
 ### T-03 — `audio`/`video` di `RendererGallery`
-- Status: TODO
+- Status: DONE
 - Depends: T-00
 - RQ: RQ-03
 - Lakukan: tambah dua entri ke `CASES` di `RendererGallery.tsx`, mengikuti bentuk entri

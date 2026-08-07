@@ -79,3 +79,17 @@ describe('FileField inline preview & duration (T-01, T-02)', () => {
     expect(imgElement?.getAttribute('src')).toContain('/storage/pic.png');
   });
 });
+
+describe('RendererGallery audio and video cases (T-03)', () => {
+  it('renders audio and video controls in RendererGallery', async () => {
+    const { RendererGallery } = await import('../src/components/pages/RendererGallery');
+    const { container } = render(<RendererGallery />);
+
+    const audioElements = container.querySelectorAll('audio');
+    const videoElements = container.querySelectorAll('video');
+
+    expect(audioElements.length).toBeGreaterThan(0);
+    expect(videoElements.length).toBeGreaterThan(0);
+  });
+});
+
