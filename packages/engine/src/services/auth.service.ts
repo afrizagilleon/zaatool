@@ -173,13 +173,18 @@ export class AuthService {
     const { rows } = await pool.query(
       "SELECT id, username, email, role, active, created_at FROM users ORDER BY created_at ASC"
     );
+    // `createdAt`, not `created_at`: the shape a caller receives is the one
+    // `AccountUser` in `@zaa-tool/shared` describes, and the column name stops at this
+    // boundary. It shipped once as `created_at` against a type that promised
+    // `createdAt` — nothing broke, because nothing read it yet, which is the worst kind
+    // of nothing.
     return rows.map((r) => ({
       id: r.id,
       username: r.username,
       email: r.email,
       role: isRole(r.role) ? r.role : ("viewer" as Role),
       active: r.active ?? true,
-      created_at: r.created_at,
+      createdAt: new Date(r.created_at).toISOString(),
     }));
   }
 

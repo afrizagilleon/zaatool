@@ -246,8 +246,36 @@ await check("T-06: create-user script creates account with required --role and a
   assert.equal(loginRes.user.role, "viewer");
 });
 
-await pool.query("DELETE FROM users WHERE username LIKE 'zz-test-%'");
+/**
+ * R-02 — the account the API sends is the account the shared type describes.
+ *
+ * `AccountUser` promised `createdAt` while the engine sent `created_at`. Nothing broke,
+ * because no screen read it yet — so TypeScript would have gone on insisting the field
+ * was a string right up until the first person used it and got `undefined`. jsdom cannot
+ * catch that and neither can the compiler: only a test that looks at the wire can.
+ */
+await check("R-02: the users API sends the field names the shared type promises", async () => {
+  const creator = await authService.createUser("zz-test-shape", "password123", "creator");
+  const { token } = await authService.login("zz-test-shape", "password123");
 
+  const res = await fetch(`${base}/api/auth/users`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  assert.equal(res.status, 200);
+
+  const body = (await res.json()) as { users: Record<string, unknown>[] };
+  const mine = body.users.find((u) => u.id === creator.id);
+  assert.ok(mine, "the account that just signed in should be in the list");
+
+  for (const field of ["id", "username", "email", "role", "active", "createdAt"]) {
+    assert.ok(field in mine, `AccountUser declares \`${field}\`, so the API must send it`);
+  }
+  assert.equal("created_at" in mine, false, "the column name stops at the service boundary");
+  assert.equal(typeof mine.createdAt, "string", "AccountUser declares createdAt as a string");
+  assert.ok(!Number.isNaN(Date.parse(mine.createdAt as string)), "and it must be a real date");
+});
+
+await pool.query("DELETE FROM users WHERE username LIKE 'zz-test-%'");
 
 await new Promise<void>((resolve) => server.close(() => resolve()));
 await pool.end();
