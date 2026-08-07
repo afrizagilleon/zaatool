@@ -490,7 +490,7 @@ pnpm --filter @zaa-tool/web test accounts
 ```
 
 ### T-08 — Nonaktifkan / aktifkan dari `AccountsTab`
-- Status: TODO
+- Status: DONE
 - Depends: T-07, T-03
 - RQ: RQ-05
 - Lakukan: tambah `setActive` ke `useAccounts.ts` (panggil `PATCH
