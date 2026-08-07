@@ -151,6 +151,21 @@ const CASES: Case[] = [
     expect: 'A blue rectangle.',
   },
   {
+    label: 'audio (data URI)',
+    output: { name: 'voiceNote', render: 'audio' },
+    value:
+      'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=',
+    expect: 'An audio player with controls.',
+  },
+  {
+    label: 'video (data URI)',
+    output: { name: 'demoClip', render: 'video' },
+    value:
+      'data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAAAAA=',
+    expect: 'A video player with controls.',
+  },
+
+  {
     label: 'file',
     output: { name: 'report', render: 'file' },
     value: { name: 'report.pdf', path: 'uploads/report.pdf', mime: 'application/pdf' },

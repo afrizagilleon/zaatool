@@ -1,4 +1,21 @@
 import { useMemo, useState } from 'react';
+import { DownloadSimple } from '@phosphor-icons/react';
+import { exportToCsv } from '../../../lib/csv';
+import { PAGE_SIZES } from '../../../lib/tile-metrics';
+
+
+function triggerCsvDownload(csvContent: string, filename = 'table-data.csv') {
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 import { CaretUp, CaretDown, MagnifyingGlass } from '@phosphor-icons/react';
 import { Input } from '../../ui/input';
 import { Button } from '../../ui/button';
@@ -18,7 +35,6 @@ import { cn } from '../../../lib/utils';
  * notebook actually built rather than a list someone has to maintain alongside it.
  */
 
-const PAGE_SIZES = [10, 25, 50, 100];
 
 /**
  * The point past which the page stops pretending.
@@ -225,7 +241,24 @@ export function TableView({ rows: given }: { rows: Record<string, unknown>[] }) 
         </span>
 
         <div className="flex items-center gap-1">
+          {ordered.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-[10px] gap-1"
+              title="Download CSV"
+              onClick={() => {
+                const csv = exportToCsv(columns, ordered);
+                triggerCsvDownload(csv);
+              }}
+            >
+              <DownloadSimple size={10} />
+              CSV
+            </Button>
+          )}
+
           {rows.length > PAGE_SIZES[0] && (
+
             <select
               value={pageSize}
               onChange={(event) => {

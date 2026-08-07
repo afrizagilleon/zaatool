@@ -3,6 +3,7 @@ import { Microphone, Paperclip, Stop, X } from '@phosphor-icons/react';
 import type { NotebookFile, NotebookParam } from '@zaa-tool/shared';
 import { Button } from '../../ui/button';
 import { useFileUpload } from '../../../hooks/useFileUpload';
+import { mediaSource } from '../../../lib/media-source';
 
 /**
  * A file, chosen or recorded.
@@ -20,6 +21,28 @@ import { useFileUpload } from '../../../hooks/useFileUpload';
 /** Whether this input is asking for something you could speak into a microphone. */
 function wantsAudio(input: NotebookParam): boolean {
   return (input.accept ?? '').toLowerCase().includes('audio');
+}
+
+function isAudio(file: NotebookFile | null, accept?: string): boolean {
+  if (!file) return false;
+  if (file.mime?.startsWith('audio/')) return true;
+  if (file.name.match(/\.(mp3|wav|ogg|m4a|webm|aac|flac)$/i)) return true;
+  if ((accept ?? '').toLowerCase().includes('audio')) return true;
+  return false;
+}
+
+function isImage(file: NotebookFile | null, accept?: string): boolean {
+  if (!file) return false;
+  if (file.mime?.startsWith('image/')) return true;
+  if (file.name.match(/\.(png|jpg|jpeg|gif|webp|svg|bmp)$/i)) return true;
+  if ((accept ?? '').toLowerCase().includes('image')) return true;
+  return false;
+}
+
+function formatDuration(totalSeconds: number): string {
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = totalSeconds % 60;
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 
 /**
@@ -63,7 +86,11 @@ export function FileField({
   const { upload, isUploading, error } = useFileUpload(notebookId, shareToken);
   const [recording, setRecording] = useState(false);
   const [recordError, setRecordError] = useState<string | null>(null);
+  const [mediaError, setMediaError] = useState<string | null>(null);
+  const [secondsRecorded, setSecondsRecorded] = useState(0);
+
   const recorderRef = useRef<MediaRecorder | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const chosen: NotebookFile | null = (() => {
     if (!value) return null;
@@ -75,10 +102,18 @@ export function FileField({
     }
   })();
 
+  const clearTimer = () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
   // A recorder holds the microphone open. Leaving the page mid-recording must release it,
   // or the browser keeps showing the recording indicator over an app that has gone.
   useEffect(() => {
     return () => {
+      clearTimer();
       recorderRef.current?.stream.getTracks().forEach((track) => track.stop());
       recorderRef.current = null;
     };
@@ -107,6 +142,7 @@ export function FileField({
 
       recorder.ondataavailable = (event) => chunks.push(event.data);
       recorder.onstop = () => {
+        clearTimer();
         stream.getTracks().forEach((track) => track.stop());
         const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
         const extension = blob.type.includes('ogg') ? 'ogg' : blob.type.includes('mp4') ? 'm4a' : 'webm';
@@ -117,7 +153,14 @@ export function FileField({
       recorderRef.current = recorder;
       recorder.start();
       setRecording(true);
+
+      setSecondsRecorded(0);
+      clearTimer();
+      timerRef.current = setInterval(() => {
+        setSecondsRecorded((s) => s + 1);
+      }, 1000);
     } catch (err) {
+      clearTimer();
       // Refusing the microphone is a normal answer, not a failure worth a stack trace —
       // but it is a different answer from having no microphone, and telling someone to
       // check their permissions when the device has no input is its own dead end.
@@ -131,23 +174,73 @@ export function FileField({
     }
   };
 
+  const stopRecording = () => {
+    clearTimer();
+    recorderRef.current?.stop();
+  };
+
+  const src = chosen ? mediaSource(chosen) : null;
+
   return (
     <div className="space-y-1.5">
       {chosen ? (
-        <div className="flex items-center gap-2 border border-border px-2 py-1.5">
-          <Paperclip size={13} className="shrink-0 text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate text-xs">{chosen.name}</span>
-          <span className="shrink-0 text-[10px] text-muted-foreground">{readable(chosen.size)}</span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-5 w-5 shrink-0"
-            onClick={() => onChange('')}
-            title="Remove"
-          >
-            <X size={11} />
-          </Button>
+        <div className="space-y-2">
+          {src && isImage(chosen, input.accept) && (
+            <div className="overflow-hidden rounded border border-border bg-muted/20 p-1">
+              {mediaError ? (
+                <p className="p-2 text-xs text-status-error">{mediaError}</p>
+              ) : (
+                <img
+                  src={src}
+                  alt={chosen.name}
+                  className="max-h-[120px] max-w-full object-contain"
+                  onError={() =>
+                    setMediaError(
+                      "Couldn't load this file — its link may have expired. Reloading the page will fetch a new one."
+                    )
+                  }
+                />
+              )}
+            </div>
+          )}
+
+          {src && isAudio(chosen, input.accept) && (
+            <div>
+              {mediaError ? (
+                <p className="p-2 text-xs text-status-error">{mediaError}</p>
+              ) : (
+                <audio
+                  src={src}
+                  controls
+                  className="w-full"
+                  onError={() =>
+                    setMediaError(
+                      "Couldn't load this file — its link may have expired. Reloading the page will fetch a new one."
+                    )
+                  }
+                />
+              )}
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 border border-border px-2 py-1.5">
+            <Paperclip size={13} className="shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate text-xs">{chosen.name}</span>
+            <span className="shrink-0 text-[10px] text-muted-foreground">{readable(chosen.size)}</span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5 shrink-0"
+              onClick={() => {
+                setMediaError(null);
+                onChange('');
+              }}
+              title="Remove"
+            >
+              <X size={11} />
+            </Button>
+          </div>
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-2">
@@ -176,12 +269,12 @@ export function FileField({
               className="h-[30px] gap-1.5 text-xs"
               disabled={isUploading}
               onClick={() => {
-                if (recording) recorderRef.current?.stop();
+                if (recording) stopRecording();
                 else void startRecording();
               }}
             >
               {recording ? <Stop size={12} weight="fill" /> : <Microphone size={12} />}
-              {recording ? 'Stop' : 'Record'}
+              {recording ? `Stop (${formatDuration(secondsRecorded)})` : 'Record'}
             </Button>
           )}
         </div>

@@ -1,13 +1,17 @@
-import Markdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { Play, Spinner, Lock, WarningCircle, CircleDashed } from '@phosphor-icons/react';
 import type { NotebookPage } from '@zaa-tool/shared';
 import { API_BASE_URL } from '../../lib/api';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { InputField, initialValues, toArgs } from './render/InputField';
+import { CopyTileValueButton } from './render/CopyTileValueButton';
+import { tileTitle } from '../../lib/tile-title';
+
 import { OutputView } from './render/OutputView';
+
+import { NotesBlock } from './render/NotesBlock';
+
 import { PageGrid } from './render/PageGrid';
 import { PageActions } from './render/PageActions';
 import { authenticateSocket, connectRunSocket, subscribeToRun } from '../../lib/run-socket';
@@ -73,6 +77,25 @@ export function SharedPage({ token }: { token: string }) {
   const [outputs, setOutputs] = useState<Record<string, unknown>>({});
   const [runId, setRunId] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+
+  /**
+   * A shared page belongs to whoever opened the link, not to whoever deployed it.
+   *
+   * `uiStore` keeps the operator's light/dark choice in `localStorage` per origin and
+   * writes it onto `<html>` the moment the module loads — before this component gets a
+   * say, and regardless of route. That is right for the app and wrong here: a page handed
+   * to somebody with no account has no "app preference" to inherit, and inheriting one
+   * meant a stranger's first visit was dark because *you* had chosen dark once, on a
+   * screen they have never seen.
+   *
+   * Read once, at mount, in a layout effect so it lands before the first paint. Not
+   * subscribed to changes: this exists to break an inheritance, not to build the theme
+   * switcher the share page deliberately does not have.
+   */
+  useLayoutEffect(() => {
+    const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)')?.matches ?? false;
+    document.documentElement.classList.toggle('dark', prefersDark);
+  }, []);
 
   const headers = useCallback(
     (): Record<string, string> => ({
@@ -262,17 +285,8 @@ export function SharedPage({ token }: { token: string }) {
           )}
         </div>
 
-        {/* A written notebook, shared as what it is. Filled by the engine only when the
-            notebook declares no contract at all — see the pages controller. */}
-        {page.notes.length > 0 && (
-          <div className="prose-sm max-w-none space-y-4 border border-border p-5 text-sm [&_code]:font-mono [&_code]:text-xs [&_h1]:text-base [&_h1]:font-bold [&_h2]:text-sm [&_h2]:font-bold [&_li]:ml-4 [&_li]:list-disc [&_pre]:overflow-x-auto [&_pre]:bg-muted/40 [&_pre]:p-2">
-            {page.notes.map((note, index) => (
-              <Markdown key={index} remarkPlugins={[remarkGfm]}>
-                {note}
-              </Markdown>
-            ))}
-          </div>
-        )}
+        <NotesBlock notes={page.notes} />
+
 
         {page.inputs.length > 0 && (
           <div className="space-y-4 border border-border p-4">
@@ -322,10 +336,12 @@ export function SharedPage({ token }: { token: string }) {
                 <>
                   <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-3 py-1.5">
                     <span className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                      {output.name}
+                      {tileTitle(output)}
                     </span>
                     <div className="flex-1" />
+                    {hasValue && <CopyTileValueButton value={outputs[output.name]} />}
                     {state === 'running' && (
+
                       <Spinner size={10} className="animate-spin text-muted-foreground" />
                     )}
                   </div>

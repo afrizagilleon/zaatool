@@ -63,3 +63,38 @@ export function storageLinkValid(relativePath: string, exp: unknown, sig: unknow
   if (expected.length !== offered.length) return false;
   return crypto.timingSafeEqual(expected, offered);
 }
+
+const STORAGE_LINK_REGEX = /^\/storage\/([^?#]+)\?exp=\d+&sig=[A-Za-z0-9_-]+$/;
+
+/**
+ * Traverses a JSON structure recursively and resigns any storage link matching
+ * /storage/<path>?exp=<num>&sig=<str> with a fresh expiration timestamp.
+ */
+export function resignStorageLinks(value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+
+  if (typeof value === "string") {
+    const match = value.match(STORAGE_LINK_REGEX);
+    if (match) {
+      const encodedPath = match[1];
+      const relativePath = encodedPath.split("/").map(decodeURIComponent).join("/");
+      return signStorageLink(relativePath);
+    }
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(resignStorageLinks);
+  }
+
+  if (typeof value === "object" && value.constructor === Object) {
+    const res: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      res[k] = resignStorageLinks(v);
+    }
+    return res;
+  }
+
+  return value;
+}
+

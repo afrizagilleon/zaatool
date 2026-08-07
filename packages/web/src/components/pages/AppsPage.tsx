@@ -1,5 +1,3 @@
-import Markdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { useEffect, useMemo, useState } from 'react';
 import {
   Play,
@@ -25,7 +23,12 @@ import {
 import { Button } from '../ui/button';
 import { usePageRun, type OutputStatus } from '../../hooks/usePageRun';
 import { notebooksApi } from '../../lib/notebooks-api';
+import { NotesBlock } from './render/NotesBlock';
+import { CopyTileValueButton } from './render/CopyTileValueButton';
+import { tileTitle } from '../../lib/tile-title';
+
 import { OutputView } from './render/OutputView';
+
 import { PageGrid } from './render/PageGrid';
 import { ShareDialog } from './ShareDialog';
 import { InputField, initialValues, toArgs } from './render/InputField';
@@ -102,7 +105,8 @@ function PageMoved({ gone, onReload }: { gone: boolean; onReload: () => void }) 
   );
 }
 
-function PageRunner({
+export function PageRunner({
+
   page,
   latest,
   onReload,
@@ -150,18 +154,8 @@ function PageRunner({
 
         {moved && <PageMoved gone={latest === null} onReload={onReload} />}
 
-        {/* A notebook with no contract is not an app, it is something somebody wrote —
-            and this is the reading of it. The engine only fills `notes` in that case, so
-            no page with results ever grows a wall of its author's working notes. */}
-        {page.notes.length > 0 && (
-          <div className="prose-sm max-w-none space-y-4 border border-border p-5 text-sm [&_code]:font-mono [&_code]:text-xs [&_h1]:text-base [&_h1]:font-bold [&_h2]:text-sm [&_h2]:font-bold [&_li]:ml-4 [&_li]:list-disc [&_pre]:overflow-x-auto [&_pre]:bg-muted/40 [&_pre]:p-2">
-            {page.notes.map((note, index) => (
-              <Markdown key={index} remarkPlugins={[remarkGfm]}>
-                {note}
-              </Markdown>
-            ))}
-          </div>
-        )}
+        <NotesBlock notes={page.notes} />
+
 
         {page.inputs.length > 0 && (
           <div className="space-y-4 border border-border p-4">
@@ -220,7 +214,15 @@ function PageRunner({
           </div>
         )}
 
-        {hasResult && (
+        {!hasResult && !isRunning && page.outputs.length > 0 && (
+          <div className="border border-border p-6 text-center">
+            <p className="text-xs text-muted-foreground">
+              This page has not been run yet. Click <span className="font-semibold text-foreground">Run</span> to execute it.
+            </p>
+          </div>
+        )}
+
+        {(hasResult || isRunning) && (
           <div className="space-y-2">
             <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
               Result
@@ -244,10 +246,12 @@ function PageRunner({
                   <>
                     <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-3 py-1.5">
                       <span className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                        {output.name}
+                        {tileTitle(output)}
                       </span>
                       <div className="flex-1" />
+                      {hasValue && <CopyTileValueButton value={outputs[output.name]} />}
                       {(state === 'running' || (state === 'stale' && isRunning)) && (
+
                         <span className="flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground/70">
                           <Spinner size={10} className="animate-spin" />
                           {state === 'running' ? 'Working' : 'From the last run'}
@@ -272,6 +276,7 @@ function PageRunner({
             />
           </div>
         )}
+
       </div>
     </div>
   );

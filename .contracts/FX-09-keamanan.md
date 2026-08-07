@@ -166,6 +166,27 @@ ulang path/baris kalau `dev` sudah bergerak, sesuai §0.5)
   berkas di luar jalur itu.
 - **INV-4**: tidak ada `any`; sempitkan lewat `unknown` + type guard.
 - **INV-5**: setiap fungsi async menangani error-nya; tidak ada floating promise.
+- **INV-6 — JANGAN HAPUS ATAU MENULIS ULANG KOMENTAR YANG SUDAH ADA.** Ini terjadi di
+  FX7 **dan** FX8, dan pemilik repositori memperhatikannya dua kali. Aturannya keras:
+
+  - Komentar yang sudah ada di sebuah berkas **tetap di sana**. Kalau kodenya kamu ubah,
+    perbarui komentarnya seperlunya — jangan menggantinya dengan versi yang lebih pendek.
+  - Kalau kamu **memindahkan** kode ke berkas baru, **komentarnya ikut pindah**, utuh.
+    FX7 memindahkan `ROLES` ke `packages/shared` dan meninggalkan penjelasan kenapa tidak
+    ada peran ketiga. FX8 memindahkan `mediaSource` dan mengganti *"a signed `url`, which
+    is the only way a file on this machine is readable at all"* — sebuah fakta keamanan —
+    dengan *"handles signed url descriptors"*.
+  - **Deskripsi fungsional bukan pengganti alasan.** "Renders prose notes for notebooks
+    that have no contract" menjelaskan apa yang dilakukan kode, yang sudah bisa dibaca
+    dari kodenya. Yang tidak bisa dibaca dari kode adalah *kenapa* — dan itu yang hilang.
+  - Kalau sebuah komentar menurutmu **salah**, jangan diam-diam menghapusnya: perbaiki
+    isinya, atau tulis di §9 bahwa kamu menghapusnya dan kenapa.
+
+  Alasannya bukan selera. `RULES.md` proyek ini dibangun di atas kalimat *"a rule without
+  its wreckage is advice"* — komentar di sini menyimpan bug yang pernah terjadi. Yang
+  dihapus FX7 adalah catatan bug tata letak ponsel dari FX3; menghapusnya adalah mengundang
+  bug itu kembali. **Diff yang menghapus baris komentar tanpa memindahkannya ke tempat lain
+  akan ditolak saat review.**
 
 ### Keputusan yang sudah final
 
@@ -349,6 +370,15 @@ untuk syarat urutan cabang yang juga bisa memblokir sebelum task pertama pun dim
 
 ### Dilarang
 
+- **Menghapus atau memperpendek komentar yang sudah ada** (INV-6). Periksa sendiri sebelum
+  menandai task DONE:
+  ```bash
+  git diff dev --  '*.ts' '*.tsx' | grep -E "^-" | grep -E "(\*|//|\{/\*)"
+  ```
+  Kalau perintah itu mencetak sesuatu yang bukan pindahan ke berkas lain, kembalikan dulu.
+- **Menanam data ke `initializer.ts`.** FX8 memasukkan dua notebook fixture ke migrasi
+  skema, yang berjalan di **setiap** instalasi tool ini selamanya. `initDb()` membuat tabel
+  dan kolom — tidak pernah baris. Fixture dibuat lewat API, di mesin yang membutuhkannya.
 - Menambah kolom `is_fixture` atau apa pun terkait F-121 (ditutup, D-1 §0)
 - Mengetatkan cabang `NODE_ENV` di `corsPolicy()` (Out of scope)
 - Dependency baru selain `express-rate-limit`

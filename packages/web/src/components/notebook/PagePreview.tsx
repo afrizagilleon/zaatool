@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import {
   Play,
   Spinner,
@@ -11,10 +12,16 @@ import type { NotebookLayoutItem, NotebookOutput } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { useNotebookStore } from '../../store/notebookStore';
 import { specsOf } from '../../lib/notebook-outputs';
+import { CopyTileValueButton } from '../pages/render/CopyTileValueButton';
+import { tileTitle } from '../../lib/tile-title';
+
 import { OutputView } from '../pages/render/OutputView';
+
+import { NotesBlock } from '../pages/render/NotesBlock';
 import { PageGrid, derivedLayout } from '../pages/render/PageGrid';
 import { InputField } from '../pages/render/InputField';
 import { cn } from '../../lib/utils';
+
 
 /**
  * The page this notebook would serve, shown against the draft.
@@ -101,6 +108,7 @@ export function PagePreview({ onRun, isRunning }: PagePreviewProps) {
   // and got a 404 — the one screen where you would try a picker first was the one
   // screen where it could not work.
   const notebookId = useNotebookStore((s) => s.id);
+  const steps = useNotebookStore((s) => s.steps);
   const inputs = useNotebookStore((s) => s.inputs);
   const declared = useNotebookStore((s) => s.outputs);
   const cellRuns = useNotebookStore((s) => s.cellRuns);
@@ -111,6 +119,29 @@ export function PagePreview({ onRun, isRunning }: PagePreviewProps) {
 
   const outputs = specsOf(declared);
   const resolved = resolve(outputs, cellRuns);
+
+  /**
+   * The same rule the engine applies, applied again here — deliberately.
+   *
+   * `notesOf` and the `hasContract` gate live in the pages controller, but a preview runs
+   * against the *draft*, which the engine has never seen. Reusing the server's answer
+   * would mean prose appearing in the preview only after a save, which is precisely the
+   * lie a preview exists to avoid.
+   *
+   * So it is stated twice, and that is a debt: change the rule in the controller and this
+   * has to follow, or the editor will promise a page the deploy does not serve.
+   */
+  const hasContract = inputs.length > 0 || outputs.length > 0;
+  const notes = useMemo(() => {
+    if (hasContract) return [];
+    const list: string[] = [];
+    for (const step of steps) {
+      if (step.kind === 'cell' && step.note?.trim()) {
+        list.push(step.note.trim());
+      }
+    }
+    return list;
+  }, [hasContract, steps]);
 
   /**
    * Only a real rearrangement counts.
@@ -126,7 +157,7 @@ export function PagePreview({ onRun, isRunning }: PagePreviewProps) {
     setLayout(next);
   };
 
-  if (inputs.length === 0 && outputs.length === 0) {
+  if (inputs.length === 0 && outputs.length === 0 && notes.length === 0) {
     return (
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-2xl px-6 py-12 text-center">
@@ -150,6 +181,9 @@ export function PagePreview({ onRun, isRunning }: PagePreviewProps) {
             Preview · draft
           </span>
         </div>
+
+        <NotesBlock notes={notes} />
+
 
         {inputs.length > 0 && (
           <div className="space-y-4 border border-border p-4">
@@ -218,10 +252,12 @@ export function PagePreview({ onRun, isRunning }: PagePreviewProps) {
                     >
                       <DotsSixVertical size={14} weight="bold" className="text-muted-foreground/70" />
                       <span className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                        {output.name}
+                        {tileTitle(output)}
                       </span>
                       <div className="flex-1" />
+                      {hasValue && <CopyTileValueButton value={state.value} />}
                       {state.status === 'running' && (
+
                         <Spinner size={10} className="animate-spin text-muted-foreground" />
                       )}
                     </div>

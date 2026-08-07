@@ -233,6 +233,12 @@ export async function initDb() {
       END $$;
     `);
 
+    // Test fixtures do not belong here, and two of them were briefly written into this
+    // function during FX8. `initDb()` runs on every start of every installation: seeding
+    // `zz-uji-rekam` and `zz-uji-prosa` from a schema migration put somebody else's test
+    // notebooks into every workspace this tool will ever create, forever, with hand-picked
+    // ids where every other notebook has a uuid. A fixture is made the way a person makes
+    // one — through the API, on the machine that needs it.
 
     // The canvas's tables — `flows` and `triggers` — are no longer created, and nothing
     // reads them. They are deliberately not dropped here: an install that has them holds
