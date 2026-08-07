@@ -91,11 +91,71 @@ await check("T-02: authMiddleware re-reads DB role and active status per request
   assert.equal(body2.error, "This account has been deactivated.");
 });
 
+await check("T-03: PATCH /api/auth/users/:id deactivates/reactivates accounts and prevents self-deactivation", async () => {
+  const creator = await authService.createUser("zz-test-creator1", "password123", "creator");
+  const target = await authService.createUser("zz-test-target1", "password123", "viewer");
+  const viewer = await authService.createUser("zz-test-viewer1", "password123", "viewer");
+
+  const creatorLogin = await authService.login("zz-test-creator1", "password123");
+  const viewerLogin = await authService.login("zz-test-viewer1", "password123");
+
+  // Deactivate target account
+  const patch1 = await fetch(`${base}/api/auth/users/${target.id}`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${creatorLogin.token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ active: false }),
+  });
+  assert.equal(patch1.status, 200);
+  const body1 = await patch1.json();
+  assert.equal(body1.active, false);
+
+  // Reactivate target account
+  const patch2 = await fetch(`${base}/api/auth/users/${target.id}`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${creatorLogin.token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ active: true }),
+  });
+  assert.equal(patch2.status, 200);
+  const body2 = await patch2.json();
+  assert.equal(body2.active, true);
+
+  // Self deactivation attempt by creator
+  const patchSelf = await fetch(`${base}/api/auth/users/${creator.id}`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${creatorLogin.token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ active: false }),
+  });
+  assert.equal(patchSelf.status, 400);
+  const bodySelf = await patchSelf.json();
+  assert.equal(bodySelf.error, "You cannot deactivate the account you are signed in as.");
+
+  // Viewer attempt
+  const patchViewer = await fetch(`${base}/api/auth/users/${target.id}`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${viewerLogin.token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ active: false }),
+  });
+  assert.equal(patchViewer.status, 403);
+});
+
 await pool.query("DELETE FROM users WHERE username LIKE 'zz-test-%'");
 await new Promise<void>((resolve) => server.close(() => resolve()));
 await pool.end();
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
 if (failed > 0) process.exit(1);
+
 
 

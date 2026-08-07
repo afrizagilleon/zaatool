@@ -391,7 +391,7 @@ Bite-test wajib sebelum tandai DONE: matikan sementara pembacaan `currentUser` (
 yang ikut merah karena alasan lain — baru kembalikan perbaikannya.
 
 ### T-03 — `PATCH /api/auth/users/:id` — nonaktifkan / aktifkan kembali
-- Status: TODO
+- Status: DONE
 - Depends: T-01, T-00
 - RQ: RQ-05
 - Lakukan: `authController.setActive(req,res)` — body `{active: boolean}`; kalau bukan

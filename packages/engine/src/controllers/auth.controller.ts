@@ -88,6 +88,28 @@ export class AuthController {
       res.status(500).json({ error: (err as Error).message });
     }
   }
+
+  async setActive(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const { active } = req.body;
+      if (typeof active !== "boolean") {
+        return res.status(400).json({ error: "active field must be a boolean" });
+      }
+      const currentUser = (req as Request & { user?: { id: string } }).user;
+      if (currentUser && currentUser.id === id && active === false) {
+        return res.status(400).json({ error: "You cannot deactivate the account you are signed in as." });
+      }
+      const updated = await authService.setActive(id, active);
+      if (!updated) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      res.json({ success: true, active });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  }
 }
+
 
 export const authController = new AuthController();
