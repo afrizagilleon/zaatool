@@ -285,7 +285,17 @@ scope, bukan open question, karena kamu sudah memilih "lewati dulu dari FX8".)*
 - [ ] Setiap command Verify di §7 exit 0
 - [ ] `pnpm --filter @zaa-tool/engine test` dan `pnpm --filter @zaa-tool/web test` exit 0
       penuh (regresi nol)
-- [ ] `pnpm --filter @zaa-tool/web run lint` exit 0
+- [ ] `pnpm --filter @zaa-tool/engine run build` exit 0. **Jangan lewati ini dan
+      jangan percaya hasil lama.** Tes berjalan lewat `tsx`, yang membuang tipe tanpa
+      memeriksanya — suite yang hijau **tidak** membuktikan kode bisa dikompilasi. FX7
+      menyerahkan engine yang `tsc`-nya gagal total sementara 29 berkas tesnya lulus,
+      karena `build` hanya dijalankan sekali di task pertama lalu tidak pernah lagi.
+      Jalankan lagi di task regresi terakhir, bukan hanya di awal.
+- [ ] `pnpm --filter @zaa-tool/web run lint` tidak menambah error **baru**. (Ia sudah
+      gagal dengan ~42 error di `dev` sejak sebelum milestone ini — utang lama, bukan
+      milikmu. Jalankan sebelum mulai, catat jumlahnya, bandingkan di akhir: berkas yang
+      FX8 buat/ubah tidak boleh muncul di daftar. Jangan "memperbaiki" error yang bukan
+      milikmu — itu di luar scope.)
 - [ ] Tidak ada perubahan di luar scope §4 / path terlarang §5
 - [ ] §9 Handoff diisi
 - [ ] `PROGRESS.md` di-update 3–8 baris, dengan bukti terukur, menyebut eksplisit bahwa
@@ -575,6 +585,7 @@ pnpm --filter @zaa-tool/web test render-widgets
 - Selesai jika: keduanya exit 0.
 - Verify:
 ```bash
+pnpm --filter @zaa-tool/engine run build
 pnpm --filter @zaa-tool/engine test
 pnpm --filter @zaa-tool/web test
 pnpm --filter @zaa-tool/web run lint

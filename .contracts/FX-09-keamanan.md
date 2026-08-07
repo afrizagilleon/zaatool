@@ -294,7 +294,16 @@ untuk syarat urutan cabang yang juga bisa memblokir sebelum task pertama pun dim
 - [ ] Setiap command Verify di §7 exit 0
 - [ ] `pnpm --filter @zaa-tool/engine test` dan `pnpm --filter @zaa-tool/web test` exit 0
       penuh (regresi nol)
-- [ ] `pnpm --filter @zaa-tool/web run lint` exit 0
+- [ ] `pnpm --filter @zaa-tool/engine run build` exit 0. **Jangan lewati ini dan
+      jangan percaya hasil lama.** Tes berjalan lewat `tsx`, yang membuang tipe tanpa
+      memeriksanya — suite yang hijau **tidak** membuktikan kode bisa dikompilasi. FX7
+      menyerahkan engine yang `tsc`-nya gagal total sementara 29 berkas tesnya lulus,
+      karena `build` hanya dijalankan sekali di task pertama lalu tidak pernah lagi.
+      Jalankan lagi di task regresi terakhir, bukan hanya di awal.
+- [ ] `pnpm --filter @zaa-tool/web run lint` tidak menambah error **baru**. (Ia sudah
+      gagal dengan ~42 error di `dev` sejak sebelum milestone ini — utang lama, bukan
+      milikmu. Jalankan sebelum mulai, catat jumlahnya, bandingkan di akhir. Jangan
+      "memperbaiki" error yang bukan milikmu — itu di luar scope.)
 - [ ] Tidak ada perubahan di luar scope §4 / path terlarang §5
 - [ ] §9 Handoff diisi, termasuk SHA `dev` sebenarnya yang dipakai (§0.2)
 - [ ] `PROGRESS.md` di-update 3–8 baris, dengan bukti terukur, menyebut eksplisit bahwa
@@ -434,8 +443,14 @@ pnpm --filter @zaa-tool/engine test security-hardening
 - Depends: —
 - RQ: RQ-04
 - Lakukan: satu konstanta `MIN_PASSWORD_LENGTH = 12` di `auth.service.ts`, dipakai di
-  `createUser` dan `setPassword` (D-5) — ganti literal `8` di kedua tempat menjadi
-  referensi ke konstanta itu.
+  `createUser`, `setPassword`, **dan `changePassword`** (D-5) — ganti literal `8` di
+  **ketiga** tempat menjadi referensi ke konstanta itu.
+
+  Catatan (ditambahkan reviewer 2026-08-07): dulu tertulis "kedua tempat". FX7 menambah
+  `changePassword()` dengan literal `8` ketiganya. Jangan percaya angka ini — `grep -n
+  "length < " packages/engine/src/services/auth.service.ts` dulu dan naikkan **semua**
+  yang muncul. Meninggalkan satu jalur password di 8 karakter sementara dua lainnya 12
+  adalah persis kelas bug RULES §5.16.
 - Selesai jika: password 11 karakter ditolak dengan pesan yang menyebut 12; password 12
   karakter apa adanya (tanpa huruf besar/angka/simbol) diterima.
 - Verify:
@@ -562,6 +577,7 @@ pnpm --filter @zaa-tool/engine test security-hardening
 - Selesai jika: keduanya exit 0.
 - Verify:
 ```bash
+pnpm --filter @zaa-tool/engine run build
 pnpm --filter @zaa-tool/engine test
 pnpm --filter @zaa-tool/web test
 pnpm --filter @zaa-tool/web run lint
