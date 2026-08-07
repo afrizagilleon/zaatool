@@ -245,6 +245,19 @@ export async function initDb() {
       ON CONFLICT (id) DO NOTHING;
     `);
 
+    // Seed test fixture zz-uji-prosa (T-04)
+    await client.query(`
+      INSERT INTO notebooks (id, name, runtime, document)
+      VALUES (
+        'zz-uji-prosa',
+        'zz-uji-prosa',
+        'node',
+        '{"version":"1.0","id":"zz-uji-prosa","name":"zz-uji-prosa","runtime":"node","steps":[{"id":"c1","kind":"cell","note":"# Catatan Prosa Uji\\nIni adalah notebook prosa tanpa input/output."}]}'
+      )
+      ON CONFLICT (id) DO NOTHING;
+    `);
+
+
 
 
     // The canvas's tables — `flows` and `triggers` — are no longer created, and nothing

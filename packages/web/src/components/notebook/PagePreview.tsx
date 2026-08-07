@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import {
   Play,
   Spinner,
@@ -12,9 +13,11 @@ import { Button } from '../ui/button';
 import { useNotebookStore } from '../../store/notebookStore';
 import { specsOf } from '../../lib/notebook-outputs';
 import { OutputView } from '../pages/render/OutputView';
+import { NotesBlock } from '../pages/render/NotesBlock';
 import { PageGrid, derivedLayout } from '../pages/render/PageGrid';
 import { InputField } from '../pages/render/InputField';
 import { cn } from '../../lib/utils';
+
 
 /**
  * The page this notebook would serve, shown against the draft.
@@ -101,6 +104,7 @@ export function PagePreview({ onRun, isRunning }: PagePreviewProps) {
   // and got a 404 — the one screen where you would try a picker first was the one
   // screen where it could not work.
   const notebookId = useNotebookStore((s) => s.id);
+  const steps = useNotebookStore((s) => s.steps);
   const inputs = useNotebookStore((s) => s.inputs);
   const declared = useNotebookStore((s) => s.outputs);
   const cellRuns = useNotebookStore((s) => s.cellRuns);
@@ -111,6 +115,18 @@ export function PagePreview({ onRun, isRunning }: PagePreviewProps) {
 
   const outputs = specsOf(declared);
   const resolved = resolve(outputs, cellRuns);
+
+  const hasContract = inputs.length > 0 || outputs.length > 0;
+  const notes = useMemo(() => {
+    if (hasContract) return [];
+    const list: string[] = [];
+    for (const step of steps) {
+      if (step.kind === 'cell' && step.note?.trim()) {
+        list.push(step.note.trim());
+      }
+    }
+    return list;
+  }, [hasContract, steps]);
 
   /**
    * Only a real rearrangement counts.
@@ -126,7 +142,7 @@ export function PagePreview({ onRun, isRunning }: PagePreviewProps) {
     setLayout(next);
   };
 
-  if (inputs.length === 0 && outputs.length === 0) {
+  if (inputs.length === 0 && outputs.length === 0 && notes.length === 0) {
     return (
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-2xl px-6 py-12 text-center">
@@ -150,6 +166,9 @@ export function PagePreview({ onRun, isRunning }: PagePreviewProps) {
             Preview · draft
           </span>
         </div>
+
+        <NotesBlock notes={notes} />
+
 
         {inputs.length > 0 && (
           <div className="space-y-4 border border-border p-4">

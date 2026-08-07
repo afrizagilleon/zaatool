@@ -8,6 +8,8 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { InputField, initialValues, toArgs } from './render/InputField';
 import { OutputView } from './render/OutputView';
+import { NotesBlock } from './render/NotesBlock';
+
 import { PageGrid } from './render/PageGrid';
 import { PageActions } from './render/PageActions';
 import { authenticateSocket, connectRunSocket, subscribeToRun } from '../../lib/run-socket';
@@ -262,17 +264,8 @@ export function SharedPage({ token }: { token: string }) {
           )}
         </div>
 
-        {/* A written notebook, shared as what it is. Filled by the engine only when the
-            notebook declares no contract at all — see the pages controller. */}
-        {page.notes.length > 0 && (
-          <div className="prose-sm max-w-none space-y-4 border border-border p-5 text-sm [&_code]:font-mono [&_code]:text-xs [&_h1]:text-base [&_h1]:font-bold [&_h2]:text-sm [&_h2]:font-bold [&_li]:ml-4 [&_li]:list-disc [&_pre]:overflow-x-auto [&_pre]:bg-muted/40 [&_pre]:p-2">
-            {page.notes.map((note, index) => (
-              <Markdown key={index} remarkPlugins={[remarkGfm]}>
-                {note}
-              </Markdown>
-            ))}
-          </div>
-        )}
+        <NotesBlock notes={page.notes} />
+
 
         {page.inputs.length > 0 && (
           <div className="space-y-4 border border-border p-4">

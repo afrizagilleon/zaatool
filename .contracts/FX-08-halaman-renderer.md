@@ -434,7 +434,7 @@ pnpm --filter @zaa-tool/web test render-widgets
 ```
 
 ### T-04 — Satu `NotesBlock`, dipakai tiga kali
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-04
 - Lakukan: buat `packages/web/src/components/pages/render/NotesBlock.tsx`, isinya persis

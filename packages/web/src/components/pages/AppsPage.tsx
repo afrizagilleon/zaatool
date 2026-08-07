@@ -25,6 +25,8 @@ import {
 import { Button } from '../ui/button';
 import { usePageRun, type OutputStatus } from '../../hooks/usePageRun';
 import { notebooksApi } from '../../lib/notebooks-api';
+import { NotesBlock } from './render/NotesBlock';
+import { TableView } from './render/TableView';
 import { OutputView } from './render/OutputView';
 import { PageGrid } from './render/PageGrid';
 import { ShareDialog } from './ShareDialog';
@@ -150,18 +152,8 @@ function PageRunner({
 
         {moved && <PageMoved gone={latest === null} onReload={onReload} />}
 
-        {/* A notebook with no contract is not an app, it is something somebody wrote —
-            and this is the reading of it. The engine only fills `notes` in that case, so
-            no page with results ever grows a wall of its author's working notes. */}
-        {page.notes.length > 0 && (
-          <div className="prose-sm max-w-none space-y-4 border border-border p-5 text-sm [&_code]:font-mono [&_code]:text-xs [&_h1]:text-base [&_h1]:font-bold [&_h2]:text-sm [&_h2]:font-bold [&_li]:ml-4 [&_li]:list-disc [&_pre]:overflow-x-auto [&_pre]:bg-muted/40 [&_pre]:p-2">
-            {page.notes.map((note, index) => (
-              <Markdown key={index} remarkPlugins={[remarkGfm]}>
-                {note}
-              </Markdown>
-            ))}
-          </div>
-        )}
+        <NotesBlock notes={page.notes} />
+
 
         {page.inputs.length > 0 && (
           <div className="space-y-4 border border-border p-4">

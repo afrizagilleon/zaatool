@@ -93,3 +93,16 @@ describe('RendererGallery audio and video cases (T-03)', () => {
   });
 });
 
+describe('NotesBlock (T-04)', () => {
+  it('renders prose notes correctly using Markdown and remarkGfm', async () => {
+    const { NotesBlock } = await import('../src/components/pages/render/NotesBlock');
+    const { container } = render(<NotesBlock notes={['# Heading Note', 'Prose paragraph.']} />);
+
+    const h1Element = container.querySelector('h1');
+    expect(h1Element).not.toBeNull();
+    expect(h1Element?.textContent).toBe('Heading Note');
+    expect(container.textContent).toContain('Prose paragraph.');
+  });
+});
+
+
