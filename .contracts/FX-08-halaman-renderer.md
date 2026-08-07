@@ -546,7 +546,7 @@ Bite-test wajib: kembalikan tinggi tile ke nilai lama, pastikan tes ini merah, b
 kembalikan perbaikannya.
 
 ### T-10 — Unduh CSV dari tabel
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-10
 - Lakukan: tombol di `TableView.tsx` yang menyerialisasi baris yang **sedang

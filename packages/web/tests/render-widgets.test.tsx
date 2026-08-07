@@ -155,6 +155,25 @@ describe('tileTitle helper (T-08)', () => {
   });
 });
 
+describe('exportToCsv (T-10)', () => {
+  it('serializes table rows to CSV with proper escaping for quotes, commas, and newlines', async () => {
+    const { exportToCsv } = await import('../src/components/pages/render/TableView');
+
+    const columns = ['id', 'name', 'comment'];
+    const rows = [
+      { id: 1, name: 'Alice, B.', comment: 'Hello "World"' },
+      { id: 2, name: 'Bob', comment: 'Line1\nLine2' },
+    ];
+
+    const csv = exportToCsv(columns, rows);
+
+    expect(csv).toContain('id,name,comment');
+    expect(csv).toContain('1,"Alice, B.","Hello ""World"""');
+    expect(csv).toContain('2,Bob,"Line1\nLine2"');
+  });
+});
+
+
 
 
 

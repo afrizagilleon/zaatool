@@ -1,4 +1,38 @@
 import { useMemo, useState } from 'react';
+import { DownloadSimple } from '@phosphor-icons/react';
+
+
+export function escapeCsvCell(value: unknown): string {
+  const str =
+    value === null || value === undefined
+      ? ''
+      : typeof value === 'object'
+        ? JSON.stringify(value)
+        : String(value);
+  if (/[",\n\r]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+export function exportToCsv(columns: string[], rows: Record<string, unknown>[]): string {
+  const headerLine = columns.map(escapeCsvCell).join(',');
+  const rowLines = rows.map((row) => columns.map((col) => escapeCsvCell(row[col])).join(','));
+  return [headerLine, ...rowLines].join('\r\n');
+}
+
+function triggerCsvDownload(csvContent: string, filename = 'table-data.csv') {
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
 import { CaretUp, CaretDown, MagnifyingGlass } from '@phosphor-icons/react';
 import { Input } from '../../ui/input';
 import { Button } from '../../ui/button';
@@ -225,7 +259,24 @@ export function TableView({ rows: given }: { rows: Record<string, unknown>[] }) 
         </span>
 
         <div className="flex items-center gap-1">
+          {ordered.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-[10px] gap-1"
+              title="Download CSV"
+              onClick={() => {
+                const csv = exportToCsv(columns, ordered);
+                triggerCsvDownload(csv);
+              }}
+            >
+              <DownloadSimple size={10} />
+              CSV
+            </Button>
+          )}
+
           {rows.length > PAGE_SIZES[0] && (
+
             <select
               value={pageSize}
               onChange={(event) => {
