@@ -540,7 +540,7 @@ pnpm --filter @zaa-tool/web test accounts
 ```
 
 ### T-11 — Sesi yang berakhir tidak mati diam-diam
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-08
 - Lakukan: di `authStore.ts`, tambah aksi `sessionExpired()` — sama seperti `logout()`

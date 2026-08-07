@@ -18,8 +18,8 @@ interface AuthState {
   login: (username: string, passwordPlain: string) => Promise<boolean>;
   registerUser: (username: string, passwordPlain: string, email?: string) => Promise<boolean>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
+  sessionExpired: () => void;
   logout: () => void;
-
   checkAuth: () => Promise<boolean>;
   clearError: () => void;
 }
@@ -106,8 +106,12 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      logout: () => {
+      sessionExpired: () => {
+        set({ token: null, user: null, error: 'Your session has expired. Please log in again.' });
+        localStorage.removeItem('zaatool_token');
+      },
 
+      logout: () => {
         set({ token: null, user: null, error: null });
         localStorage.removeItem('zaatool_token');
       },
@@ -144,22 +148,33 @@ export const useAuthStore = create<AuthState>()(
   )
 );
 
-// Global Fetch Interceptor to attach JWT token
-const originalFetch = window.fetch;
-window.fetch = async (input, init) => {
-  const url = typeof input === 'string' ? input : (input instanceof Request ? input.url : '');
-  
-  if (url.includes('/api/')) {
+// Global Fetch Interceptor to attach JWT token and catch expired sessions (401)
+if (typeof window !== 'undefined' && window.fetch) {
+  const originalFetch = window.fetch;
+  window.fetch = async (input, init) => {
+    const url = typeof input === 'string' ? input : (input instanceof Request ? input.url : '');
     const token = localStorage.getItem('zaatool_token');
-    if (token) {
-      init = init || {};
-      const headers = new Headers(init.headers || {});
-      if (!headers.has('Authorization')) {
-        headers.set('Authorization', `Bearer ${token}`);
+
+    if (url.includes('/api/')) {
+      if (token) {
+        init = init || {};
+        const headers = new Headers(init.headers || {});
+        if (!headers.has('Authorization')) {
+          headers.set('Authorization', `Bearer ${token}`);
+        }
+        init.headers = headers;
       }
-      init.headers = headers;
     }
-  }
-  
-  return originalFetch(input, init);
-};
+
+    const fetchFn = (window as unknown as { _originalFetch?: typeof fetch })._originalFetch || originalFetch;
+    const res = await fetchFn(input, init);
+
+    if (url.includes('/api/') && !url.includes('/api/auth/login') && token && res.status === 401) {
+      useAuthStore.getState().sessionExpired();
+    }
+
+    return res;
+  };
+}
+
+
