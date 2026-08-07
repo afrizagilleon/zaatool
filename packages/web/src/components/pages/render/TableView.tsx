@@ -1,25 +1,8 @@
 import { useMemo, useState } from 'react';
 import { DownloadSimple } from '@phosphor-icons/react';
+import { exportToCsv } from '../../../lib/csv';
+import { PAGE_SIZES } from '../../../lib/tile-metrics';
 
-
-export function escapeCsvCell(value: unknown): string {
-  const str =
-    value === null || value === undefined
-      ? ''
-      : typeof value === 'object'
-        ? JSON.stringify(value)
-        : String(value);
-  if (/[",\n\r]/.test(str)) {
-    return `"${str.replace(/"/g, '""')}"`;
-  }
-  return str;
-}
-
-export function exportToCsv(columns: string[], rows: Record<string, unknown>[]): string {
-  const headerLine = columns.map(escapeCsvCell).join(',');
-  const rowLines = rows.map((row) => columns.map((col) => escapeCsvCell(row[col])).join(','));
-  return [headerLine, ...rowLines].join('\r\n');
-}
 
 function triggerCsvDownload(csvContent: string, filename = 'table-data.csv') {
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -52,7 +35,6 @@ import { cn } from '../../../lib/utils';
  * notebook actually built rather than a list someone has to maintain alongside it.
  */
 
-const PAGE_SIZES = [10, 25, 50, 100];
 
 /**
  * The point past which the page stops pretending.

@@ -1,5 +1,3 @@
-import Markdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { useEffect, useMemo, useState } from 'react';
 import {
   Play,
@@ -26,7 +24,6 @@ import { Button } from '../ui/button';
 import { usePageRun, type OutputStatus } from '../../hooks/usePageRun';
 import { notebooksApi } from '../../lib/notebooks-api';
 import { NotesBlock } from './render/NotesBlock';
-import { TableView } from './render/TableView';
 import { CopyTileValueButton } from './render/CopyTileValueButton';
 import { tileTitle } from '../../lib/tile-title';
 

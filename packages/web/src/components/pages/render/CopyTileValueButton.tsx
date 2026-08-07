@@ -1,32 +1,7 @@
 import { useState } from 'react';
 import { Check, Copy } from '@phosphor-icons/react';
 import { Button } from '../../ui/button';
-import { asRows, columnsOf } from '../../../lib/notebook-outputs';
-import { exportToCsv } from './TableView';
-
-/**
- * Formats a tile output value for copying:
- * - Table/rows -> CSV
- * - String -> string as-is
- * - Objects -> pretty JSON
- * - Primitives -> string representation
- */
-export function formatCopyValue(value: unknown): string {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'string') return value;
-
-  const rows = asRows(value);
-  if (rows && rows.length > 0) {
-    const columns = columnsOf(rows);
-    return exportToCsv(columns, rows);
-  }
-
-  if (typeof value === 'object') {
-    return JSON.stringify(value, null, 2);
-  }
-
-  return String(value);
-}
+import { formatCopyValue } from '../../../lib/csv';
 
 export function CopyTileValueButton({ value }: { value: unknown }) {
   const [copied, setCopied] = useState(false);

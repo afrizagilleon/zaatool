@@ -3,6 +3,7 @@ import { ResponsiveGridLayout, useContainerWidth, type Layout } from 'react-grid
 import type { NotebookLayoutItem, NotebookOutput } from '@zaa-tool/shared';
 import 'react-grid-layout/css/styles.css';
 import { cn } from '../../../lib/utils';
+import { GRID_MARGIN_Y, ROW_HEIGHT } from '../../../lib/tile-metrics';
 
 /**
  * The outputs of a page, arranged.
@@ -22,12 +23,6 @@ import { cn } from '../../../lib/utils';
 
 const COLUMNS = { lg: 12, sm: 1 } as const;
 const BREAKPOINTS = { lg: 768, sm: 0 } as const;
-export const ROW_HEIGHT = 40;
-export const GRID_MARGIN_Y = 12;
-
-export function tileOuterHeight(h: number): number {
-  return h * ROW_HEIGHT + (h - 1) * GRID_MARGIN_Y;
-}
 
 /** A tile tall enough to be worth showing, per what the renderer usually needs. */
 function derivedHeight(output: NotebookOutput): number {
@@ -116,7 +111,7 @@ export function PageGrid({ outputs, layout, onLayoutChange, renderTile }: PageGr
       breakpoints={BREAKPOINTS}
       cols={COLUMNS}
       rowHeight={ROW_HEIGHT}
-      margin={[12, 12]}
+      margin={[12, GRID_MARGIN_Y]}
       containerPadding={[8, 0]}
       // v2 groups these rather than taking isDraggable/draggableHandle separately.
       dragConfig={{ enabled: editable, handle: '.tile-handle' }}
