@@ -1,5 +1,7 @@
 import { pool } from "../db/connection.js";
+import { resignStorageLinks } from "../core/storage-links.js";
 import type {
+
   NotebookRunDetail,
   NotebookRunStatus,
   NotebookRunSummary,
@@ -101,7 +103,7 @@ export class NotebookRunsService {
        LIMIT $2`,
       [notebookId, limit]
     );
-    return rows;
+    return resignStorageLinks(rows) as NotebookRunSummary[];
   }
 
   async getById(runId: string): Promise<NotebookRunDetail | null> {
@@ -109,7 +111,7 @@ export class NotebookRunsService {
       `SELECT ${SUMMARY_COLUMNS}, cell_results FROM notebook_runs WHERE id = $1`,
       [runId]
     );
-    return rows[0] ? this.parseDetail(rows[0]) : null;
+    return rows[0] ? (resignStorageLinks(this.parseDetail(rows[0])) as NotebookRunDetail) : null;
   }
 
   /** The run whose results the editor restores when a notebook is opened. */
@@ -121,8 +123,10 @@ export class NotebookRunsService {
        LIMIT 1`,
       [notebookId]
     );
-    return rows[0] ? this.parseDetail(rows[0]) : null;
+    return rows[0] ? (resignStorageLinks(this.parseDetail(rows[0])) as NotebookRunDetail) : null;
   }
+
+
 
   private parseDetail(row: NotebookRunDetail & { cell_results: unknown }): NotebookRunDetail {
     return {

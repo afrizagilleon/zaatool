@@ -454,7 +454,7 @@ pnpm --filter @zaa-tool/web test render-widgets
 ```
 
 ### T-05 — Tanda tangan tautan diperbarui saat riwayat run dibaca
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-05 (bagian server)
 - Lakukan: tambah `resignStorageLinks(value: unknown): unknown` ke `storage-links.ts`
