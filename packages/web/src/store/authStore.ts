@@ -133,10 +133,11 @@ export const useAuthStore = create<AuthState>()(
           const data = await res.json();
           set({ user: data.user });
           return true;
-        } catch (err) {
+        } catch {
           get().logout();
           return false;
         }
+
       },
 
       clearError: () => set({ error: null }),
