@@ -142,6 +142,25 @@ export class AuthService {
     return (rowCount ?? 0) > 0;
   }
 
+  async changePassword(userId: string, currentPasswordPlain: string, newPasswordPlain: string): Promise<boolean> {
+    if (String(newPasswordPlain ?? "").length < 8) {
+      throw new Error("Password must be at least 8 characters");
+    }
+    const { rows } = await pool.query("SELECT * FROM users WHERE id = $1", [userId]);
+    if (rows.length === 0) {
+      throw new Error("User not found");
+    }
+    const user = rows[0];
+    const isPasswordValid = await bcrypt.compare(currentPasswordPlain, user.password_hash);
+    if (!isPasswordValid) {
+      throw new Error("Current password is incorrect");
+    }
+    const passwordHash = await bcrypt.hash(newPasswordPlain, SALT_ROUNDS);
+    await pool.query("UPDATE users SET password_hash = $1 WHERE id = $2", [passwordHash, userId]);
+    return true;
+  }
+
+
   async setRole(username: string, role: Role): Promise<boolean> {
     const { rowCount } = await pool.query("UPDATE users SET role = $1 WHERE username = $2", [
       role,

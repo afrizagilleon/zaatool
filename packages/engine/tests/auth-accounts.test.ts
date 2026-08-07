@@ -150,7 +150,57 @@ await check("T-03: PATCH /api/auth/users/:id deactivates/reactivates accounts an
   assert.equal(patchViewer.status, 403);
 });
 
+await check("T-04: POST /api/auth/me/password changes self password with current password verification", async () => {
+  const user = await authService.createUser("zz-test-pwd1", "password123", "viewer");
+  const loginRes = await authService.login("zz-test-pwd1", "password123");
+
+  // Wrong current password attempt
+  const wrongReq = await fetch(`${base}/api/auth/me/password`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${loginRes.token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      currentPassword: "wrongpassword",
+      newPassword: "newpassword123",
+    }),
+  });
+  assert.equal(wrongReq.status, 400);
+  const wrongBody = await wrongReq.json();
+  assert.equal(wrongBody.error, "Current password is incorrect");
+
+  // Correct change password attempt
+  const correctReq = await fetch(`${base}/api/auth/me/password`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${loginRes.token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      currentPassword: "password123",
+      newPassword: "newpassword123",
+    }),
+  });
+  assert.equal(correctReq.status, 200);
+  const correctBody = await correctReq.json();
+  assert.equal(correctBody.success, true);
+
+  // Login with old password fails
+  await assert.rejects(
+    async () => {
+      await authService.login("zz-test-pwd1", "password123");
+    },
+    (err: unknown) => (err as Error).message === "Invalid username or password"
+  );
+
+  // Login with new password succeeds
+  const newLogin = await authService.login("zz-test-pwd1", "newpassword123");
+  assert.ok(newLogin.token);
+});
+
 await pool.query("DELETE FROM users WHERE username LIKE 'zz-test-%'");
+
 await new Promise<void>((resolve) => server.close(() => resolve()));
 await pool.end();
 

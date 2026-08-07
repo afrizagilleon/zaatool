@@ -409,7 +409,7 @@ pnpm --filter @zaa-tool/engine test auth-accounts
 ```
 
 ### T-04 — `POST /api/auth/me/password` — ganti password sendiri
-- Status: TODO
+- Status: DONE
 - Depends: T-00
 - RQ: RQ-09
 - Lakukan: `authService.changePassword(userId, currentPassword, newPassword)` — ambil user
