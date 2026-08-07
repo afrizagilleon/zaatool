@@ -104,7 +104,8 @@ function PageMoved({ gone, onReload }: { gone: boolean; onReload: () => void }) 
   );
 }
 
-function PageRunner({
+export function PageRunner({
+
   page,
   latest,
   onReload,
@@ -212,7 +213,15 @@ function PageRunner({
           </div>
         )}
 
-        {hasResult && (
+        {!hasResult && !isRunning && page.outputs.length > 0 && (
+          <div className="border border-border p-6 text-center">
+            <p className="text-xs text-muted-foreground">
+              This page has not been run yet. Click <span className="font-semibold text-foreground">Run</span> to execute it.
+            </p>
+          </div>
+        )}
+
+        {(hasResult || isRunning) && (
           <div className="space-y-2">
             <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
               Result
@@ -264,6 +273,7 @@ function PageRunner({
             />
           </div>
         )}
+
       </div>
     </div>
   );

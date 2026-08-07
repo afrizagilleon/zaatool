@@ -124,6 +124,29 @@ describe('honest error message on media load error (T-06)', () => {
   });
 });
 
+describe('un-run page state (T-07)', () => {
+  it('renders prompt for pages that have never been run', async () => {
+    const { PageRunner } = await import('../src/components/pages/AppsPage');
+    const page = {
+      id: 'test-page',
+      name: 'Unrun Page',
+      inputs: [],
+      outputs: [{ name: 'out1', render: 'text' }],
+      actions: [],
+      layout: [],
+      notes: [],
+      tags: [],
+    };
+
+    const { container } = render(
+      <PageRunner page={page as any} latest={null} onReload={() => {}} onBack={() => {}} />
+    );
+
+    expect(container.textContent).toContain('This page has not been run yet');
+  });
+});
+
+
 
 
 

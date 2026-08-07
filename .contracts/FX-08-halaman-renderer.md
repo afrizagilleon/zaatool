@@ -492,7 +492,7 @@ pnpm --filter @zaa-tool/web test render-widgets
 ```
 
 ### T-07 — Keadaan sebelum pernah dijalankan
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-07
 - Lakukan: di `AppsPage.tsx`, tambah cabang tampilan untuk `!hasResult && !isRunning`
