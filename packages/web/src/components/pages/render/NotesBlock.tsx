@@ -2,10 +2,15 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 /**
- * Renders prose notes for notebooks that have no contract (inputs/outputs).
+ * A notebook with no contract is not an app, it is something somebody wrote.
  *
- * Shared across AppsPage, SharedPage, and PagePreview so prose notebooks render
- * identically across all preview and reading surfaces.
+ * These are filled only when the notebook declares no contract at all — see `notesOf`
+ * and the `hasContract` gate in the pages controller. That rule is the reason no page
+ * with results ever grows a wall of its author's working notes above them.
+ *
+ * One component for all three surfaces — the editor's preview, Apps, and a share link —
+ * because prose that reads differently depending on which of them you opened is prose
+ * you cannot trust the preview of.
  */
 export function NotesBlock({ notes }: { notes?: string[] | null }) {
   if (!notes || notes.length === 0) return null;

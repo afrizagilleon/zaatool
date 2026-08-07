@@ -3,8 +3,13 @@ import { API_BASE_URL } from './api';
 /**
  * Where the browser should fetch a picture, a video or a sound from.
  *
- * Handles File/Blob instances (via URL.createObjectURL), data URIs, absolute URLs,
- * and signed url descriptors from storage.
+ * A string is used as written — a data URI, or a URL somewhere else. A descriptor from
+ * `files.write` carries a signed `url`, which is the only way a file on this machine is
+ * readable at all. Anything else is not media, and is shown as what it is.
+ *
+ * A `File` or `Blob` is something the person has only just chosen or recorded and has
+ * not uploaded yet: it becomes an object URL so the preview can appear immediately,
+ * without waiting for a round trip that has not been asked for.
  */
 export function mediaSource(value: unknown): string | null {
   if (value instanceof File || value instanceof Blob) {

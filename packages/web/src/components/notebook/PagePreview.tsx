@@ -120,6 +120,17 @@ export function PagePreview({ onRun, isRunning }: PagePreviewProps) {
   const outputs = specsOf(declared);
   const resolved = resolve(outputs, cellRuns);
 
+  /**
+   * The same rule the engine applies, applied again here — deliberately.
+   *
+   * `notesOf` and the `hasContract` gate live in the pages controller, but a preview runs
+   * against the *draft*, which the engine has never seen. Reusing the server's answer
+   * would mean prose appearing in the preview only after a save, which is precisely the
+   * lie a preview exists to avoid.
+   *
+   * So it is stated twice, and that is a debt: change the rule in the controller and this
+   * has to follow, or the editor will promise a page the deploy does not serve.
+   */
   const hasContract = inputs.length > 0 || outputs.length > 0;
   const notes = useMemo(() => {
     if (hasContract) return [];
