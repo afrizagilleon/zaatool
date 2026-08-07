@@ -524,7 +524,7 @@ pnpm --filter @zaa-tool/web test render-widgets
 ```
 
 ### T-09 — Tile tabel: pagination tidak jatuh di bawah lipatan
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-09
 - Lakukan: ukur dulu (RULES §5.15) — render `TableView` dengan 10 baris data dan hitung

@@ -22,7 +22,12 @@ import { cn } from '../../../lib/utils';
 
 const COLUMNS = { lg: 12, sm: 1 } as const;
 const BREAKPOINTS = { lg: 768, sm: 0 } as const;
-const ROW_HEIGHT = 40;
+export const ROW_HEIGHT = 40;
+export const GRID_MARGIN_Y = 12;
+
+export function tileOuterHeight(h: number): number {
+  return h * ROW_HEIGHT + (h - 1) * GRID_MARGIN_Y;
+}
 
 /** A tile tall enough to be worth showing, per what the renderer usually needs. */
 function derivedHeight(output: NotebookOutput): number {
@@ -34,13 +39,19 @@ function derivedHeight(output: NotebookOutput): number {
     case 'pie':
       return 10;
     case 'table':
+      // FX8 T-09: Table tile height set to h=12 (outer height 612px) so 10-row tables
+      // (content height ~447px including search, header, 10 rows & pagination) fit
+      // without internal vertical scrolling.
       return 12;
+
+
     case 'text':
       return 3;
     default:
       return 6;
   }
 }
+
 
 export function derivedLayout(outputs: NotebookOutput[]): NotebookLayoutItem[] {
   let y = 0;
