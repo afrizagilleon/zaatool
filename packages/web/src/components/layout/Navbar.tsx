@@ -99,7 +99,8 @@ export function Navbar() {
       {/* Divider */}
       <div className="w-px h-5 bg-border mr-1" />
 
-      {/* Section switcher */}
+      {/* Section switcher. Collapses to a menu where four tabs would crowd the actions
+          on the right. Same list, same state, one source. */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
@@ -160,6 +161,9 @@ export function Navbar() {
         <>
           <div className="h-4 w-px bg-border mx-1" />
           <div className="flex min-w-0 items-center gap-2 pl-1">
+            {/* The name is worth 110px on a wide screen and it is the 110px that pushed
+                Logout off the right edge of a phone. Below `sm` it becomes the icon that
+                opens the same dialog, where the name is written out anyway. */}
             <button
               onClick={() => {
                 clearError();
