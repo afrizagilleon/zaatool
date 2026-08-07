@@ -1,13 +1,13 @@
 ---
 id: FX8
 title: Sisa halaman & renderer
-status: READY          # READY | IN_PROGRESS | DONE | BLOCKED | NEEDS_REVIEW
+status: IN_PROGRESS          # READY | IN_PROGRESS | DONE | BLOCKED | NEEDS_REVIEW
 baseline_branch: dev
-baseline_commit: 697269e7f3abec90715c077417ab66d199401c57
+baseline_commit: 1b6233f
 work_branch: fx8-halaman-renderer   # dibuat dari baseline_commit — lihat §0
 owner_author: claude
-executor: <agent-lain>
-last_updated: 2026-08-07
+executor: gemini-3.6-flash
+last_updated: 2026-08-08
 ---
 
 # FX8 — Sisa halaman & renderer
@@ -371,7 +371,7 @@ Mitigasi:
 ## 7. Tasks (kerjakan berurutan)
 
 ### T-00 — Satu `mediaSource()`, dipakai bersama
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-01 (fondasi)
 - Lakukan: pindahkan `mediaSource()` dari `OutputView.tsx` ke
