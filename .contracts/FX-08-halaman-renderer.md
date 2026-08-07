@@ -405,7 +405,7 @@ pnpm --filter @zaa-tool/web test render-widgets
 ```
 
 ### T-02 — Durasi merekam
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-02
 - Lakukan: di `FileField.tsx`, tambah state detik berjalan + `setInterval(…, 1000)` yang
