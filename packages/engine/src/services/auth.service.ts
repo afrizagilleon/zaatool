@@ -1,20 +1,13 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
+import { ROLES, type Role } from "@zaa-tool/shared";
 import { pool } from "../db/connection.js";
 import { jwtSecret, registrationOpen } from "../config.js";
 
 const SALT_ROUNDS = 10;
 
-/**
- * The two things a person can be here.
- *
- * `creator` writes, deploys, holds secrets and uploads. `viewer` opens Apps and presses
- * Run. There is deliberately no third: a role only earns its place when something checks
- * it, and everything this project needs to protect falls on one side of that line.
- */
-export const ROLES = ["creator", "viewer"] as const;
-export type Role = (typeof ROLES)[number];
+export { ROLES, type Role };
 
 export function isRole(value: unknown): value is Role {
   return typeof value === "string" && (ROLES as readonly string[]).includes(value);
@@ -75,12 +68,36 @@ export class AuthService {
     const userId = uuidv4();
 
     await pool.query(
-      `INSERT INTO users (id, username, password_hash, email, role)
-       VALUES ($1, $2, $3, $4, $5)`,
+      `INSERT INTO users (id, username, password_hash, email, role, active)
+       VALUES ($1, $2, $3, $4, $5, true)`,
       [userId, name, passwordHash, email || null, role]
     );
 
-    return { id: userId, username: name, email, role };
+    return { id: userId, username: name, email, role, active: true };
+  }
+
+  async currentUser(id: string): Promise<{ id: string; username: string; email: string | null; role: Role; active: boolean } | null> {
+    const { rows } = await pool.query(
+      "SELECT id, username, email, role, active FROM users WHERE id = $1",
+      [id]
+    );
+    if (rows.length === 0) return null;
+    const r = rows[0];
+    return {
+      id: r.id,
+      username: r.username,
+      email: r.email,
+      role: isRole(r.role) ? r.role : "viewer",
+      active: r.active ?? true,
+    };
+  }
+
+  async setActive(id: string, active: boolean): Promise<boolean> {
+    const { rowCount } = await pool.query(
+      "UPDATE users SET active = $1 WHERE id = $2",
+      [active, id]
+    );
+    return (rowCount ?? 0) > 0;
   }
 
   async login(username: string, passwordPlain: string) {
@@ -96,6 +113,10 @@ export class AuthService {
       throw new Error("Invalid username or password");
     }
 
+    if (user.active === false) {
+      throw new Error("This account has been deactivated.");
+    }
+
     const role: Role = isRole(user.role) ? user.role : "viewer";
 
     const token = jwt.sign({ id: user.id, username: user.username, role }, jwtSecret(), {
@@ -104,7 +125,7 @@ export class AuthService {
 
     return {
       token,
-      user: { id: user.id, username: user.username, email: user.email, role },
+      user: { id: user.id, username: user.username, email: user.email, role, active: user.active ?? true },
     };
   }
 
@@ -131,9 +152,16 @@ export class AuthService {
 
   async listUsers() {
     const { rows } = await pool.query(
-      "SELECT id, username, email, role, created_at FROM users ORDER BY created_at ASC"
+      "SELECT id, username, email, role, active, created_at FROM users ORDER BY created_at ASC"
     );
-    return rows;
+    return rows.map((r) => ({
+      id: r.id,
+      username: r.username,
+      email: r.email,
+      role: isRole(r.role) ? r.role : ("viewer" as Role),
+      active: r.active ?? true,
+      created_at: r.created_at,
+    }));
   }
 
   verifyToken(token: string) {

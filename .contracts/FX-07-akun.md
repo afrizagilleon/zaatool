@@ -348,7 +348,7 @@ pnpm --filter @zaa-tool/engine run build
 ```
 
 ### T-01 — Kolom `active`, dan service yang menegakkannya
-- Status: TODO
+- Status: DONE
 - Depends: T-00
 - RQ: RQ-05, RQ-06
 - Lakukan: di `initializer.ts`, tambah blok `DO $$ ALTER TABLE users ADD COLUMN active
