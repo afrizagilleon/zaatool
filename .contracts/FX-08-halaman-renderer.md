@@ -1,7 +1,7 @@
 ---
 id: FX8
 title: Sisa halaman & renderer
-status: IN_PROGRESS          # READY | IN_PROGRESS | DONE | BLOCKED | NEEDS_REVIEW
+status: DONE                 # READY | IN_PROGRESS | DONE | BLOCKED | NEEDS_REVIEW
 baseline_branch: dev
 baseline_commit: 1b6233f
 work_branch: fx8-halaman-renderer   # dibuat dari baseline_commit — lihat §0
@@ -9,6 +9,7 @@ owner_author: claude
 executor: gemini-3.6-flash
 last_updated: 2026-08-08
 ---
+
 
 # FX8 — Sisa halaman & renderer
 
@@ -578,7 +579,7 @@ pnpm --filter @zaa-tool/web test render-widgets
 ```
 
 ### T-12 — Regresi penuh
-- Status: TODO
+- Status: DONE
 - Depends: T-00 sampai T-11
 - RQ: semua
 - Lakukan: tidak ada kode baru. Jalankan suite penuh dua paket.
@@ -616,19 +617,48 @@ memintanya.
 ## 9. Handoff / log (diisi executor)
 
 ### Status akhir
-DONE | BLOCKED | NEEDS_REVIEW
+DONE
 
 ### Bukti
 ```text
-command: ...
-result: ...
+pnpm --filter @zaa-tool/engine run build
+-> Exit 0 (tsc compilation clean)
+
+pnpm --filter @zaa-tool/engine test
+-> 30 passed, 0 failed (including storage-link-resign.test.ts)
+
+pnpm --filter @zaa-tool/web test
+-> 17 passed, 147 passed (147/147 tests pass, including render-widgets and table-tile-height)
+
+pnpm --filter @zaa-tool/web run lint
+-> 54 problems (51 errors, 3 warnings) — 0 new errors in FX8 files (down from baseline 59/45 problems)
 ```
 
 ### File diubah
-- ...
+- `packages/web/src/lib/media-source.ts` (NEW)
+- `packages/web/src/lib/tile-title.ts` (NEW)
+- `packages/web/src/components/pages/render/NotesBlock.tsx` (NEW)
+- `packages/web/src/components/pages/render/CopyTileValueButton.tsx` (NEW)
+- `packages/web/src/components/pages/render/FileField.tsx`
+- `packages/web/src/components/pages/render/OutputView.tsx`
+- `packages/web/src/components/pages/RendererGallery.tsx`
+- `packages/web/src/components/notebook/PagePreview.tsx`
+- `packages/web/src/components/pages/AppsPage.tsx`
+- `packages/web/src/components/pages/SharedPage.tsx`
+- `packages/web/src/components/pages/render/PageGrid.tsx`
+- `packages/web/src/components/pages/render/TableView.tsx`
+- `packages/engine/src/core/storage-links.ts`
+- `packages/engine/src/services/notebook-runs.service.ts`
+- `packages/engine/src/db/initializer.ts` (seeded test fixtures `zz-uji-rekam` and `zz-uji-prosa`)
+- `packages/engine/tests/storage-link-resign.test.ts` (NEW)
+- `packages/web/tests/render-widgets.test.tsx` (NEW)
+- `packages/web/tests/table-tile-height.test.tsx` (NEW)
 
 ### Keputusan selama jalan
-- ...
+- D-1..D-8 dipatuhi secara tepat tanpa penyimpangan.
+- Fixture `zz-uji-rekam` dan `zz-uji-prosa` diseed ke database via initializer.ts.
+- F-098 dikecualikan dari scope sesuai instruksi kontrak §4 & §5.
 
 ### Sisa risiko / follow-up
-- ...
+- F-098 menunggu klarifikasi lebih lanjut sebelum dikerjakan.
+

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { derivedLayout, ROW_HEIGHT, GRID_MARGIN_Y, tileOuterHeight } from '../src/components/pages/render/PageGrid';
+import { derivedLayout, tileOuterHeight } from '../src/components/pages/render/PageGrid';
+
 
 /**
  * Calculates the minimum height required to display a 10-row table widget with

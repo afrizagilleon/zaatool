@@ -1,8 +1,9 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, act, fireEvent } from '@testing-library/react';
-
+import { render, fireEvent } from '@testing-library/react';
+import type { NotebookPage } from '@zaa-tool/shared';
 import { mediaSource } from '../src/lib/media-source';
 import { FileField } from '../src/components/pages/render/FileField';
+
 
 describe('mediaSource (T-00)', () => {
   it('returns blob URL for File or Blob instance', () => {
@@ -139,8 +140,9 @@ describe('un-run page state (T-07)', () => {
     };
 
     const { container } = render(
-      <PageRunner page={page as any} latest={null} onReload={() => {}} onBack={() => {}} />
+      <PageRunner page={page as unknown as NotebookPage} latest={null} onReload={() => {}} onBack={() => {}} />
     );
+
 
     expect(container.textContent).toContain('This page has not been run yet');
   });
