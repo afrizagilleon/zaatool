@@ -159,7 +159,7 @@ describe('tileTitle helper (T-08)', () => {
 
 describe('exportToCsv (T-10)', () => {
   it('serializes table rows to CSV with proper escaping for quotes, commas, and newlines', async () => {
-    const { exportToCsv } = await import('../src/components/pages/render/TableView');
+    const { exportToCsv } = await import('../src/lib/csv');
 
     const columns = ['id', 'name', 'comment'];
     const rows = [
@@ -177,7 +177,7 @@ describe('exportToCsv (T-10)', () => {
 
 describe('formatCopyValue (T-11)', () => {
   it('formats scalar, json, and table values for copying to clipboard', async () => {
-    const { formatCopyValue } = await import('../src/components/pages/render/CopyTileValueButton');
+    const { formatCopyValue } = await import('../src/lib/csv');
 
     expect(formatCopyValue('plain text')).toBe('plain text');
     expect(formatCopyValue({ a: 1, b: 'test' })).toBe(JSON.stringify({ a: 1, b: 'test' }, null, 2));
@@ -196,3 +196,50 @@ describe('formatCopyValue (T-11)', () => {
 
 
 
+
+/**
+ * A shared page uses the reader's preference, not the operator's (T-06 / RQ-06, F-100).
+ *
+ * FX8 shipped without this: `uiStore` writes the operator's light/dark choice onto
+ * `<html>` when its module loads, regardless of route, so a stranger opening a share
+ * link got whichever theme the person who deployed it had once picked on a screen the
+ * stranger has never seen. `prefers-color-scheme` appeared nowhere in the app.
+ */
+describe('a shared page and whose theme it wears (T-06)', () => {
+  const setSystemPrefersDark = (dark: boolean) => {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn().mockImplementation((query: string) => ({
+        matches: dark && query.includes('prefers-color-scheme: dark'),
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }))
+    );
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document.documentElement.classList.remove('dark');
+  });
+
+  it('goes dark when the system does, even though the operator chose light', async () => {
+    document.documentElement.classList.remove('dark'); // the operator's stored choice
+    setSystemPrefersDark(true);
+
+    const { SharedPage } = await import('../src/components/pages/SharedPage');
+    render(<SharedPage token="zz-token" />);
+
+    expect(document.documentElement.classList.contains('dark')).toBe(true);
+  });
+
+  it('goes light when the system does, even though the operator chose dark', async () => {
+    document.documentElement.classList.add('dark'); // the operator's stored choice
+    setSystemPrefersDark(false);
+
+    const { SharedPage } = await import('../src/components/pages/SharedPage');
+    render(<SharedPage token="zz-token" />);
+
+    expect(document.documentElement.classList.contains('dark')).toBe(false);
+  });
+});

@@ -1,6 +1,4 @@
-import Markdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { Play, Spinner, Lock, WarningCircle, CircleDashed } from '@phosphor-icons/react';
 import type { NotebookPage } from '@zaa-tool/shared';
 import { API_BASE_URL } from '../../lib/api';
@@ -79,6 +77,25 @@ export function SharedPage({ token }: { token: string }) {
   const [outputs, setOutputs] = useState<Record<string, unknown>>({});
   const [runId, setRunId] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+
+  /**
+   * A shared page belongs to whoever opened the link, not to whoever deployed it.
+   *
+   * `uiStore` keeps the operator's light/dark choice in `localStorage` per origin and
+   * writes it onto `<html>` the moment the module loads — before this component gets a
+   * say, and regardless of route. That is right for the app and wrong here: a page handed
+   * to somebody with no account has no "app preference" to inherit, and inheriting one
+   * meant a stranger's first visit was dark because *you* had chosen dark once, on a
+   * screen they have never seen.
+   *
+   * Read once, at mount, in a layout effect so it lands before the first paint. Not
+   * subscribed to changes: this exists to break an inheritance, not to build the theme
+   * switcher the share page deliberately does not have.
+   */
+  useLayoutEffect(() => {
+    const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)')?.matches ?? false;
+    document.documentElement.classList.toggle('dark', prefersDark);
+  }, []);
 
   const headers = useCallback(
     (): Record<string, string> => ({
