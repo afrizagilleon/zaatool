@@ -6,3 +6,5 @@ export * from "./notebook-map.js";
 export * from "./map-roles.js";
 export * from "./packages.js";
 export * from "./fixtures.js";
+export * from "./auth.js";
+

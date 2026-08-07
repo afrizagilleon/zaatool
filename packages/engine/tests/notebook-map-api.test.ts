@@ -15,10 +15,12 @@ import jwt from "jsonwebtoken";
 import { AddressInfo } from "node:net";
 import { createApp } from "../src/server/app.js";
 import { notebooksService } from "../src/services/notebooks.service.js";
+import { authService } from "../src/services/auth.service.js";
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
 import { jwtSecret } from "../src/config.js";
 import type { NotebookJson, NotebookMap } from "@zaa-tool/shared";
+
 
 let passed = 0;
 let failed = 0;
@@ -42,13 +44,15 @@ await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 const { port } = server.address() as AddressInfo;
 const base = `http://127.0.0.1:${port}`;
 
-// Signed with the engine's own secret, the same as a real sign-in would produce. This
-// is a session for the test, not a way around the guard — the guard is checked below.
+await pool.query("DELETE FROM users WHERE username LIKE 'zz-map-%'");
+const testUser = await authService.createUser("zz-map-tester", "password123", "creator");
+
 const token = jwt.sign(
-  { id: "zz-map-tester", username: "zz-map-tester", role: "creator" },
+  { id: testUser.id, username: testUser.username, role: "creator" },
   jwtSecret(),
   { expiresIn: "5m" }
 );
+
 
 const created: string[] = [];
 
@@ -136,8 +140,10 @@ await check("deleting a notebook removes it from the map, with no cleanup step",
 });
 
 for (const id of created) await notebooksService.delete(id).catch(() => {});
+await pool.query("DELETE FROM users WHERE username LIKE 'zz-map-%'");
 await pool.end();
 server.close();
+
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed === 0 ? 0 : 1);

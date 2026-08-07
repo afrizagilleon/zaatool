@@ -223,6 +223,17 @@ export async function initDb() {
       END $$;
     `);
 
+    // Add active column to users table
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE users ADD COLUMN active BOOLEAN NOT NULL DEFAULT true;
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
+
+
     // The canvas's tables — `flows` and `triggers` — are no longer created, and nothing
     // reads them. They are deliberately not dropped here: an install that has them holds
     // someone's old work, and a migration that deletes data without being asked is not a

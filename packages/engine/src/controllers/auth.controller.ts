@@ -88,6 +88,49 @@ export class AuthController {
       res.status(500).json({ error: (err as Error).message });
     }
   }
+
+  async setActive(req: Request, res: Response) {
+    try {
+      // `String(...)` rather than destructuring: Express 5 types a route parameter as
+      // `string | string[]`, and the compiler is right to insist. Same shape every other
+      // controller here uses.
+      const id = String(req.params.id);
+      const { active } = req.body;
+      if (typeof active !== "boolean") {
+        return res.status(400).json({ error: "active field must be a boolean" });
+      }
+      const currentUser = (req as Request & { user?: { id: string } }).user;
+      if (currentUser && currentUser.id === id && active === false) {
+        return res.status(400).json({ error: "You cannot deactivate the account you are signed in as." });
+      }
+      const updated = await authService.setActive(id, active);
+      if (!updated) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      res.json({ success: true, active });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  }
+
+  async changePassword(req: Request, res: Response) {
+    try {
+      const user = (req as Request & { user?: { id: string } }).user;
+      if (!user) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      const { currentPassword, newPassword } = req.body || {};
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({ error: "Current password and new password are required" });
+      }
+      await authService.changePassword(user.id, currentPassword, newPassword);
+      res.json({ success: true });
+    } catch (err) {
+      res.status(400).json({ error: (err as Error).message });
+    }
+  }
 }
+
+
 
 export const authController = new AuthController();

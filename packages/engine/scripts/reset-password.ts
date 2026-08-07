@@ -2,6 +2,8 @@
  * The way back in when a password is gone.
  *
  *   pnpm --filter @zaa-tool/engine reset-password <username>
+ *   pnpm --filter @zaa-tool/engine reset-password <username> --password foobar123
+ *   pnpm --filter @zaa-tool/engine reset-password <username> --prompt
  *   pnpm --filter @zaa-tool/engine reset-password <username> --role creator
  *   pnpm --filter @zaa-tool/engine reset-password --list
  *
@@ -10,14 +12,21 @@
  * this terminal is the person who owns the machine — which is the same authority a reset
  * email is trying, badly, to stand in for.
  *
- * The new password is generated here rather than typed, because a password typed at a
- * prompt in a hurry is the one that ends up shared. It is printed once. Change it after
- * signing in if you want one you can remember.
+ * Three ways to say what the new password is, and the default matters. With no flag one
+ * is **generated** here rather than typed, because a password typed at a prompt in a hurry
+ * is the one that ends up shared. It is printed once. `--password` is for when you already
+ * know what you want; `--prompt` is for when you want to type it where nobody can read it
+ * off your screen or your shell history.
+ *
+ * FX7 briefly made `--prompt` the default and deleted the generator outright. That was a
+ * loss, not a simplification: it removed the only path that hands you a strong password
+ * when you are locked out and in no state to invent one.
  */
 import crypto from "crypto";
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
 import { authService, isRole } from "../src/services/auth.service.js";
+import { promptPassword } from "./prompt-password.js";
 
 /** Unambiguous when read aloud or copied by hand: no O/0, no l/1. */
 const ALPHABET = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -39,13 +48,16 @@ async function main(): Promise<void> {
     }
     console.log("");
     for (const user of users) {
-      console.log(`  ${user.username.padEnd(24)} ${user.role}`);
+      console.log(`  ${user.username.padEnd(24)} ${user.role}${user.active ? "" : "  (deactivated)"}`);
     }
-    console.log("\n  Usage: reset-password <username> [--role creator|viewer]\n");
+    console.log(
+      "\n  Usage: reset-password <username> [--password <value> | --prompt] [--role creator|viewer]\n"
+    );
     return;
   }
 
   const username = args[0];
+
   const roleIndex = args.indexOf("--role");
   const role = roleIndex === -1 ? undefined : args[roleIndex + 1];
 
@@ -53,7 +65,20 @@ async function main(): Promise<void> {
     throw new Error("--role must be creator or viewer");
   }
 
-  const password = newPassword();
+  const passwordIndex = args.indexOf("--password");
+  const given = passwordIndex === -1 ? undefined : args[passwordIndex + 1];
+
+  let password: string;
+  let generated = false;
+  if (given) {
+    password = given;
+  } else if (args.includes("--prompt")) {
+    password = await promptPassword("New password: ");
+  } else {
+    password = newPassword();
+    generated = true;
+  }
+
   const changed = await authService.setPassword(username, password);
   if (!changed) {
     throw new Error(`No account named "${username}". Run with --list to see them.`);
@@ -62,8 +87,12 @@ async function main(): Promise<void> {
   if (role) await authService.setRole(username, role);
 
   console.log(`\n  ${username}${role ? ` · now a ${role}` : ""}\n`);
-  console.log(`  ${password}\n`);
-  console.log("  Shown once. Sign in with it now.\n");
+  if (generated) {
+    console.log(`  ${password}\n`);
+    console.log("  Shown once. Sign in with it now.\n");
+  } else {
+    console.log("  Password updated.\n");
+  }
 }
 
 main()
