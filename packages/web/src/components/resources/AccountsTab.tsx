@@ -55,6 +55,8 @@ export function AccountsTab({ accounts, error, onCreate, onSetActive }: Accounts
       )}
 
       <div className="flex justify-between items-center gap-3 mb-4">
+
+
         <p className="text-sm text-muted-foreground shrink-0">
           Manage system users, grant roles, and deactivate accounts.
         </p>

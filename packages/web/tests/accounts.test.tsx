@@ -151,5 +151,21 @@ describe('Navbar profile dialog (T-09 & T-10)', () => {
 
     expect(changePasswordMock).toHaveBeenCalledWith('oldpass123', 'newpass123');
   });
+
+  it('displays 403 error message as readable text in DOM (T-12)', () => {
+    const errorMsg = 'This needs a creator account. Yours is viewer.';
+    render(
+      <AccountsTab
+        accounts={mockUsers}
+        error={errorMsg}
+        onCreate={async () => false}
+      />
+    );
+
+    const errorElement = screen.getByTestId('accounts-error');
+    expect(errorElement).toBeDefined();
+    expect(errorElement.textContent).toBe(errorMsg);
+  });
 });
+
 

@@ -560,7 +560,7 @@ pnpm --filter @zaa-tool/web test session-expiry
 ```
 
 ### T-12 — 403 tampil sebagai kalimat, bukan diam
-- Status: TODO
+- Status: DONE
 - Depends: T-07, T-10
 - RQ: RQ-10
 - Lakukan: pastikan `useAccounts.ts` dan `changePassword` di `authStore.ts` (T-07, T-10)
