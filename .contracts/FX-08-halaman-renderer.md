@@ -476,7 +476,7 @@ tiga titik terap, jalankan tes T-05, pastikan merah persis di titik yang dimatik
 buktikan tesnya memang memeriksa ketiganya, bukan cuma satu — baru kembalikan.
 
 ### T-06 — Pesan yang jujur saat tautan gagal dimuat
-- Status: TODO
+- Status: DONE
 - Depends: T-00, T-01
 - RQ: RQ-05 (bagian klien)
 - Lakukan: tambah `onError` pada elemen `<img>`/`<audio>`/`<video>` di `OutputView.tsx`

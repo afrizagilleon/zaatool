@@ -1,11 +1,36 @@
+import { useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { DownloadSimple } from '@phosphor-icons/react';
 import type { NotebookOutput } from '@zaa-tool/shared';
 import { asRows, renderFor } from '../../../lib/notebook-outputs';
 import { API_BASE_URL } from '../../../lib/api';
+import { mediaSource } from '../../../lib/media-source';
 import { TableView } from './TableView';
 import { ChartView, type ChartForm } from './ChartView';
+
+function MediaElement({ type, src, alt }: { type: 'image' | 'video' | 'audio'; src: string; alt?: string }) {
+  const [error, setError] = useState(false);
+
+  if (error) {
+    return (
+      <div className="border border-status-error/40 bg-status-error/5 p-2 text-xs text-status-error">
+        Couldn't load this file — its link may have expired. Reloading the page will fetch a new one.
+      </div>
+    );
+  }
+
+  const handleError = () => setError(true);
+
+  if (type === 'image') {
+    return <img src={src} alt={alt} onError={handleError} className="max-w-full border border-border" />;
+  }
+  if (type === 'video') {
+    return <video src={src} controls onError={handleError} className="max-w-full border border-border" />;
+  }
+  return <audio src={src} controls onError={handleError} className="w-full" />;
+}
+
 
 /**
  * Shows one output.
@@ -55,8 +80,6 @@ function FileLink({ value }: { value: unknown }) {
   );
 }
 
-import { mediaSource } from '../../../lib/media-source';
-
 
 export function OutputView({ output, value }: { output: NotebookOutput; value: unknown }) {
   if (value === null || value === undefined) return <Empty />;
@@ -87,7 +110,7 @@ export function OutputView({ output, value }: { output: NotebookOutput; value: u
     case 'image': {
       const src = mediaSource(value);
       return src ? (
-        <img src={src} alt={output.name} className="max-w-full border border-border" />
+        <MediaElement type="image" src={src} alt={output.name} />
       ) : (
         <Json value={value} />
       );
@@ -96,7 +119,7 @@ export function OutputView({ output, value }: { output: NotebookOutput; value: u
     case 'video': {
       const src = mediaSource(value);
       return src ? (
-        <video src={src} controls className="max-w-full border border-border" />
+        <MediaElement type="video" src={src} />
       ) : (
         <Json value={value} />
       );
@@ -104,8 +127,13 @@ export function OutputView({ output, value }: { output: NotebookOutput; value: u
 
     case 'audio': {
       const src = mediaSource(value);
-      return src ? <audio src={src} controls className="w-full" /> : <Json value={value} />;
+      return src ? (
+        <MediaElement type="audio" src={src} />
+      ) : (
+        <Json value={value} />
+      );
     }
+
 
     case 'file':
       return <FileLink value={value} />;

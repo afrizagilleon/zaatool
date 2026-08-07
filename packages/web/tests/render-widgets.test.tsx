@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
+
 import { mediaSource } from '../src/lib/media-source';
 import { FileField } from '../src/components/pages/render/FileField';
 
@@ -104,5 +105,25 @@ describe('NotesBlock (T-04)', () => {
     expect(container.textContent).toContain('Prose paragraph.');
   });
 });
+
+describe('honest error message on media load error (T-06)', () => {
+  it('displays link expired message when media fails to load', async () => {
+    const { OutputView } = await import('../src/components/pages/render/OutputView');
+    const { container } = render(
+      <OutputView output={{ name: 'img', render: 'image' }} value="http://invalid.url/nonexistent.jpg" />
+    );
+
+    const img = container.querySelector('img');
+    expect(img).not.toBeNull();
+
+    if (img) {
+      fireEvent.error(img);
+    }
+
+    expect(container.textContent).toContain("Couldn't load this file — its link may have expired");
+  });
+});
+
+
 
 
