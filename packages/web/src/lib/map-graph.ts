@@ -1,6 +1,6 @@
 import dagre from 'dagre';
 import { MarkerType, type Edge, type Node } from '@xyflow/react';
-import { layoutSystem, type SystemLayout } from './map-layout';
+import { layoutForViewport, layoutSystem, type SystemLayout } from './map-layout';
 import type {
   NotebookJson,
   NotebookMap,
@@ -152,7 +152,7 @@ function nameOf(map: NotebookMap, notebookId: string): string | undefined {
  */
 export function buildMapGraph(
   map: NotebookMap,
-  options: { showStandalone?: boolean } = {}
+  options: { showStandalone?: boolean; width?: number; height?: number } = {}
 ): SystemLayout {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
@@ -222,7 +222,15 @@ export function buildMapGraph(
     });
   }
 
-  return layoutSystem(map, nodes, edges, options);
+  // Given the pane's shape, the layout picks the wrap width that best matches it. Given
+  // only a width — every test, and the first frame — it wraps at that width and stops.
+  return options.width && options.height
+    ? layoutForViewport(map, nodes, edges, {
+        showStandalone: options.showStandalone,
+        width: options.width,
+        height: options.height,
+      })
+    : layoutSystem(map, nodes, edges, options);
 }
 
 // ── notebook level ────────────────────────────────────────────────────────────

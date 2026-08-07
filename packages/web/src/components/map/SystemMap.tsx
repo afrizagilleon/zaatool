@@ -85,6 +85,14 @@ function MapCanvas({ onOpenNotebook, openInside }: SystemMapProps) {
    * nobody, and drawing them among the four that matter is what made the map 4531px tall.
    */
   const [showStandalone, setShowStandalone] = useState(false);
+  /**
+   * How wide the drawing may grow before it wraps.
+   *
+   * The layout is pure and cannot see a window, so the window is handed to it. Measured
+   * rather than assumed, and re-measured when the window changes: a wrap count guessed at
+   * build time is either wasted space on a wide screen or an overflow on a narrow one.
+   */
+  const [pane$, setPaneSize] = useState({ width: 0, height: 0 });
   /** A past run laid over the drawing; undefined means live. */
   const [replayRunId, setReplayRunId] = useState<string | undefined>();
   const [replay, setReplay] = useState<NotebookRunDetail | null>(null);
@@ -111,6 +119,21 @@ function MapCanvas({ onOpenNotebook, openInside }: SystemMapProps) {
     };
   }, [inside]);
 
+  useEffect(() => {
+    const element = pane.current;
+    if (!element) return;
+
+    const observer = new ResizeObserver(([entry]) =>
+      // Rounded to a step, so dragging a window edge does not relayout on every pixel.
+      setPaneSize({
+        width: Math.round(entry.contentRect.width / 80) * 80,
+        height: Math.round(entry.contentRect.height / 80) * 80,
+      })
+    );
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
   const nameOf = useCallback(
     (notebookId: string) => map?.notebooks.find((entry) => entry.id === notebookId)?.name,
     [map]
@@ -129,9 +152,16 @@ function MapCanvas({ onOpenNotebook, openInside }: SystemMapProps) {
       };
     }
     return map
-      ? buildMapGraph(map, { showStandalone })
+      ? buildMapGraph(map, {
+          showStandalone,
+          // The pane's shape, not just its width: the layout tries a few wrap widths and
+          // keeps whichever comes out most like this rectangle, because a drawing that
+          // fits the window's *proportions* is the one that fills it when fitted.
+          width: pane$.width > 0 ? pane$.width - 96 : undefined,
+          height: pane$.height > 0 ? pane$.height - 96 : undefined,
+        })
       : { nodes: [], edges: [], standaloneCount: 0, bands: [] };
-  }, [map, inside, document, nameOf, showStandalone]);
+  }, [map, inside, document, nameOf, showStandalone, pane$]);
 
   /**
    * What a search lights up: the matches, and whatever they are joined to.

@@ -21,6 +21,7 @@ import type { NotebookMap, NotebookMapNotebook } from '@zaa-tool/shared';
 // Aliased: the DOM has a `Node` too, and in a jsdom test file that one wins.
 import type { Node as FlowNode } from '@xyflow/react';
 import { buildMapGraph, sizeFor, type CallsNodeData } from '../src/lib/map-graph';
+import { extentOf } from '../src/lib/map-layout';
 
 function notebook(id: string, over: Partial<NotebookMapNotebook> = {}): NotebookMapNotebook {
   return {
@@ -124,6 +125,93 @@ describe('a system that fits on a screen', () => {
           a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
         expect(overlaps, `nodes ${i} and ${j} overlap`).toBe(false);
       }
+    }
+  });
+});
+
+describe('using the width the screen has', () => {
+  /** Thirteen schedules, each firing its own notebook. Thirteen unrelated pairs. */
+  function schedules(count = 13): NotebookMap {
+    return {
+      notebooks: Array.from({ length: count }, (_, index) => notebook(String(index))),
+      triggers: Array.from({ length: count }, (_, index) => ({
+        id: `t${index}`,
+        notebookId: String(index),
+        kind: 'cron' as const,
+        label: '0 9 * * *',
+        enabled: true,
+      })),
+      calls: [],
+    };
+  }
+
+  it('wraps a band into rows instead of drawing one column down the page', () => {
+    // His report: a 600px-wide drawing down a 1700px-wide window. A band is not one
+    // graph — thirteen trigger-and-notebook pairs have nothing to do with each other,
+    // and depth is the only thing a layered engine spends width on.
+    const { nodes } = buildMapGraph(schedules(), { width: 1600 });
+    const columns = new Set(nodes.map((node) => Math.round(node.position.x)));
+
+    expect(columns.size).toBeGreaterThan(2);
+    const { width, height } = extent(nodes);
+    expect(width).toBeGreaterThan(height);
+  });
+
+  it('gets shorter as the window gets wider, which is the whole point', () => {
+    const narrow = extent(buildMapGraph(schedules(), { width: 700 }).nodes);
+    const wide = extent(buildMapGraph(schedules(), { width: 1600 }).nodes);
+
+    expect(wide.height).toBeLessThan(narrow.height);
+    expect(wide.width).toBeGreaterThan(narrow.width);
+  });
+
+  it('never puts a chain past the width it was given', () => {
+    const { nodes } = buildMapGraph(schedules(), { width: 900 });
+    // One chain is a trigger and a notebook side by side, well under 900. Nothing should
+    // start a row it cannot finish in.
+    for (const node of nodes) {
+      expect(node.position.x + (node.width ?? 0)).toBeLessThanOrEqual(900);
+    }
+  });
+
+  it('still overlaps nothing once the rows are packed', () => {
+    const boxes = buildMapGraph(schedules(), { width: 1000 }).nodes.map(box);
+    for (let i = 0; i < boxes.length; i += 1) {
+      for (let j = i + 1; j < boxes.length; j += 1) {
+        const a = boxes[i];
+        const b = boxes[j];
+        const overlaps =
+          a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+        expect(overlaps, `nodes ${i} and ${j} overlap`).toBe(false);
+      }
+    }
+  });
+
+  it('shapes itself like the window, so fitting it draws bigger boxes', () => {
+    // Packing to the window's *width* is not the same as filling the window. A drawing
+    // wrapped at exactly the pane width still came out taller than the pane, and fitting
+    // that has to zoom out until half the width is empty. What matters is the ratio.
+    const pane = { width: 800, height: 700 };
+    const zoomOf = (nodes: ReturnType<typeof buildMapGraph>['nodes']) => {
+      const extent = extentOf(nodes);
+      return Math.min(pane.width / extent.width, pane.height / extent.height);
+    };
+
+    const widthOnly = buildMapGraph(schedules(20), { width: pane.width });
+    const shaped = buildMapGraph(schedules(20), pane);
+
+    expect(zoomOf(shaped.nodes)).toBeGreaterThan(zoomOf(widthOnly.nodes));
+  });
+
+  it('keeps a chain together rather than wrapping through the middle of it', () => {
+    // A trigger and the notebook it fires are one thing. Splitting them across a row
+    // break would put an arrow's two ends on different lines.
+    const { nodes } = buildMapGraph(schedules(3), { width: 700 });
+    for (const trigger of nodes.filter((node) => node.type === 'mapTrigger')) {
+      const fired = nodes.find(
+        (node) => node.type === 'mapNotebook' && node.position.x > trigger.position.x
+      );
+      expect(fired).toBeTruthy();
     }
   });
 });

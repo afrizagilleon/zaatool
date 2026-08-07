@@ -36,9 +36,15 @@ import { SIZES, sizeFor } from './map-graph';
 
 /** Vertical air between one band and the next, and above the grid. */
 const BAND_GAP = 90;
-/** How many standalone notebooks sit in one row of the grid. */
-const GRID_COLUMNS = 6;
 const GRID_GAP = { x: 24, y: 20 };
+
+/**
+ * How wide the drawing may grow before it wraps to a new row.
+ *
+ * A default rather than a constant: the map measures its own pane and passes the real
+ * number. This one is for tests and for the first frame, before anything has been measured.
+ */
+const DEFAULT_WIDTH = 1200;
 
 /**
  * A titled region of the canvas.
@@ -67,20 +73,22 @@ export interface SystemLayout {
 /** How far a `calls:` chip sits below and to the right of the notebook that owns it. */
 const CHIP_OFFSET = { x: 26, y: 6 };
 
+interface Placed {
+  nodes: Node[];
+  width: number;
+  height: number;
+}
+
 /**
- * Runs dagre over one band and returns the placed nodes plus the height they occupy.
+ * Lays out one connected chain and normalises it to its own origin.
  *
  * `chips` are not laid out by dagre at all. A chip belongs to exactly one notebook and
  * has to stay glued underneath it, which is not something a graph engine can be asked
  * for — so its owner is declared taller by the height of the chip, dagre keeps that space
  * clear, and the chip is dropped into it afterwards.
  */
-function placeBand(
-  nodes: Node[],
-  edges: Edge[],
-  chips: Map<string, Node>
-): { nodes: Node[]; height: number } {
-  if (nodes.length === 0) return { nodes: [], height: 0 };
+function placeChain(nodes: Node[], edges: Edge[], chips: Map<string, Node>): Placed {
+  if (nodes.length === 0) return { nodes: [], width: 0, height: 0 };
 
   const graph = new dagre.graphlib.Graph();
   graph.setGraph({ rankdir: 'LR', nodesep: 24, ranksep: 70, marginx: 0, marginy: 0 });
@@ -104,15 +112,21 @@ function placeBand(
 
   dagre.layout(graph);
 
-  let lowest = 0;
   const placed: Node[] = [];
+  let left = Infinity;
+  let top = Infinity;
+  let right = 0;
+  let bottom = 0;
 
   for (const node of nodes) {
     const at = graph.node(node.id);
     const size = sizeFor(node);
     const x = at.x - at.width / 2;
     const y = at.y - at.height / 2;
-    lowest = Math.max(lowest, y + at.height);
+    left = Math.min(left, x);
+    top = Math.min(top, y);
+    right = Math.max(right, x + at.width);
+    bottom = Math.max(bottom, y + at.height);
     placed.push({ ...node, position: { x, y }, ...size });
 
     const chip = chips.get(node.id);
@@ -125,23 +139,121 @@ function placeBand(
     }
   }
 
-  return { nodes: placed, height: lowest };
+  // Moved to its own origin so packing only has to think about width and height.
+  for (const node of placed) {
+    node.position = { x: node.position.x - left, y: node.position.y - top };
+  }
+
+  return { nodes: placed, width: right - left, height: bottom - top };
 }
 
-/** The shape for a set of things with no relations to each other. */
-function placeGrid(nodes: Node[], top: number): { nodes: Node[]; height: number } {
+/**
+ * The chains inside a band, each one separate from the others.
+ *
+ * A band is not one graph. "Starts on its own" is thirteen unrelated pairs — a trigger and
+ * the notebook it fires — that have nothing to do with each other, and handing all
+ * thirteen to dagre at once produces exactly two columns and thirteen rows, because depth
+ * is the only thing a layered engine spends width on. That is the same mistake as FX6's
+ * ribbon, one level down: laying out unrelated things with a tool for related things.
+ */
+function chainsIn(nodes: Node[], edges: Edge[]): Node[][] {
+  const index = new Map(nodes.map((node, at) => [node.id, at]));
+  const parent = nodes.map((_, at) => at);
+
+  const root = (at: number): number => {
+    while (parent[at] !== at) {
+      parent[at] = parent[parent[at]];
+      at = parent[at];
+    }
+    return at;
+  };
+
+  for (const edge of edges) {
+    const from = index.get(edge.source);
+    const to = index.get(edge.target);
+    if (from === undefined || to === undefined) continue;
+    parent[root(from)] = root(to);
+  }
+
+  // Keyed in first-seen order, so the drawing is stable between renders rather than
+  // reshuffling every time the map is refetched.
+  const chains = new Map<number, Node[]>();
+  nodes.forEach((node, at) => {
+    const key = root(at);
+    const chain = chains.get(key) ?? [];
+    chain.push(node);
+    chains.set(key, chain);
+  });
+
+  return [...chains.values()];
+}
+
+/**
+ * Packs a band's chains left to right, wrapping when the row runs out of width.
+ *
+ * The screen is wider than it is tall and the old layout used none of that: a system of
+ * thirteen schedules drew a 600px-wide column down a 1700px-wide window. Rows are as tall
+ * as their tallest chain, which keeps the bands' titles honest about where each begins.
+ */
+function placeBand(
+  nodes: Node[],
+  edges: Edge[],
+  chips: Map<string, Node>,
+  targetWidth: number
+): { nodes: Node[]; height: number } {
+  if (nodes.length === 0) return { nodes: [], height: 0 };
+
+  const chains = chainsIn(nodes, edges).map((chain) => placeChain(chain, edges, chips));
+
+  const placed: Node[] = [];
+  let x = 0;
+  let rowTop = 0;
+  let rowHeight = 0;
+
+  for (const chain of chains) {
+    // Always at least one per row: a chain wider than the window still has to go
+    // somewhere, and wrapping before the first one would leave an empty row.
+    if (x > 0 && x + chain.width > targetWidth) {
+      rowTop += rowHeight + GRID_GAP.y * 2;
+      rowHeight = 0;
+      x = 0;
+    }
+
+    for (const node of chain.nodes) {
+      placed.push({
+        ...node,
+        position: { x: node.position.x + x, y: node.position.y + rowTop },
+      });
+    }
+
+    x += chain.width + GRID_GAP.x * 2;
+    rowHeight = Math.max(rowHeight, chain.height);
+  }
+
+  return { nodes: placed, height: rowTop + rowHeight };
+}
+
+/**
+ * The shape for a set of things with no relations to each other.
+ *
+ * Columns come from the width available rather than a fixed six, for the same reason the
+ * bands wrap: six was a guess that wasted half a wide window and overflowed a narrow one.
+ */
+function placeGrid(nodes: Node[], top: number, targetWidth: number): { nodes: Node[]; height: number } {
   const { width, height } = SIZES.notebook;
+  const columns = Math.max(1, Math.floor((targetWidth + GRID_GAP.x) / (width + GRID_GAP.x)));
+
   const placed = nodes.map((node, index) => ({
     ...node,
     position: {
-      x: (index % GRID_COLUMNS) * (width + GRID_GAP.x),
-      y: top + Math.floor(index / GRID_COLUMNS) * (height + GRID_GAP.y),
+      x: (index % columns) * (width + GRID_GAP.x),
+      y: top + Math.floor(index / columns) * (height + GRID_GAP.y),
     },
     width,
     height,
   }));
 
-  const rows = Math.ceil(nodes.length / GRID_COLUMNS);
+  const rows = Math.ceil(nodes.length / columns);
   return { nodes: placed, height: rows === 0 ? 0 : rows * (height + GRID_GAP.y) - GRID_GAP.y };
 }
 
@@ -151,11 +263,62 @@ function placeGrid(nodes: Node[], top: number): { nodes: Node[]; height: number 
  * `nodes` and `edges` come from `buildMapGraph`, which knows what exists; this decides
  * where it goes.
  */
+/** The box every node in a layout fits inside. */
+export function extentOf(nodes: Node[]): { width: number; height: number } {
+  if (nodes.length === 0) return { width: 0, height: 0 };
+  return {
+    width: Math.max(...nodes.map((node) => node.position.x + (node.width ?? 0))),
+    height: Math.max(...nodes.map((node) => node.position.y + (node.height ?? 0))),
+  };
+}
+
+/**
+ * Lays out several times and keeps the one shaped most like the window.
+ *
+ * Packing to the window's *width* is not the same as filling the window. Wrapping at
+ * exactly 1264px produced a drawing 1562 wide and 1467 tall on his workspace — and since
+ * the pane is wider than it is tall, fitting that still had to zoom out until half the
+ * width was empty. What matters is the ratio, not the width.
+ *
+ * So it tries a few, cheaply: the layout is a pure function of the same nodes, and four
+ * calls of it cost less than one fetch. Letting a candidate grow wider than the pane is
+ * deliberate — fitting shrinks it back, and a wide short drawing survives that better than
+ * a tall narrow one.
+ */
+export function layoutForViewport(
+  map: NotebookMap,
+  nodes: Node[],
+  edges: Edge[],
+  options: { showStandalone?: boolean; width: number; height: number }
+): SystemLayout {
+  const wanted = options.width / options.height;
+  let best: { layout: SystemLayout; miss: number } | null = null;
+
+  for (const factor of [1, 1.4, 2, 2.8]) {
+    const layout = layoutSystem(map, nodes, edges, {
+      showStandalone: options.showStandalone,
+      width: options.width * factor,
+    });
+    const extent = extentOf(layout.nodes);
+    if (extent.height === 0) return layout;
+
+    // Compared as a log ratio so "twice as wide as it should be" and "half as wide" count
+    // the same. Comparing the difference would quietly prefer the taller one every time.
+    const miss = Math.abs(Math.log(extent.width / extent.height / wanted));
+    if (!best || miss < best.miss) best = { layout, miss };
+  }
+
+  return best!.layout;
+}
+
 export function layoutSystem(
   map: NotebookMap,
   nodes: Node[],
   edges: Edge[],
-  { showStandalone = false }: { showStandalone?: boolean } = {}
+  {
+    showStandalone = false,
+    width: targetWidth = DEFAULT_WIDTH,
+  }: { showStandalone?: boolean; width?: number } = {}
 ): SystemLayout {
   const roles = mapRoles(map);
   const joined = connectedNotebooks(map);
@@ -223,7 +386,7 @@ export function layoutSystem(
     const inBand = kept.filter((node) => !standing.has(node.id) && bandOf(node) === role);
     if (inBand.length === 0) continue;
 
-    const { nodes: placed, height } = placeBand(inBand, edges, chips);
+    const { nodes: placed, height } = placeBand(inBand, edges, chips, targetWidth);
     for (const node of placed) {
       placedNodes.push({ ...node, position: { x: node.position.x, y: node.position.y + top } });
     }
@@ -237,7 +400,7 @@ export function layoutSystem(
   }
 
   if (showStandalone && alone.length > 0) {
-    const { nodes: placed, height } = placeGrid(alone, top);
+    const { nodes: placed, height } = placeGrid(alone, top, targetWidth);
     placedNodes.push(...placed);
     bands.push({ key: 'alone', role: null, y: top, count: alone.length });
     top += height;
