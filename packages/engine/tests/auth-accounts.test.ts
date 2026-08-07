@@ -199,7 +199,34 @@ await check("T-04: POST /api/auth/me/password changes self password with current
   assert.ok(newLogin.token);
 });
 
+await check("T-05: reset-password script accepts --password flag or reads stdin without echo", async () => {
+  const { execFileSync, spawnSync } = await import("node:child_process");
+
+  await authService.createUser("zz-test-reset1", "password123", "viewer");
+
+  // 1. With --password flag
+  execFileSync(process.execPath, ["--import", "tsx", "scripts/reset-password.ts", "zz-test-reset1", "--password", "flagpass123"], {
+    cwd: process.cwd(),
+  });
+  const login1 = await authService.login("zz-test-reset1", "flagpass123");
+  assert.ok(login1.token);
+
+  // 2. Interactive prompt via stdin
+  const proc = spawnSync(process.execPath, ["--import", "tsx", "scripts/reset-password.ts", "zz-test-reset1"], {
+    cwd: process.cwd(),
+    input: "stdinpass123\n",
+    encoding: "utf-8",
+  });
+  assert.equal(proc.status, 0);
+  assert.ok(!proc.stdout.includes("stdinpass123"), "Characters typed should not be echoed to stdout");
+
+  const login2 = await authService.login("zz-test-reset1", "stdinpass123");
+  assert.ok(login2.token);
+});
+
+
 await pool.query("DELETE FROM users WHERE username LIKE 'zz-test-%'");
+
 
 await new Promise<void>((resolve) => server.close(() => resolve()));
 await pool.end();

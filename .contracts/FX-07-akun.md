@@ -429,7 +429,7 @@ pnpm --filter @zaa-tool/engine test auth-accounts
 ```
 
 ### T-05 — CLI: `reset-password --password <value>` dan mode interaktif tanpa echo
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-01
 - Lakukan: di `reset-password.ts`, urai `--password` sama seperti `--role` sudah diurai.
