@@ -7,7 +7,9 @@ import { API_BASE_URL } from '../../lib/api';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { InputField, initialValues, toArgs } from './render/InputField';
+import { tileTitle } from '../../lib/tile-title';
 import { OutputView } from './render/OutputView';
+
 import { NotesBlock } from './render/NotesBlock';
 
 import { PageGrid } from './render/PageGrid';
@@ -315,8 +317,9 @@ export function SharedPage({ token }: { token: string }) {
                 <>
                   <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-3 py-1.5">
                     <span className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                      {output.name}
+                      {tileTitle(output)}
                     </span>
+
                     <div className="flex-1" />
                     {state === 'running' && (
                       <Spinner size={10} className="animate-spin text-muted-foreground" />

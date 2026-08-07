@@ -27,7 +27,9 @@ import { usePageRun, type OutputStatus } from '../../hooks/usePageRun';
 import { notebooksApi } from '../../lib/notebooks-api';
 import { NotesBlock } from './render/NotesBlock';
 import { TableView } from './render/TableView';
+import { tileTitle } from '../../lib/tile-title';
 import { OutputView } from './render/OutputView';
+
 import { PageGrid } from './render/PageGrid';
 import { ShareDialog } from './ShareDialog';
 import { InputField, initialValues, toArgs } from './render/InputField';
@@ -245,8 +247,9 @@ export function PageRunner({
                   <>
                     <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-3 py-1.5">
                       <span className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                        {output.name}
+                        {tileTitle(output)}
                       </span>
+
                       <div className="flex-1" />
                       {(state === 'running' || (state === 'stale' && isRunning)) && (
                         <span className="flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground/70">

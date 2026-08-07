@@ -12,7 +12,9 @@ import type { NotebookLayoutItem, NotebookOutput } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { useNotebookStore } from '../../store/notebookStore';
 import { specsOf } from '../../lib/notebook-outputs';
+import { tileTitle } from '../../lib/tile-title';
 import { OutputView } from '../pages/render/OutputView';
+
 import { NotesBlock } from '../pages/render/NotesBlock';
 import { PageGrid, derivedLayout } from '../pages/render/PageGrid';
 import { InputField } from '../pages/render/InputField';
@@ -237,8 +239,9 @@ export function PagePreview({ onRun, isRunning }: PagePreviewProps) {
                     >
                       <DotsSixVertical size={14} weight="bold" className="text-muted-foreground/70" />
                       <span className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                        {output.name}
+                        {tileTitle(output)}
                       </span>
+
                       <div className="flex-1" />
                       {state.status === 'running' && (
                         <Spinner size={10} className="animate-spin text-muted-foreground" />

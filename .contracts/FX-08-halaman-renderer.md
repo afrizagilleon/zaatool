@@ -508,7 +508,7 @@ pnpm --filter @zaa-tool/web test render-widgets
 ```
 
 ### T-08 — Judul tile dari `description`
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-08
 - Lakukan: buat `packages/web/src/lib/tile-title.ts` (D-6) — `tileTitle(output)` →

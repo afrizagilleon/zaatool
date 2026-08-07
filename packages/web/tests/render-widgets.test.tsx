@@ -146,6 +146,16 @@ describe('un-run page state (T-07)', () => {
   });
 });
 
+describe('tileTitle helper (T-08)', () => {
+  it('prefers description over name when description is non-empty', async () => {
+    const { tileTitle } = await import('../src/lib/tile-title');
+    expect(tileTitle({ name: 'top_products', description: 'Top 5 Products' })).toBe('Top 5 Products');
+    expect(tileTitle({ name: 'top_products', description: '   ' })).toBe('top_products');
+    expect(tileTitle({ name: 'top_products' })).toBe('top_products');
+  });
+});
+
+
 
 
 
