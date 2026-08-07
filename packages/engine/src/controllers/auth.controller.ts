@@ -91,7 +91,10 @@ export class AuthController {
 
   async setActive(req: Request, res: Response) {
     try {
-      const { id } = req.params;
+      // `String(...)` rather than destructuring: Express 5 types a route parameter as
+      // `string | string[]`, and the compiler is right to insist. Same shape every other
+      // controller here uses.
+      const id = String(req.params.id);
       const { active } = req.body;
       if (typeof active !== "boolean") {
         return res.status(400).json({ error: "active field must be a boolean" });
