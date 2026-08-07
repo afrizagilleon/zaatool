@@ -522,7 +522,7 @@ pnpm --filter @zaa-tool/web test accounts
 ```
 
 ### T-10 — Ganti password sendiri, dari dialog profil
-- Status: TODO
+- Status: DONE
 - Depends: T-04
 - RQ: RQ-09
 - Lakukan: tambah `changePassword(currentPassword, newPassword): Promise<boolean>` ke
