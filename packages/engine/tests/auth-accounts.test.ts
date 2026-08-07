@@ -63,9 +63,39 @@ await check("T-01: currentUser and setActive manage active state", async () => {
   assert.equal(found.active, true);
 });
 
+await check("T-02: authMiddleware re-reads DB role and active status per request", async () => {
+  const user = await authService.createUser("zz-test-t02", "password123", "viewer");
+  const loginRes = await authService.login("zz-test-t02", "password123");
+  const token = loginRes.token;
+
+  // Change role in DB to creator directly
+  await authService.setRole("zz-test-t02", "creator");
+
+  // With old token, request creator-only endpoint GET /api/auth/users
+  const req1 = await fetch(`${base}/api/auth/users`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  assert.equal(req1.status, 200, "Should allow request because role in DB is now creator");
+  const body1 = await req1.json();
+  assert.equal(body1.success, true);
+
+  // Deactivate account in DB
+  await authService.setActive(user.id, false);
+
+  // Request with token should now get 403 Deactivated
+  const req2 = await fetch(`${base}/api/auth/me`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  assert.equal(req2.status, 403, "Should reject deactivated account with 403");
+  const body2 = await req2.json();
+  assert.equal(body2.error, "This account has been deactivated.");
+});
+
 await pool.query("DELETE FROM users WHERE username LIKE 'zz-test-%'");
+await new Promise<void>((resolve) => server.close(() => resolve()));
 await pool.end();
-server.close();
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
-process.exit(failed === 0 ? 0 : 1);
+if (failed > 0) process.exit(1);
+
+

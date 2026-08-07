@@ -11,7 +11,7 @@ import { authService } from "../services/auth.service.js";
  * graph without a session, one read one, one checked a password. Those routes went with
  * the canvas in M17, and the holes they punched went with them.
  */
-export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+export async function authMiddleware(req: Request, res: Response, next: NextFunction) {
   const path = req.path;
 
   const isAuthRoute =
@@ -38,6 +38,26 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
     return res.status(401).json({ error: "Unauthorized: Invalid or expired token" });
   }
 
-  (req as Request & { user?: unknown }).user = decoded;
-  next();
+  try {
+    const current = await authService.currentUser(decoded.id);
+    if (!current) {
+      return res.status(401).json({ error: "Unauthorized: account no longer exists" });
+    }
+
+    if (current.active === false) {
+      return res.status(403).json({ error: "This account has been deactivated." });
+    }
+
+    (req as Request & { user?: unknown }).user = {
+      id: current.id,
+      username: current.username,
+      role: current.role,
+    };
+    next();
+  } catch (err) {
+    next(err);
+  }
 }
+
+
+

@@ -369,7 +369,7 @@ pnpm --filter @zaa-tool/engine test auth-accounts
 ```
 
 ### T-02 — `authMiddleware` membaca ulang DB, bukan mempercayai token
-- Status: TODO
+- Status: DONE
 - Depends: T-01
 - RQ: RQ-06, RQ-05 (penegakan langsung, bukan cuma di login)
 - Lakukan: di `auth.middleware.ts`, setelah `verifyToken` sukses, panggil
