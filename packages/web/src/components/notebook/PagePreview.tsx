@@ -12,7 +12,9 @@ import type { NotebookLayoutItem, NotebookOutput } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { useNotebookStore } from '../../store/notebookStore';
 import { specsOf } from '../../lib/notebook-outputs';
+import { CopyTileValueButton } from '../pages/render/CopyTileValueButton';
 import { tileTitle } from '../../lib/tile-title';
+
 import { OutputView } from '../pages/render/OutputView';
 
 import { NotesBlock } from '../pages/render/NotesBlock';
@@ -241,9 +243,10 @@ export function PagePreview({ onRun, isRunning }: PagePreviewProps) {
                       <span className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                         {tileTitle(output)}
                       </span>
-
                       <div className="flex-1" />
+                      {hasValue && <CopyTileValueButton value={state.value} />}
                       {state.status === 'running' && (
+
                         <Spinner size={10} className="animate-spin text-muted-foreground" />
                       )}
                     </div>

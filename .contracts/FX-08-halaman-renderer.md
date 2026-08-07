@@ -562,7 +562,7 @@ pnpm --filter @zaa-tool/web test render-widgets
 ```
 
 ### T-11 — Salin nilai output
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-11
 - Lakukan: satu tombol salin per tile (D-8), memakai `navigator.clipboard.writeText` dengan

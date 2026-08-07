@@ -7,7 +7,9 @@ import { API_BASE_URL } from '../../lib/api';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { InputField, initialValues, toArgs } from './render/InputField';
+import { CopyTileValueButton } from './render/CopyTileValueButton';
 import { tileTitle } from '../../lib/tile-title';
+
 import { OutputView } from './render/OutputView';
 
 import { NotesBlock } from './render/NotesBlock';
@@ -319,9 +321,10 @@ export function SharedPage({ token }: { token: string }) {
                     <span className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                       {tileTitle(output)}
                     </span>
-
                     <div className="flex-1" />
+                    {hasValue && <CopyTileValueButton value={outputs[output.name]} />}
                     {state === 'running' && (
+
                       <Spinner size={10} className="animate-spin text-muted-foreground" />
                     )}
                   </div>

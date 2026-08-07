@@ -27,7 +27,9 @@ import { usePageRun, type OutputStatus } from '../../hooks/usePageRun';
 import { notebooksApi } from '../../lib/notebooks-api';
 import { NotesBlock } from './render/NotesBlock';
 import { TableView } from './render/TableView';
+import { CopyTileValueButton } from './render/CopyTileValueButton';
 import { tileTitle } from '../../lib/tile-title';
+
 import { OutputView } from './render/OutputView';
 
 import { PageGrid } from './render/PageGrid';
@@ -249,9 +251,10 @@ export function PageRunner({
                       <span className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                         {tileTitle(output)}
                       </span>
-
                       <div className="flex-1" />
+                      {hasValue && <CopyTileValueButton value={outputs[output.name]} />}
                       {(state === 'running' || (state === 'stale' && isRunning)) && (
+
                         <span className="flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground/70">
                           <Spinner size={10} className="animate-spin" />
                           {state === 'running' ? 'Working' : 'From the last run'}

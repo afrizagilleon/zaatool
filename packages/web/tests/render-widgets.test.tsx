@@ -173,6 +173,21 @@ describe('exportToCsv (T-10)', () => {
   });
 });
 
+describe('formatCopyValue (T-11)', () => {
+  it('formats scalar, json, and table values for copying to clipboard', async () => {
+    const { formatCopyValue } = await import('../src/components/pages/render/CopyTileValueButton');
+
+    expect(formatCopyValue('plain text')).toBe('plain text');
+    expect(formatCopyValue({ a: 1, b: 'test' })).toBe(JSON.stringify({ a: 1, b: 'test' }, null, 2));
+
+    const rows = [{ col1: 'val1', col2: 'val2' }];
+    const tableCsv = formatCopyValue(rows);
+    expect(tableCsv).toContain('col1,col2');
+    expect(tableCsv).toContain('val1,val2');
+  });
+});
+
+
 
 
 
