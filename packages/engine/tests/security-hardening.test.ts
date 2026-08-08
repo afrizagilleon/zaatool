@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import { corsPolicy } from "../src/server/app.js";
+
 
 let passed = 0;
 let failed = 0;
@@ -367,9 +370,47 @@ await check("JS cell requiring child_process or vm is denied, while fs is allowe
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
+
+console.log("\nsecurity-hardening (T-09: Per-notebook storage quota)");
+
+await check("uploads exceeding MAX_NOTEBOOK_STORAGE_MB are rejected", async () => {
+  const { notebookFilesService } = await import("../src/services/notebook-files.service.js");
+  const { STORAGE_DIR } = await import("../src/services/storage.service.js");
+
+  process.env.MAX_NOTEBOOK_STORAGE_MB = "1"; // 1 MB limit
+  const nbId = `test_quota_nb_${Date.now()}`;
+  const uploadDir = path.join(STORAGE_DIR, "uploads", nbId);
+
+  try {
+    // 600 KB buffer
+    const buf600k = Buffer.alloc(600 * 1024, "a");
+
+    // 1. First upload of 600 KB -> succeeds
+    const file1 = notebookFilesService.keepUpload(nbId, "file1.txt", buf600k);
+    assert.ok(file1.path);
+
+    // 2. Second upload of 600 KB (total 1.2 MB > 1 MB) -> fails
+    assert.throws(
+      () => {
+        notebookFilesService.keepUpload(nbId, "file2.txt", buf600k);
+      },
+      (err: Error) => {
+        return err.message.includes("Notebook storage limit") && err.message.includes("MAX_NOTEBOOK_STORAGE_MB");
+      }
+    );
+  } finally {
+    delete process.env.MAX_NOTEBOOK_STORAGE_MB;
+    if (fs.existsSync(uploadDir)) {
+      fs.rmSync(uploadDir, { recursive: true, force: true });
+    }
+  }
+});
+
+console.log(`\n${passed} passed, ${failed} failed\n`);
 const { pool } = await import("../src/db/connection.js");
 await pool.end();
 if (failed > 0) process.exit(1);
+
 
 
 

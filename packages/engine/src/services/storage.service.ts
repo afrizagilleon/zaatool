@@ -84,6 +84,25 @@ function inside(raw: unknown): string {
   return relative;
 }
 
+import { maxNotebookStorageBytes } from "../config.js";
+import { getFolderSizeRecursive } from "./notebook-files.service.js";
+
+function checkPathQuota(targetDir: string, additionalBytes = 0): void {
+  const relative = safeSubPath(targetDir, STORAGE_DIR);
+  if (!relative) return;
+  const parts = relative.replace(/\\/g, "/").split("/");
+  if (parts[0] === "uploads" && parts[1]) {
+    const notebookFolder = path.join(STORAGE_DIR, "uploads", parts[1]);
+    const currentSize = getFolderSizeRecursive(notebookFolder);
+    if (currentSize + additionalBytes > maxNotebookStorageBytes()) {
+      const maxMb = Math.round(maxNotebookStorageBytes() / (1024 * 1024));
+      throw new Error(
+        `Notebook storage limit of ${maxMb} MB reached. Increase MAX_NOTEBOOK_STORAGE_MB if needed.`
+      );
+    }
+  }
+}
+
 export class StorageService {
   constructor() {
     if (!fs.existsSync(STORAGE_DIR)) {
@@ -95,11 +114,13 @@ export class StorageService {
   resolvePath(subDir: string, filename = "") {
     const targetDir = resolveInside(subDir, STORAGE_DIR);
     if (targetDir === null) throw new OutsideStorageError();
+    checkPathQuota(targetDir, 0);
     if (!fs.existsSync(targetDir)) {
       fs.mkdirSync(targetDir, { recursive: true });
     }
     return path.join(targetDir, safeFilename(filename));
   }
+
 
   private toStorageItem(relativePath: string, isDirectory: boolean, stats: fs.Stats): StorageItem {
     return {

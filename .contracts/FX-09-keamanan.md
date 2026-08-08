@@ -569,7 +569,7 @@ Bite-test wajib: hapus sementara satu entri dari `DENIED_BUILTINS` (mis. `'vm'`)
 pastikan tes untuk entri itu merah, baru kembalikan.
 
 ### T-09 — Kuota storage per-notebook
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-08
 - Lakukan: `MAX_NOTEBOOK_STORAGE_MB` baru di `config.ts` (pola `maxUploadBytes()`, D-9).

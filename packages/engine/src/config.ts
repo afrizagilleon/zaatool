@@ -74,6 +74,13 @@ export function hookRateLimitMax(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : 10;
 }
 
+export function maxNotebookStorageBytes(): number {
+  const raw = Number(process.env.MAX_NOTEBOOK_STORAGE_MB);
+  const megabytes = Number.isFinite(raw) && raw > 0 ? raw : 500;
+  return Math.floor(megabytes * 1024 * 1024);
+}
+
+
 
 
 /**

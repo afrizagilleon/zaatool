@@ -11,6 +11,39 @@ import {
   type FileWriter,
   type StoredFile,
 } from "../core/notebook-files.js";
+import { maxUploadBytes, maxNotebookStorageBytes } from "../config.js";
+
+export function getFolderSizeRecursive(dirPath: string): number {
+  if (!fs.existsSync(dirPath)) return 0;
+  let total = 0;
+  try {
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        total += getFolderSizeRecursive(fullPath);
+      } else if (entry.isFile()) {
+        const stat = fs.statSync(fullPath);
+        total += stat.size;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return total;
+}
+
+export function checkNotebookStorageQuota(notebookId: string, additionalBytes: number): void {
+  const folder = path.join(STORAGE_DIR, "uploads", safeFilename(notebookId) || "unknown");
+  const currentSize = getFolderSizeRecursive(folder);
+  if (currentSize + additionalBytes > maxNotebookStorageBytes()) {
+    const maxMb = Math.round(maxNotebookStorageBytes() / (1024 * 1024));
+    throw new Error(
+      `Notebook storage limit of ${maxMb} MB reached. Increase MAX_NOTEBOOK_STORAGE_MB if needed.`
+    );
+  }
+}
+
 
 /**
  * Where a notebook's own files live, and where an attachment on its way in lands.
@@ -107,6 +140,7 @@ export class NotebookFilesService {
   }
 
   /**
+
    * Keeps something that arrived from outside — a page's file picker, a webhook's
    * multipart body, a voice recording.
    *
@@ -119,6 +153,8 @@ export class NotebookFilesService {
     bytes: Buffer,
     source: "page" | "hook" = "page"
   ): StoredFile {
+    checkNotebookStorageQuota(notebookId, bytes.byteLength);
+
     const folder = path.join(STORAGE_DIR, "uploads", segment(notebookId));
     fs.mkdirSync(folder, { recursive: true });
 
@@ -127,6 +163,7 @@ export class NotebookFilesService {
 
     return describe(`uploads/${segment(notebookId)}/${filename}`, bytes.byteLength);
   }
+
 
   /** The absolute path of a stored file, for a cell that wants to read one it was given. */
   absolutePathOf(relativePath: string): string {
