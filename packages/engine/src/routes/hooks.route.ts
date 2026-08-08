@@ -146,11 +146,12 @@ export function createHooksRouter(publishRunEvent: RunEventSink): Router {
 
       if (trigger.secret_key) {
         const secretHeader = typeof req.headers["x-webhook-secret"] === "string" ? req.headers["x-webhook-secret"] : undefined;
-        const valid = await isSecretAuthenticatedWebhook(trigger.slug, secretHeader);
+        const valid = await isSecretAuthenticatedWebhook(trigger.slug || "", secretHeader);
         if (!valid) {
           return res.status(401).json({ error: "Invalid webhook secret" });
         }
       }
+
 
 
       // Stored before the run starts, and named after the form field they arrived in — so

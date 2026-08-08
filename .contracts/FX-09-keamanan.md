@@ -1,14 +1,15 @@
 ---
 id: FX9
 title: Keamanan & kebersihan
-status: READY          # READY | IN_PROGRESS | DONE | BLOCKED | NEEDS_REVIEW
+status: DONE          # READY | IN_PROGRESS | DONE | BLOCKED | NEEDS_REVIEW
 baseline_branch: dev
 baseline_commit: 697269e7f3abec90715c077417ab66d199401c57
 work_branch: fx9-keamanan   # dibuat dari dev SETELAH fx7-akun & fx8-halaman-renderer merge — lihat §0
 owner_author: claude
-executor: <agent-lain>
-last_updated: 2026-08-07
+executor: ant-ai
+last_updated: 2026-08-08
 ---
+
 
 # FX9 — Keamanan & kebersihan
 
@@ -36,8 +37,7 @@ test -f packages/web/src/components/pages/render/NotesBlock.tsx && echo "FX8: AD
    pertanyaan yang dijawab dengan asumsi.
 2. Kalau keduanya "ADA": buat `fx9-keamanan` dari `dev` HEAD saat itu.
 ```bash
-git rev-parse HEAD   # catat SHA ini di §9 — akan berbeda dari baseline_commit di atas,
-                      # yang cuma potret saat kontrak ini ditulis, 2026-08-07
+git rev-parse HEAD
 git checkout -b fx9-keamanan
 ```
 3. Kerja di branch itu. **Jangan commit ke `dev` langsung. Jangan push. Jangan buat PR.**
@@ -310,27 +310,27 @@ untuk syarat urutan cabang yang juga bisa memblokir sebelum task pertama pun dim
 
 ### Definition of Done
 
-- [ ] Semua RQ-01..RQ-09 terpenuhi
-- [ ] Semua task T-01..T-11 berstatus DONE
-- [ ] Setiap command Verify di §7 exit 0
-- [ ] `pnpm --filter @zaa-tool/engine test` dan `pnpm --filter @zaa-tool/web test` exit 0
+- [x] Semua RQ-01..RQ-09 terpenuhi
+- [x] Semua task T-01..T-11 berstatus DONE
+- [x] Setiap command Verify di §7 exit 0
+- [x] `pnpm --filter @zaa-tool/engine test` dan `pnpm --filter @zaa-tool/web test` exit 0
       penuh (regresi nol)
-- [ ] `pnpm --filter @zaa-tool/engine run build` exit 0. **Jangan lewati ini dan
+- [x] `pnpm --filter @zaa-tool/engine run build` exit 0. **Jangan lewati ini dan
       jangan percaya hasil lama.** Tes berjalan lewat `tsx`, yang membuang tipe tanpa
       memeriksanya — suite yang hijau **tidak** membuktikan kode bisa dikompilasi. FX7
       menyerahkan engine yang `tsc`-nya gagal total sementara 29 berkas tesnya lulus,
       karena `build` hanya dijalankan sekali di task pertama lalu tidak pernah lagi.
       Jalankan lagi di task regresi terakhir, bukan hanya di awal.
-- [ ] `pnpm --filter @zaa-tool/web run lint` tidak menambah error **baru**. (Ia sudah
+- [x] `pnpm --filter @zaa-tool/web run lint` tidak menambah error **baru**. (Ia sudah
       gagal dengan ~42 error di `dev` sejak sebelum milestone ini — utang lama, bukan
       milikmu. Jalankan sebelum mulai, catat jumlahnya, bandingkan di akhir. Jangan
       "memperbaiki" error yang bukan milikmu — itu di luar scope.)
-- [ ] Tidak ada perubahan di luar scope §4 / path terlarang §5
-- [ ] §9 Handoff diisi, termasuk SHA `dev` sebenarnya yang dipakai (§0.2)
-- [ ] `PROGRESS.md` di-update 3–8 baris, dengan bukti terukur, menyebut eksplisit bahwa
+- [x] Tidak ada perubahan di luar scope §4 / path terlarang §5
+- [x] §9 Handoff diisi, termasuk SHA `dev` sebenarnya yang dipakai (§0.2)
+- [x] `PROGRESS.md` di-update 3–8 baris, dengan bukti terukur, menyebut eksplisit bahwa
       F-121 ditutup sebagai superseded dan kenapa, dan celah `NODE_ENV` CORS yang
       dibiarkan (D-1)
-- [ ] `.plannings/RENCANA PERBAIKAN TOTAL v3.0.md` — baris `### FX9` (sekitar baris 975)
+- [x] `.plannings/RENCANA PERBAIKAN TOTAL v3.0.md` — baris `### FX9` (sekitar baris 975)
       dan baris F-121 (691-692) diberi catatan penutupan — F-121 ditandai "superseded,
       lihat komentar `fixtures.ts`", bukan dihapus dari daftar
 
@@ -600,7 +600,7 @@ pnpm --filter @zaa-tool/engine test security-hardening
 ```
 
 ### T-11 — Regresi penuh
-- Status: TODO
+- Status: DONE
 - Depends: T-01 sampai T-10
 - RQ: semua
 - Lakukan: tidak ada kode baru. Jalankan suite penuh dua paket.
@@ -643,10 +643,10 @@ tanggung jawab task apa pun di FX9. Sebutkan itu di §9, jangan diam-diam diangg
 ## 9. Handoff / log (diisi executor)
 
 ### Status akhir
-DONE | BLOCKED | NEEDS_REVIEW
+DONE
 
 ### SHA `dev` sebenarnya dipakai (§0.2)
-...
+`386a7887c6c7b1ff164e70b39db738e5897efead`
 
 ### Bukti
 ```text
