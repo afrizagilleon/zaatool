@@ -344,9 +344,33 @@ await check("deploying a python notebook pins packages to locked_packages in dat
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
+
+console.log("\nsecurity-hardening (T-08: Denied builtins in JS cells)");
+
+await check("JS cell requiring child_process or vm is denied, while fs is allowed", async () => {
+  const { runJsNode } = await import("../src/core/js-runner.js");
+
+  // child_process should fail
+  const cpRes = await runJsNode("const cp = require('child_process'); return true;", {});
+  assert.ok(cpRes.error);
+  assert.ok(cpRes.error.includes("is not available in a notebook cell"), `Expected error msg but got: ${cpRes.error}`);
+
+  // vm should fail
+  const vmRes = await runJsNode("const vm = require('vm'); return true;", {});
+  assert.ok(vmRes.error);
+  assert.ok(vmRes.error.includes("is not available in a notebook cell"), `Expected error msg but got: ${vmRes.error}`);
+
+  // fs should succeed
+  const fsRes = await runJsNode("const fs = require('fs'); return Boolean(fs);", {});
+  assert.equal(fsRes.error, undefined);
+  assert.equal(fsRes.output, true);
+});
+
+console.log(`\n${passed} passed, ${failed} failed\n`);
 const { pool } = await import("../src/db/connection.js");
 await pool.end();
 if (failed > 0) process.exit(1);
+
 
 
 

@@ -546,7 +546,7 @@ pnpm --filter @zaa-tool/engine test security-hardening
 ```
 
 ### T-08 — Daftar tolak builtin berbahaya di sel JS
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-07
 - Lakukan: **sebelum** mengaktifkan, periksa notebook yang ter-deploy di database
