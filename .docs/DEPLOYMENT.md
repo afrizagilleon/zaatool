@@ -166,60 +166,126 @@ di layar.
 
 Latih ini di mesin buangan, bukan di produksi. Sekali. Lalu kamu tahu.
 
+> **"Tunggu perbaikan dulu?"** Tidak perlu. Yang rusak adalah *baris petunjuk yang dicetak*
+> `update.sh`, bukan backup-nya — dump dan tar yang sudah diambil sepenuhnya sehat.
+> Prosedur enam langkah di atas bekerja pada backup yang kamu punya sekarang, hari ini.
+> Memperbaiki skripnya adalah pekerjaan terpisah, dan menundanya berarti menunda satu-satunya
+> butir K yang benar-benar tidak boleh ditunda.
+
 ---
 
-## F-126 · Postgres mati di tengah run
+## F-126 · Postgres mati di tengah run — **SUDAH DIUJI, DAN MENEMUKAN BUG**
 
-Yang dibuktikan: engine tidak kehilangan akal saat databasenya hilang, dan pulih saat
-databasenya kembali.
+Diuji 2026-08-09. Ini satu-satunya butir K yang selesai dengan hasil negatif, dan
+temuannya cukup serius untuk jadi pekerjaan tersendiri.
 
-**Perilaku yang benar di sini belum ditetapkan di mana pun.** Ini uji eksplorasi — tugasnya
-mencatat apa yang terjadi, bukan mencocokkan dengan harapan yang belum pernah ditulis.
+Cara mengulanginya:
 
 ```bash
-# Jalankan notebook yang cukup lama (beberapa detik), lalu di terminal lain:
-docker compose stop postgres
-
-# Amati:
+docker compose stop postgres     # saat notebook sedang jalan
 docker compose logs -f engine
-
-# Kembalikan:
 docker compose start postgres
 ```
 
-Catat empat hal, apa adanya:
+### Yang terjadi
 
-1. Apakah proses engine **mati**, atau bertahan dan mengeluh?
-2. Apa yang dilihat pengguna di halaman — pesan jujur, spinner selamanya, atau layar putih?
-3. Setelah postgres kembali, apakah engine menyambung ulang **sendiri**, atau butuh
-   `docker compose restart engine`?
-4. Baris run yang sedang berjalan itu — tertinggal berstatus `running` selamanya, atau
-   ditandai gagal?
+| Pertanyaan | Hasil |
+|---|---|
+| Engine mati atau bertahan? | **Gagal.** Tidak bertahan. |
+| Yang dilihat pengguna | Terlempar ke halaman login dengan pesan mentah `getaddrinfo ENOTFOUND postgres` |
+| Pulih sendiri setelah postgres kembali? | **Tidak.** Butuh `docker compose restart engine` |
+| Baris run yatim | Tidak terpantau — aplikasinya sendiri sudah tidak bisa diakses |
 
-Nomor 3 dan 4 adalah temuan yang paling mungkin. Kalau engine tidak menyambung ulang
-sendiri, itu bug yang layak jadi milestone tersendiri. Kalau run yatim tertinggal
-`running`, itu juga.
+Dan yang paling menentukan, pada instalasi yang **sudah punya notebook ter-deploy**:
+setelah postgres hidup lagi, login gagal dengan `JSON.parse: unexpected character at line 1
+column 1 of the JSON data` dan semua link berhenti bekerja. Baru normal setelah engine
+di-restart.
+
+> Pada instalasi kosong (belum ada app sama sekali) engine tampak pulih tanpa restart —
+> yang menjelaskan kenapa ini tidak pernah ketahuan sebelumnya.
+
+### Kenapa ini penting
+
+Tiga masalah terpisah, bukan satu:
+
+1. **Tidak ada penyambungan ulang.** Pool postgres tidak pulih setelah databasenya kembali.
+   Restart postgres — hal yang normal terjadi saat pembaruan, pemeliharaan, atau reboot
+   host — mematikan engine sampai ada manusia yang me-restart-nya. Untuk sesuatu yang
+   dijalankan tanpa penjaga, ini yang paling mahal.
+2. **Pesan kesalahan internal bocor ke layar login.** `getaddrinfo ENOTFOUND postgres`
+   memberi tahu orang yang belum masuk bahwa ada host bernama `postgres` dan ia sedang
+   tidak dapat dihubungi. Pengguna tidak bisa berbuat apa-apa dengan itu, dan penyerang
+   bisa.
+3. **`JSON.parse: unexpected character`** artinya frontend menerima HTML (kemungkinan
+   halaman error nginx atau 502) di tempat ia mengharapkan JSON, dan tidak menanganinya.
+   Apa pun penyebab di belakangnya, halaman seharusnya mengatakan "tidak bisa menghubungi
+   server", bukan memuntahkan pesan parser.
+
+**Status: temuan terbuka.** Belum ada milestone yang memilikinya. Kandidat kuat untuk
+kontrak berikutnya — dan yang nomor 1 sebaiknya tidak menunggu lama kalau tool ini akan
+dipasang di tempat yang tidak kamu awasi setiap hari.
 
 ---
 
-## F-127, F-128, F-130 · Batas notebook
+## F-127, F-128, F-130 · Batas notebook — **fixture sudah ada dan sudah jalan**
 
-Tiga butir yang jalannya sama: buka notebook uji yang sudah disiapkan, pakai, catat apa yang
-patah. Semuanya berawalan `zz-` dan **tidak pernah dihapus** — itu konvensi proyek ini.
+Lima notebook dibuat dan di-deploy 2026-08-09, dan ketiganya sudah dijalankan sekali dari
+sisi engine — jadi yang tersisa buatmu murni **melihat**, bukan mencari tahu apakah
+kodenya benar. Semuanya berawalan `zz-`, ditandai tag `bagian-k`, dan tidak pernah dihapus.
 
-| Butir | Notebook | Yang dilihat |
-|---|---|---|
-| **F-127** notebook panjang | `zz-uji-20-cell` | Buka di editor. Gulir, lipat, cari. Apakah editor masih responsif? Berapa lama sampai bisa dipakai? |
-| **F-128** paralel bersarang | `zz-uji-paralel-3` | Lane di dalam lane di dalam lane. Lihat di editor, lalu **jalankan**. Apakah urutannya benar? |
-| **F-130** Python ↔ JS | *belum ada* | Harus kamu buat: satu notebook Python yang memanggil notebook JS, dan sebaliknya. |
+Fixture disembunyikan dari daftar Apps secara bawaan. Setiap layar yang menyembunyikannya
+memberi tahu berapa yang disembunyikan dan menawarkan menampilkannya — klik itu dulu.
 
-Kalau `zz-uji-20-cell` atau `zz-uji-paralel-3` belum ada di instalasimu, keduanya harus
-dibuat dulu — daftarnya ada di Bagian 4 rencana induk, lengkap dengan apa yang masing-masing
-buktikan.
+### F-127 — `zz-uji-20-cell`
 
-F-130 tidak punya fixture sama sekali, jadi butir itu dimulai dengan membuatnya. Satu
-notebook JS yang mengembalikan sesuatu sederhana, satu notebook Python yang memanggilnya,
-lalu dibalik. Yang dicari: apakah nilai yang menyeberang tetap utuh melewati batas bahasa.
+Dua puluh dua cell yang benar-benar berantai: tiap cell membaca hasil cell di atasnya, jadi
+outline dan lipatan punya sesuatu yang nyata untuk dikerjakan.
+
+**Buka di editor.** Gulir dari atas ke bawah, lipat beberapa cell, pakai cari. Yang dicari:
+apakah editor masih responsif, dan berapa lama dari klik sampai bisa dipakai.
+
+Sudah diverifikasi jalan: 21 cell dieksekusi, `run:done`, rantai utuh sampai langkah 20.
+
+### F-128 — `zz-uji-paralel-3`
+
+Lane di dalam lane di dalam lane. Grup paralel tidak boleh langsung berada di dalam grup
+paralel lain — harus lewat lane — jadi tiga tingkat berarti tiga lane bersarang.
+
+**Lihat di editor** (apakah peta bersarangnya terbaca), lalu **jalankan**.
+
+Sudah diverifikasi jalan, dan hasilnya benar:
+
+```
+6 dari 6 lane menulis. Tingkat terdalam yang terbaca: 3.
+Ketiga tingkat berjalan dan hasilnya digabungkan kembali.
+```
+
+### F-130 — `zz-uji-panggil-silang`
+
+**Ini yang perlu kamu buka.** Satu tombol Run menjalankan rantai penuh:
+
+> **node → python → node**
+
+Notebook ini (node) memanggil `zz-uji-panggil-py-inti` (python), yang di dalamnya memanggil
+`zz-uji-panggil-js-inti` (node). Dua notebook inti itu hanya ada untuk dipanggil — tidak
+perlu kamu buka sendiri.
+
+Ubah angka di input dan jalankan lagi; tabelnya menunjukkan nilai di tiap persinggahan,
+jadi kalau ada yang berubah saat menyeberang kamu akan lihat persis di mana.
+
+Sudah diverifikasi jalan dengan `angka: 21`:
+
+```
+Dikirim 21, kembali 42.
+Nilainya utuh di setiap persinggahan.
+```
+
+### Kalau ingin membuat ulang
+
+Fixture dibuat lewat `notebooksService.save()` + `deploy()` dari skrip sekali pakai, bukan
+lewat migrasi skema — `initDb()` membuat tabel dan kolom, tidak pernah baris. Skripnya
+sengaja tidak disimpan di repo; bentuk markdown-nya bisa dibaca ulang dari notebook yang
+sudah ada lewat editor.
 
 ---
 
@@ -292,17 +358,22 @@ CLI-nya.
 
 ## Ringkasan status
 
-Isi kolom terakhir saat kamu mengerjakannya.
+Terakhir diperbarui 2026-08-09.
 
 | | Butir | Perlu | Status |
 |---|---|---|---|
-| F-123 | Deploy di mesin lain | Mesin bersih | belum |
-| F-124 | `update.sh` dengan data | Instalasi berisi | belum |
-| F-125 | Pemulihan dari backup | Mesin buangan | **belum — prioritas** |
-| F-126 | Postgres mati di tengah run | — | belum |
-| F-127 | Notebook 20+ cell | `zz-uji-20-cell` | belum |
-| F-128 | Paralel bersarang 3 tingkat | `zz-uji-paralel-3` | belum |
-| F-129 | 10 output di ponsel | Ponsel + HTTPS | belum |
-| F-130 | Python ↔ JS | Fixture belum ada | belum |
+| F-123 | Deploy di mesin lain | Mesin bersih | ✅ **lulus** — berhasil di laptop lain |
+| F-124 | `update.sh` dengan data | Ada update untuk ditarik | menunggu |
+| F-125 | Pemulihan dari backup | Mesin buangan | ⬜ **belum — prioritas** |
+| F-126 | Postgres mati di tengah run | — | ⚠️ **diuji, menemukan bug** |
+| F-127 | Notebook 20+ cell | `zz-uji-20-cell` | 🔵 fixture siap, tinggal dilihat |
+| F-128 | Paralel bersarang 3 tingkat | `zz-uji-paralel-3` | 🔵 fixture siap, tinggal dilihat |
+| F-129 | 10 output di ponsel | Ponsel + HTTPS | ⬜ belum |
+| F-130 | Python ↔ JS | `zz-uji-panggil-silang` | 🔵 fixture siap, tinggal dilihat |
 
-Kalau kamu hanya sempat satu, kerjakan **F-125**.
+Tiga butir 🔵 sudah diverifikasi jalan dari sisi engine — yang tersisa hanyalah menilai
+dengan mata apakah editor dan halamannya enak dipakai. F-129 juga hanya butuh mata, dan
+sekalian menutup satu klaim FX8 yang masih menggantung (tinggi tile tabel, B-9/F-103).
+
+Kalau kamu hanya sempat satu, kerjakan **F-125**. Setelah itu, temuan F-126 layak jadi
+kontrak tersendiri.
