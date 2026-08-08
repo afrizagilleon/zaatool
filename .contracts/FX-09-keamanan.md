@@ -453,7 +453,7 @@ pnpm --filter @zaa-tool/engine test security-hardening
 ```
 
 ### T-03 — Rate limit webhook tanpa secret
-- Status: TODO
+- Status: DONE
 - Depends: T-02
 - RQ: RQ-03
 - Lakukan: faktor-ulang resolusi trigger+validasi-secret di `hooks.route.ts` (baris

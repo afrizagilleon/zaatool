@@ -106,10 +106,81 @@ await check("login rate limiter returns 429 after exceeding LOGIN_RATE_LIMIT_MAX
   } finally {
     server.close();
     delete process.env.LOGIN_RATE_LIMIT_MAX;
-    await pool.end();
   }
 });
 
+
 console.log(`\n${passed} passed, ${failed} failed\n`);
+
+console.log("\nsecurity-hardening (T-03: Webhook rate limiting)");
+
+await check("webhook rate limiter skips authenticated requests and limits unauthenticated ones", async () => {
+  const { createApp } = await import("../src/server/app.js");
+  const { initDb } = await import("../src/db/initializer.js");
+  const { pool } = await import("../src/db/connection.js");
+  const { notebookTriggersService } = await import("../src/services/notebook-triggers.service.js");
+  const { notebooksService } = await import("../src/services/notebooks.service.js");
+  const { secretsService } = await import("../src/services/secrets.service.js");
+
+  await initDb();
+  process.env.HOOK_RATE_LIMIT_MAX = "2";
+
+  const secretKey = `zz_test_secret_${Date.now()}`;
+  const createdSecret = await secretsService.create(secretKey, "my-secret-value-123", true);
+
+  const unauthedSlug = `zz-unauthed-hook-${Date.now()}`;
+  const authedSlug = `zz-authed-hook-${Date.now()}`;
+
+  // Create notebook with webhook triggers
+  const nb = await notebooksService.save({
+    name: "zz-test-hook-nb",
+    triggers: [
+      { id: "t1", kind: "webhook", slug: unauthedSlug, enabled: true },
+      { id: "t2", kind: "webhook", slug: authedSlug, secretKey, enabled: true },
+    ],
+  });
+  await notebooksService.deploy(nb.id, "test");
+
+
+
+  const app = createApp(() => {});
+  const server = app.listen(0);
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+
+  try {
+    // Unauthenticated webhook rate limiting (max 2)
+    const res1 = await fetch(`http://127.0.0.1:${port}/hooks/${unauthedSlug}`, { method: "POST" });
+    assert.equal(res1.status, 202);
+
+    const res2 = await fetch(`http://127.0.0.1:${port}/hooks/${unauthedSlug}`, { method: "POST" });
+    assert.equal(res2.status, 202);
+
+    const res3 = await fetch(`http://127.0.0.1:${port}/hooks/${unauthedSlug}`, { method: "POST" });
+    assert.equal(res3.status, 429);
+
+    // Authenticated webhook requests should skip rate limiting
+    for (let i = 0; i < 5; i++) {
+      const authedRes = await fetch(`http://127.0.0.1:${port}/hooks/${authedSlug}`, {
+        method: "POST",
+        headers: { "X-Webhook-Secret": "my-secret-value-123" },
+      });
+      assert.equal(authedRes.status, 202, `Authenticated request ${i + 1} should succeed with 202`);
+    }
+  } finally {
+    server.close();
+    await notebooksService.delete(nb.id);
+    await secretsService.delete(createdSecret.id);
+    delete process.env.HOOK_RATE_LIMIT_MAX;
+  }
+});
+
+
+
+console.log(`\n${passed} passed, ${failed} failed\n`);
+const { pool } = await import("../src/db/connection.js");
+await pool.end();
 if (failed > 0) process.exit(1);
+
+
 

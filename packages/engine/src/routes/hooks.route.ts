@@ -1,8 +1,9 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import multer from "multer";
+import rateLimit from "express-rate-limit";
 import { notebookTriggersService } from "../services/notebook-triggers.service.js";
 import { notebookFilesService } from "../services/notebook-files.service.js";
-import { maxUploadBytes } from "../config.js";
+import { maxUploadBytes, hookRateLimitWindowMs, hookRateLimitMax } from "../config.js";
 import {
   notebookExecutionService,
   NotebookNotDeployedError,
@@ -17,6 +18,42 @@ import type { RunEventSink } from "../core/run-emitter.js";
 /** Long enough for a real API call, short enough that a caller is not left hanging. */
 const DEFAULT_WAIT_MS = 30_000;
 const MAX_WAIT_MS = 120_000;
+
+export async function isSecretAuthenticatedWebhook(slug: string, secretHeader?: string): Promise<boolean> {
+  if (!slug) return false;
+  const trigger = await notebookTriggersService.findEnabledWebhook(slug);
+  if (!trigger || !trigger.secret_key) return false;
+
+  const expected = await secretsService.getValueByKey(trigger.secret_key);
+  // A missing secret is a misconfiguration, not a bad request — the webhook
+  // can never succeed until it is fixed. The caller still gets the same 401
+  // so nothing about the configuration leaks, but the operator gets told.
+  if (!expected) {
+    console.error(
+      `Webhook "${trigger.slug}" requires secret "${trigger.secret_key}", ` +
+        `which does not exist in the secrets store. This webhook will reject every ` +
+        `request until the secret is created or the trigger is changed.`
+    );
+    return false;
+  }
+
+
+  return secretHeader === expected;
+}
+
+export const hookLimiter = rateLimit({
+  windowMs: hookRateLimitWindowMs(),
+  limit: () => hookRateLimitMax(),
+  message: { error: "Too many unauthenticated webhook requests. Please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: async (req: Request) => {
+    const slug = String(req.params.slug ?? "");
+    const header = typeof req.headers["x-webhook-secret"] === "string" ? req.headers["x-webhook-secret"] : undefined;
+    return await isSecretAuthenticatedWebhook(slug, header);
+  },
+});
+
 
 /**
  * Files arriving at a webhook.
@@ -84,7 +121,7 @@ function forwardedHeaders(req: Request): Record<string, string> {
 export function createHooksRouter(publishRunEvent: RunEventSink): Router {
   const router = Router();
 
-  router.post("/:slug", multipartFields, async (req: Request, res: Response) => {
+  router.post("/:slug", hookLimiter, multipartFields, async (req: Request, res: Response) => {
     try {
       const trigger = await notebookTriggersService.findEnabledWebhook(String(req.params.slug));
       // Same answer for "no such hook" and "disabled hook", so probing tells nothing.
@@ -108,23 +145,13 @@ export function createHooksRouter(publishRunEvent: RunEventSink): Router {
       }
 
       if (trigger.secret_key) {
-        const expected = await secretsService.getValueByKey(trigger.secret_key);
-
-        // A missing secret is a misconfiguration, not a bad request — the webhook
-        // can never succeed until it is fixed. The caller still gets the same 401
-        // so nothing about the configuration leaks, but the operator gets told.
-        if (!expected) {
-          console.error(
-            `Webhook "${trigger.slug}" requires secret "${trigger.secret_key}", ` +
-              `which does not exist in the secrets store. This webhook will reject every ` +
-              `request until the secret is created or the trigger is changed.`
-          );
-        }
-
-        if (!expected || req.headers["x-webhook-secret"] !== expected) {
+        const secretHeader = typeof req.headers["x-webhook-secret"] === "string" ? req.headers["x-webhook-secret"] : undefined;
+        const valid = await isSecretAuthenticatedWebhook(trigger.slug, secretHeader);
+        if (!valid) {
           return res.status(401).json({ error: "Invalid webhook secret" });
         }
       }
+
 
       // Stored before the run starts, and named after the form field they arrived in — so
       // a notebook declaring `photo` as a `file` input is called with the file somebody

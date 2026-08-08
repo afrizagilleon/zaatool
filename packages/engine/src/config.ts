@@ -64,6 +64,17 @@ export function loginRateLimitMax(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : 10;
 }
 
+export function hookRateLimitWindowMs(): number {
+  const raw = Number(process.env.HOOK_RATE_LIMIT_WINDOW_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 15 * 60 * 1000;
+}
+
+export function hookRateLimitMax(): number {
+  const raw = Number(process.env.HOOK_RATE_LIMIT_MAX);
+  return Number.isFinite(raw) && raw > 0 ? raw : 10;
+}
+
+
 
 /**
  * Reasons this process should not be serving traffic.
