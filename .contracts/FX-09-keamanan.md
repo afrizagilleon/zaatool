@@ -506,7 +506,7 @@ pnpm --filter @zaa-tool/engine test security-hardening
 ```
 
 ### T-06 — UI token agent
-- Status: TODO
+- Status: DONE
 - Depends: T-05
 - RQ: RQ-05 (bagian UI)
 - Lakukan: **baca dulu bentuk `ResourcesPage.tsx` yang sekarang** (§0.5 — mungkin sudah

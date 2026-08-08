@@ -6,10 +6,12 @@ import { useSecrets } from '../../hooks/useSecrets';
 import { useSkills } from '../../hooks/useSkills';
 import { useStorage } from '../../hooks/useStorage';
 import { useAccounts } from '../../hooks/useAccounts';
+import { useAgentTokens } from '../../hooks/useAgentTokens';
 import { SecretsTab } from '../resources/SecretsTab';
 import { SkillsTab } from '../resources/SkillsTab';
 import { StorageTab } from '../resources/StorageTab';
 import { AccountsTab } from '../resources/AccountsTab';
+import { AgentTokensTab } from '../resources/AgentTokensTab';
 import { BuildVersion } from '../resources/BuildVersion';
 
 export function ResourcesPage() {
@@ -19,6 +21,16 @@ export function ResourcesPage() {
   const { secrets, fetchSecrets, saveSecret, deleteSecret } = useSecrets();
   const { skills, fetchSkills, saveSkill, deleteSkill } = useSkills();
   const { accounts, error: accountsError, fetchAccounts, createAccount, setActive: setAccountActive } = useAccounts();
+  const {
+    tokens,
+    error: agentTokensError,
+    newlyIssuedToken,
+    clearNewlyIssuedToken,
+    fetchTokens: fetchAgentTokens,
+    issueToken,
+    revokeToken,
+  } = useAgentTokens();
+
   const {
     files,
     currentPath,
@@ -39,8 +51,9 @@ export function ResourcesPage() {
       fetchSecrets();
       fetchSkills();
       fetchAccounts();
+      fetchAgentTokens();
     }
-  }, [activeTab, fetchSecrets, fetchSkills, fetchAccounts]);
+  }, [activeTab, fetchSecrets, fetchSkills, fetchAccounts, fetchAgentTokens]);
 
   if (activeTab !== 'resources') return null;
 
@@ -76,6 +89,12 @@ export function ResourcesPage() {
               className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-2 data-[state=active]:shadow-none text-xs"
             >
               Accounts
+            </TabsTrigger>
+            <TabsTrigger
+              value="agent-tokens"
+              className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-2 data-[state=active]:shadow-none text-xs"
+            >
+              Agent Tokens
             </TabsTrigger>
           </TabsList>
 
@@ -116,6 +135,18 @@ export function ResourcesPage() {
               onSetActive={setAccountActive}
             />
           </TabsContent>
+
+          {/* Agent Tokens tab */}
+          <TabsContent value="agent-tokens" className="flex-1 overflow-auto outline-none">
+            <AgentTokensTab
+              tokens={tokens}
+              error={agentTokensError}
+              newlyIssuedToken={newlyIssuedToken}
+              onClearNewlyIssuedToken={clearNewlyIssuedToken}
+              onIssue={issueToken}
+              onRevoke={revokeToken}
+            />
+          </TabsContent>
         </Tabs>
 
         <BuildVersion />
@@ -123,4 +154,5 @@ export function ResourcesPage() {
     </div>
   );
 }
+
 
