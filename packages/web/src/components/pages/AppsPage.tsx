@@ -35,6 +35,8 @@ import { InputField } from './render/InputField';
 import { initialValues, toArgs } from '../../lib/app-inputs';
 
 import { PageActions } from './render/PageActions';
+import { cn } from '../../lib/utils';
+
 const EMPTY_PAGES: NotebookPage[] = [];
 
 const PAGE_SIZE = 12;
