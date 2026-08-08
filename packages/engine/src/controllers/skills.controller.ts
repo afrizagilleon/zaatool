@@ -45,5 +45,4 @@ export class SkillsController {
   }
 }
 
-
 export const skillsController = new SkillsController();

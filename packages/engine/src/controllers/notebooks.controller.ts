@@ -112,7 +112,6 @@ function respondWithError(res: Response, err: unknown) {
   return res.status(500).json({ error: "Something went wrong. Please try again." });
 }
 
-
 export class NotebooksController {
   constructor(private readonly publishRunEvent: RunEventSink) {}
 

@@ -1,7 +1,23 @@
 import { Request, Response } from "express";
-import { authService, isRole, RegistrationClosedError } from "../services/auth.service.js";
+import { AuthInputError, authService, isRole, RegistrationClosedError } from "../services/auth.service.js";
 import { registrationOpen } from "../config.js";
 import { pool } from "../db/connection.js";
+
+/**
+ * The one place that decides what a failure is allowed to say out loud.
+ *
+ * `AuthInputError` carries a message written for the person who caused it, so it is sent
+ * as-is under whatever status the route considers a refusal — 400 for a form, 401 for a
+ * sign-in. Anything else is a fault on our side: it goes to the log in full and to the
+ * client as a sentence that describes nothing.
+ */
+function refuse(res: Response, err: unknown, where: string, status = 400) {
+  if (err instanceof AuthInputError) {
+    return res.status(status).json({ error: err.message });
+  }
+  console.error(`${where}:`, err);
+  return res.status(500).json({ error: "Something went wrong. Please try again." });
+}
 
 export class AuthController {
   /**
@@ -30,14 +46,9 @@ export class AuthController {
       res.status(201).json({ success: true, user });
     } catch (err) {
       if (err instanceof RegistrationClosedError) {
-        return res.status(403).json({ error: (err as Error).message });
+        return res.status(403).json({ error: err.message });
       }
-      const msg = (err as Error).message;
-      if (msg.includes("Username") || msg.includes("already exists") || msg.includes("Password must be at least")) {
-        return res.status(400).json({ error: msg });
-      }
-      console.error("Register error:", err);
-      res.status(500).json({ error: "Something went wrong. Please try again." });
+      refuse(res, err, "Register error");
     }
   }
 
@@ -53,12 +64,7 @@ export class AuthController {
       const user = await authService.createUser(username, password, role, email);
       res.status(201).json({ success: true, user });
     } catch (err) {
-      const msg = (err as Error).message;
-      if (msg.includes("Username") || msg.includes("already exists") || msg.includes("Password must be at least") || msg.includes("Role must be")) {
-        return res.status(400).json({ error: msg });
-      }
-      console.error("Invite user error:", err);
-      res.status(500).json({ error: "Something went wrong. Please try again." });
+      refuse(res, err, "Invite user error");
     }
   }
 
@@ -80,12 +86,7 @@ export class AuthController {
       const result = await authService.login(username, password);
       res.json({ success: true, ...result });
     } catch (err) {
-      const msg = (err as Error).message;
-      if (msg === "Invalid username or password" || msg === "This account has been deactivated.") {
-        return res.status(401).json({ error: msg });
-      }
-      console.error("Login error:", err);
-      res.status(500).json({ error: "Something went wrong. Please try again." });
+      refuse(res, err, "Login error", 401);
     }
   }
 
@@ -129,12 +130,7 @@ export class AuthController {
       }
       res.json({ success: true, active });
     } catch (err) {
-      const msg = (err as Error).message;
-      if (msg === "active field must be a boolean" || msg.includes("cannot deactivate")) {
-        return res.status(400).json({ error: msg });
-      }
-      console.error("Set active error:", err);
-      res.status(500).json({ error: "Something went wrong. Please try again." });
+      refuse(res, err, "Set active error");
     }
   }
 
@@ -151,16 +147,9 @@ export class AuthController {
       await authService.changePassword(user.id, currentPassword, newPassword);
       res.json({ success: true });
     } catch (err) {
-      const msg = (err as Error).message;
-      if (msg === "Unauthorized" || msg === "Current password is incorrect" || msg.includes("Password must be at least") || msg.includes("required") || msg === "User not found") {
-        return res.status(400).json({ error: msg });
-      }
-      console.error("Change password error:", err);
-      res.status(500).json({ error: "Something went wrong. Please try again." });
+      refuse(res, err, "Change password error");
     }
   }
 }
-
-
 
 export const authController = new AuthController();

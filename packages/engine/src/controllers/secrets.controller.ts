@@ -45,5 +45,4 @@ export class SecretsController {
   }
 }
 
-
 export const secretsController = new SecretsController();

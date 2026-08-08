@@ -15,6 +15,31 @@ export function isRole(value: unknown): value is Role {
   return typeof value === "string" && (ROLES as readonly string[]).includes(value);
 }
 
+/**
+ * An error whose message was written for the person reading it.
+ *
+ * Since FX10 a controller may not forward `err.message` to a client blindly — a driver
+ * saying `getaddrinfo ENOTFOUND postgres` on the login screen is how an attacker learns
+ * the shape of the deployment. But "Password must be at least 12 characters" is the
+ * entire point of the response, and replacing it with "Something went wrong" would leave
+ * a person retyping a password with no idea what is wrong with it.
+ *
+ * The type is what tells those two apart. Matching on message text instead was tried and
+ * had two clauses that could never fire on the day it was written, which is the failure
+ * mode of that approach in one sentence: the string in the service and the string in the
+ * controller drift, nothing type-checks the pair, and a validation message quietly turns
+ * into a 500 months later.
+ *
+ * Anything thrown that is *not* one of these is treated as ours to fix, logged in full
+ * and shown to the client as nothing at all.
+ */
+export class AuthInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AuthInputError";
+  }
+}
+
 export class RegistrationClosedError extends Error {
   constructor() {
     super(
@@ -56,14 +81,14 @@ export class AuthService {
    */
   async createUser(username: string, passwordPlain: string, role: Role, email?: string) {
     const name = String(username ?? "").trim();
-    if (name.length === 0) throw new Error("Username is required");
+    if (name.length === 0) throw new AuthInputError("Username is required");
     if (String(passwordPlain ?? "").length < MIN_PASSWORD_LENGTH) {
-      throw new Error(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+      throw new AuthInputError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
     }
 
     const existing = await pool.query("SELECT id FROM users WHERE username = $1", [name]);
     if (existing.rows.length > 0) {
-      throw new Error("Username already taken");
+      throw new AuthInputError("Username already taken");
     }
 
     const passwordHash = await bcrypt.hash(passwordPlain, SALT_ROUNDS);
@@ -106,17 +131,17 @@ export class AuthService {
     const { rows } = await pool.query("SELECT * FROM users WHERE username = $1", [username]);
 
     if (rows.length === 0) {
-      throw new Error("Invalid username or password");
+      throw new AuthInputError("Invalid username or password");
     }
 
     const user = rows[0];
     const isPasswordValid = await bcrypt.compare(passwordPlain, user.password_hash);
     if (!isPasswordValid) {
-      throw new Error("Invalid username or password");
+      throw new AuthInputError("Invalid username or password");
     }
 
     if (user.active === false) {
-      throw new Error("This account has been deactivated.");
+      throw new AuthInputError("This account has been deactivated.");
     }
 
     const role: Role = isRole(user.role) ? user.role : "viewer";
@@ -134,7 +159,7 @@ export class AuthService {
   /** Replaces a password outright. Used by the terminal reset; there is no email path. */
   async setPassword(username: string, passwordPlain: string): Promise<boolean> {
     if (String(passwordPlain ?? "").length < MIN_PASSWORD_LENGTH) {
-      throw new Error(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+      throw new AuthInputError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
     }
     const passwordHash = await bcrypt.hash(passwordPlain, SALT_ROUNDS);
     const { rowCount } = await pool.query(
@@ -146,17 +171,17 @@ export class AuthService {
 
   async changePassword(userId: string, currentPasswordPlain: string, newPasswordPlain: string): Promise<boolean> {
     if (String(newPasswordPlain ?? "").length < MIN_PASSWORD_LENGTH) {
-      throw new Error(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+      throw new AuthInputError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
     }
 
     const { rows } = await pool.query("SELECT * FROM users WHERE id = $1", [userId]);
     if (rows.length === 0) {
-      throw new Error("User not found");
+      throw new AuthInputError("User not found");
     }
     const user = rows[0];
     const isPasswordValid = await bcrypt.compare(currentPasswordPlain, user.password_hash);
     if (!isPasswordValid) {
-      throw new Error("Current password is incorrect");
+      throw new AuthInputError("Current password is incorrect");
     }
     const passwordHash = await bcrypt.hash(newPasswordPlain, SALT_ROUNDS);
     await pool.query("UPDATE users SET password_hash = $1 WHERE id = $2", [passwordHash, userId]);

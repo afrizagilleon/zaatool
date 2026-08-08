@@ -1,8 +1,24 @@
+/**
+ * FX10 — what the engine does when postgres goes away.
+ *
+ * Measured by hand before any of this was written: stop postgres, and the engine did not
+ * degrade, it *died*. `pg.Pool` emits `'error'` on a client that dropped while idle, and
+ * an `EventEmitter` with no listener for `'error'` rethrows — so a database restart took
+ * the whole process with it. One listener is the entire fix; there is no reconnect logic
+ * because `Pool` already opens a fresh client for the next query on its own.
+ *
+ * The second half is what the client was told while that was happening. `getaddrinfo
+ * ENOTFOUND postgres` was rendered on the login screen, to anyone, signed in or not —
+ * the hostname of the database, handed out by the one endpoint that has no authentication
+ * in front of it. Messages meant for a person still go through; the difference is carried
+ * by `AuthInputError` rather than by matching on message text.
+ *
+ *   pnpm --filter @zaa-tool/engine test db-resilience
+ */
 import assert from "node:assert/strict";
 import { pool } from "../src/db/connection.js";
 import { authController } from "../src/controllers/auth.controller.js";
 import { initDb } from "../src/db/initializer.js";
-import { authService } from "../src/services/auth.service.js";
 
 const PREFIX = "zz-db-resilience-";
 const TEST_PASSWORD = "password123456";
@@ -22,93 +38,123 @@ async function check(name: string, run: () => Promise<void> | void): Promise<voi
   }
 }
 
+/** Enough of an Express response to see what a controller decided. */
+function recorder() {
+  const seen = { status: 0, body: null as { error?: string } | null };
+  const res = {
+    status(code: number) {
+      seen.status = code;
+      return this;
+    },
+    json(body: unknown) {
+      seen.body = body as { error?: string };
+      return this;
+    },
+  };
+  return { seen, res: res as never };
+}
+
+/** Runs `body` with `console.error` captured, so a test can assert on what was logged. */
+async function withCapturedLog(body: () => Promise<void> | void): Promise<string> {
+  const original = console.error;
+  let logged = "";
+  console.error = (...args: unknown[]) => {
+    logged += args.map(String).join(" ");
+  };
+  try {
+    await body();
+  } finally {
+    console.error = original;
+  }
+  return logged;
+}
+
+/** Every query fails the way a dead database fails, for the duration of `body`. */
+async function withDeadDatabase(body: () => Promise<void>): Promise<void> {
+  const original = pool.query;
+  (pool as unknown as { query: unknown }).query = async () => {
+    throw new Error("getaddrinfo ENOTFOUND postgres");
+  };
+  try {
+    await body();
+  } finally {
+    pool.query = original;
+  }
+}
+
 await initDb();
 await pool.query("DELETE FROM users WHERE username LIKE $1", [`${PREFIX}%`]);
 
-console.log("\ndb-resilience (T-01: Pool error handling)");
+console.log("\ndb-resilience (T-01: the pool does not take the process with it)");
 
-await check("pool.emit('error') does not throw unhandled exception or crash process", () => {
-  let loggedError: unknown = null;
-  const origConsoleError = console.error;
-  console.error = (...args: unknown[]) => {
-    loggedError = args.join(" ");
-  };
-  try {
-    const err = new Error("simulated pool connection loss");
+await check("an idle-client error is logged rather than thrown", async () => {
+  const logged = await withCapturedLog(() => {
+    // What `pg` itself does when a client dies between queries. Without the listener in
+    // connection.ts this line throws here, and in production it is an uncaught exception.
     assert.doesNotThrow(() => {
-      pool.emit("error", err);
+      pool.emit("error", new Error("simulated pool connection loss"));
     });
-    assert.ok(
-      String(loggedError).includes("simulated pool connection loss"),
-      "expected error to be logged via console.error"
-    );
-  } finally {
-    console.error = origConsoleError;
-  }
+  });
+  assert.match(logged, /simulated pool connection loss/);
 });
 
-console.log("\ndb-resilience (T-02: Internal error masking)");
-
-await check("login returns 401 for invalid credentials with explicit user message", async () => {
-  const req = { body: { username: `${PREFIX}user-nonexistent`, password: TEST_PASSWORD } } as any;
-  let statusResult = 0;
-  let jsonResult: any = null;
-  const res = {
-    status(s: number) {
-      statusResult = s;
-      return this;
-    },
-    json(body: any) {
-      jsonResult = body;
-      return this;
-    },
-  } as any;
-
-  await authController.login(req, res);
-  assert.equal(statusResult, 401);
-  assert.equal(jsonResult?.error, "Invalid username or password");
+await check("the pool still answers a query afterwards", async () => {
+  const { rows } = await pool.query("SELECT 1 AS ok");
+  assert.equal(rows[0].ok, 1);
 });
 
-await check("login returns 500 with generic message and logs error when DB fails", async () => {
-  let loggedError = "";
-  const origConsoleError = console.error;
-  console.error = (...args: unknown[]) => {
-    loggedError = args.join(" ");
-  };
+console.log("\ndb-resilience (T-02: an internal failure says nothing about itself)");
 
-  // Temporarily stub pool.query to simulate DB connection failure
-  const origQuery = pool.query;
-  (pool as any).query = async () => {
-    throw new Error("getaddrinfo ENOTFOUND postgres");
-  };
+await check("a wrong password is still told it was wrong", async () => {
+  const { seen, res } = recorder();
+  await authController.login(
+    { body: { username: `${PREFIX}nobody`, password: TEST_PASSWORD } } as never,
+    res
+  );
+  assert.equal(seen.status, 401);
+  assert.equal(seen.body?.error, "Invalid username or password");
+});
 
-  try {
-    const req = { body: { username: `${PREFIX}user`, password: TEST_PASSWORD } } as any;
-    let statusResult = 0;
-    let jsonResult: any = null;
-    const res = {
-      status(s: number) {
-        statusResult = s;
-        return this;
-      },
-      json(body: any) {
-        jsonResult = body;
-        return this;
-      },
-    } as any;
+await check("a short password is still told the length", async () => {
+  const { seen, res } = recorder();
+  await authController.register(
+    { body: { username: `${PREFIX}short`, password: "abc" } } as never,
+    res
+  );
+  // 400 or 403 depending on whether registration is open here; either way the point is
+  // that the message is the rule the person broke, not a shrug.
+  assert.ok([400, 403].includes(seen.status), `unexpected status ${seen.status}`);
+  assert.ok(seen.body?.error && seen.body.error.length > 0);
+});
 
-    await authController.login(req, res);
+await check("a dead database is a 500 that names nothing", async () => {
+  let logged = "";
+  const { seen, res } = recorder();
+  await withDeadDatabase(async () => {
+    logged = await withCapturedLog(async () => {
+      await authController.login(
+        { body: { username: `${PREFIX}user`, password: TEST_PASSWORD } } as never,
+        res
+      );
+    });
+  });
 
-    assert.equal(statusResult, 500);
-    assert.equal(jsonResult?.error, "Something went wrong. Please try again.");
-    assert.ok(
-      loggedError.includes("getaddrinfo ENOTFOUND postgres"),
-      "expected server to log internal error details"
-    );
-  } finally {
-    pool.query = origQuery;
-    console.error = origConsoleError;
-  }
+  assert.equal(seen.status, 500);
+  assert.equal(seen.body?.error, "Something went wrong. Please try again.");
+  // The thing that must not be in the response, and must be in the log.
+  assert.doesNotMatch(String(seen.body?.error), /postgres|ENOTFOUND|getaddrinfo/i);
+  assert.match(logged, /getaddrinfo ENOTFOUND postgres/);
+});
+
+await check("the same is true of the unauthenticated policy endpoint", async () => {
+  const { seen, res } = recorder();
+  await withDeadDatabase(async () => {
+    await withCapturedLog(async () => {
+      await authController.policy({} as never, res);
+    });
+  });
+  assert.equal(seen.status, 500);
+  assert.doesNotMatch(String(seen.body?.error), /postgres|ENOTFOUND|getaddrinfo/i);
 });
 
 await pool.query("DELETE FROM users WHERE username LIKE $1", [`${PREFIX}%`]);

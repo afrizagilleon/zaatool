@@ -176,7 +176,6 @@ export function buildMapGraph(
     });
   }
 
-
   for (const notebook of map.notebooks) {
     nodes.push({
       id: `notebook-${notebook.id}`,

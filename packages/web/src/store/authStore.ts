@@ -45,6 +45,14 @@ export const useAuthStore = create<AuthState>()(
           if (!res.ok) {
             throw new Error(data?.error || `Login failed (${res.status})`);
           }
+          // A 200 whose body is not JSON is rarer than a 502 that isn't, but it happens —
+          // a proxy or a captive portal answering in the engine's place. Without this,
+          // `data.token` throws a TypeError, and `describeRequestFailure` reads every
+          // TypeError as "could not reach the engine", which is the one thing that did
+          // not go wrong here.
+          if (!data?.token) {
+            throw new Error(`Login failed: the engine's reply could not be read (${res.status}).`);
+          }
 
           set({
             token: data.token,
@@ -144,7 +152,6 @@ export const useAuthStore = create<AuthState>()(
           return false;
         }
       },
-
 
       clearError: () => set({ error: null }),
     }),

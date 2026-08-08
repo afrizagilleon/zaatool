@@ -318,7 +318,6 @@ describe('calls, which used to be a spider web', () => {
     // trigger to the notebook it fires, which is one short line between two neighbours.
     const { edges } = buildMapGraph(web(), { showStandalone: true });
     expect(edges.map((edge) => edge.id)).toEqual(['fires-daily-t1']);
-
   });
 
   it('gives each caller one chip listing everything it calls', () => {
