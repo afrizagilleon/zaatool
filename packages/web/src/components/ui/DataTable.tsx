@@ -73,14 +73,14 @@ export function DataTable<T extends Record<string, unknown> = DataRow>({
 
   // Filtered and sorted data
   const processedData = useMemo(() => {
-    let result: T[] = [...data];
+    let result = [...data];
 
     // Local Search filtering
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase().trim();
       result = result.filter((row) =>
         cols.some((col) => {
-          const val = row[col.key];
+          const val = (row as Record<string, unknown>)[col.key];
           return val !== undefined && val !== null && String(val).toLowerCase().includes(query);
         })
       );
@@ -90,8 +90,8 @@ export function DataTable<T extends Record<string, unknown> = DataRow>({
     if (sortConfig) {
       const { key, direction } = sortConfig;
       result.sort((a, b) => {
-        const valA = a[key];
-        const valB = b[key];
+        const valA = (a as Record<string, unknown>)[key];
+        const valB = (b as Record<string, unknown>)[key];
         if (valA === undefined || valA === null) return 1;
         if (valB === undefined || valB === null) return -1;
 
@@ -206,7 +206,7 @@ export function DataTable<T extends Record<string, unknown> = DataRow>({
           <TableBody>
             {paginatedData.length > 0 ? (
               paginatedData.map((row, rowIdx) => {
-                const selected = isRowSelected(row);
+                const selected = isRowSelected(row as T);
                 return (
                   <TableRow
                     key={rowIdx}

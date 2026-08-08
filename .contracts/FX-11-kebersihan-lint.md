@@ -1,7 +1,7 @@
 ---
 id: FX11
 title: Kebersihan lint (F-119)
-status: IN_PROGRESS          # READY | IN_PROGRESS | DONE | BLOCKED | NEEDS_REVIEW
+status: DONE          # READY | IN_PROGRESS | DONE | BLOCKED | NEEDS_REVIEW
 baseline_branch: dev
 baseline_commit: f8353720c069b8a443c8ae4997920b16c88ec57e
 work_branch: fx11-kebersihan-lint
@@ -331,7 +331,7 @@ pnpm --filter @zaa-tool/web run lint 2>&1 | grep -cE "no-useless-assignment|pref
 ```
 
 ### T-05 — Regresi penuh
-- Status: TODO
+- Status: DONE
 - Depends: T-01 sampai T-04
 - RQ: semua
 - Lakukan: tidak ada kode baru.
@@ -388,8 +388,49 @@ IN_PROGRESS
 paling akhir dan tempel hasil itu.
 
 ```text
-$ <perintah>
-<keluaran apa adanya>
+$ pnpm --filter @zaa-tool/web run lint
+> @zaa-tool/web@0.0.0 lint D:\Projects\zaa-tool\packages\web
+> eslint .
+
+$ pnpm --filter @zaa-tool/engine run build
+> @zaa-tool/engine@0.0.0 build D:\Projects\zaa-tool\packages\engine
+> tsc
+
+$ pnpm --filter @zaa-tool/engine test
+> @zaa-tool/engine@0.0.0 test D:\Projects\zaa-tool\packages\engine
+> tsx tests/run-all.ts
+32 of 32 files passed (224 tests)
+
+$ pnpm --filter @zaa-tool/web run build
+> @zaa-tool/web@0.0.0 build D:\Projects\zaa-tool\packages\web
+> tsc -b && vite build
+
+vite v6.4.1 building for production...
+transforming...
+✓ 183 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                           0.54 kB │ gzip:  0.33 kB
+dist/assets/index-Dms2a5V8.css           35.15 kB │ gzip:  7.09 kB
+dist/assets/index-D_uP73dG.js         1,213.98 kB │ gzip: 350.29 kB
+✓ built in 2.29s
+
+$ pnpm --filter @zaa-tool/web test
+> @zaa-tool/web@0.0.0 test D:\Projects\zaa-tool\packages\web
+> vitest run
+
+ RUN  v4.1.8 D:/Projects/zaa-tool/packages/web
+
+ ✓ tests/tile-title.test.ts (2 tests) 2ms
+ ✓ tests/tile-metrics.test.ts (7 tests) 114ms
+ ✓ tests/table-tile-height.test.tsx (4 tests) 314ms
+ ✓ tests/system-map-bandwidth.test.ts (1 test) 15ms
+ ✓ tests/system-map-grid.test.ts (6 tests) 16ms
+
+ Test Files  5 passed (5)
+      Tests  20 passed (20)
+   Start at  03:52:13
+   Duration  2.06s
 ```
 
 ### Catatan per situs react-hooks/* (T-02, wajib — 23 baris, satu per titik)
