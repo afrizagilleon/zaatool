@@ -18,6 +18,23 @@ export interface FileEntry {
   url?: string;
 }
 
+/**
+ * The one place that says how a listing is asked for.
+ *
+ * `search` is the engine's name for it (`storage.controller.ts` reads `req.query.search`),
+ * and trimming happens here so a box holding only spaces is not a search.
+ */
+async function listFiles(path: string[], searchTerm: string): Promise<FileEntry[]> {
+  const params = new URLSearchParams();
+  if (path.length > 0) params.set('dir', path.join('/'));
+  if (searchTerm.trim()) params.set('search', searchTerm.trim());
+  const query = params.toString() ? `?${params.toString()}` : '';
+
+  const res = await fetch(`${API_BASE_URL}/api/resources/files${query}`);
+  if (!res.ok) throw new Error(`Listing failed (${res.status})`);
+  return (await res.json()) as FileEntry[];
+}
+
 export function useStorage() {
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [currentPath, setCurrentPath] = useState<string[]>([]);
@@ -28,14 +45,7 @@ export function useStorage() {
   const fetchFiles = useCallback(async () => {
     setIsLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (currentPath.length > 0) params.set('dir', currentPath.join('/'));
-      if (searchTerm.trim()) params.set('search', searchTerm.trim());
-      const query = params.toString() ? `?${params.toString()}` : '';
-      const res = await fetch(`${API_BASE_URL}/api/resources/files${query}`);
-      if (res.ok) {
-        setFiles(await res.json());
-      }
+      setFiles(await listFiles(currentPath, searchTerm));
     } catch (e) {
       console.error('Failed to fetch files:', e);
     } finally {
@@ -43,26 +53,28 @@ export function useStorage() {
     }
   }, [currentPath, searchTerm]);
 
+  // The listing follows the folder and the search box. `cancelled` rather than a bare
+  // call to `fetchFiles`: typing produces a request per keystroke, they come back out of
+  // order, and without this the results of a prefix can land after the results of the
+  // whole word. It also settles `react-hooks/set-state-in-effect`, which objects to the
+  // synchronous `setIsLoading(true)` at the top of `fetchFiles`.
+  //
+  // Both paths call `listFiles`. They were briefly two hand-written copies of the same
+  // request, and the copies disagreed within one commit — one sent `search`, the other
+  // `q`, and since the engine reads `search`, the search box quietly stopped filtering.
   useEffect(() => {
     let cancelled = false;
-    const dir = currentPath.join('/');
-    const query = [
-      dir ? `dir=${encodeURIComponent(dir)}` : '',
-      searchTerm ? `q=${encodeURIComponent(searchTerm)}` : '',
-    ].filter(Boolean).join('&');
-    const queryString = query ? `?${query}` : '';
 
-    fetch(`${API_BASE_URL}/api/resources/files${queryString}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (!cancelled && data) setFiles(data);
-      })
-      .catch((e: unknown) => {
+    void (async () => {
+      try {
+        const listing = await listFiles(currentPath, searchTerm);
+        if (!cancelled) setFiles(listing);
+      } catch (e) {
         console.error('Failed to fetch files:', e);
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setIsLoading(false);
-      });
+      }
+    })();
 
     return () => {
       cancelled = true;

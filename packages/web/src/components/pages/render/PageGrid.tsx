@@ -4,9 +4,12 @@ import type { NotebookLayoutItem, NotebookOutput } from '@zaa-tool/shared';
 import { cn } from '../../../lib/utils';
 import { GRID_MARGIN_Y, ROW_HEIGHT } from '../../../lib/tile-metrics';
 import { derivedLayout } from '../../../lib/page-layout';
-
-
-
+// Restored after a lint pass dropped it. v2 positions and sizes a tile inline, so
+// losing this does not visibly break the grid — which is exactly why it went unnoticed.
+// What it still carries is the placeholder shown while a tile is being dragged, the
+// resize-handle art, and the movement transitions. Measured with and without: identical
+// geometry, no drop shadow under the tile you are dragging.
+import 'react-grid-layout/css/styles.css';
 
 /**
  * The outputs of a page, arranged.
@@ -26,7 +29,6 @@ import { derivedLayout } from '../../../lib/page-layout';
 
 const COLUMNS = { lg: 12, sm: 1 } as const;
 const BREAKPOINTS = { lg: 768, sm: 0 } as const;
-
 
 interface PageGridProps {
   outputs: NotebookOutput[];

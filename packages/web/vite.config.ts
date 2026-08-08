@@ -28,6 +28,28 @@ const ENGINE_ORIGIN = process.env.ENGINE_ORIGIN ?? "http://localhost:4000";
 const toEngine = { target: ENGINE_ORIGIN, changeOrigin: true };
 
 /**
+ * Host names this dev server will answer to, besides localhost and plain IP addresses.
+ *
+ * Vite refuses a request whose `Host` header it does not recognise. That is a real
+ * protection — it stops a page you have open from being used to reach a dev server on
+ * your machine by name — and it is also why opening the app over Tailscale answers
+ * `Blocked request. This host is not allowed.` rather than anything about networking.
+ *
+ * A comma-separated list, and no default: a host name belongs to a machine, not to a
+ * repository, so hard-coding one here would put somebody else's address in everyone's
+ * checkout. Set it where you run the server —
+ *
+ *   PowerShell:  $env:ALLOWED_HOSTS = "your-box.tailnet.ts.net"; pnpm dev
+ *   bash:        ALLOWED_HOSTS=your-box.tailnet.ts.net pnpm dev
+ *
+ * Production does not read this: `nginx` serves the built files and answers for the name.
+ */
+const ALLOWED_HOSTS = (process.env.ALLOWED_HOSTS ?? "")
+  .split(",")
+  .map((host) => host.trim())
+  .filter(Boolean);
+
+/**
  * HTTPS in development, when a certificate has been supplied.
  *
  * One feature needs it and only one: recording. `getUserMedia` is refused outside a
@@ -72,6 +94,7 @@ export default defineConfig({
   },
   server: {
     host: true,
+    allowedHosts: ALLOWED_HOSTS,
     https: devHttps(),
     proxy: {
       "/api": toEngine,
