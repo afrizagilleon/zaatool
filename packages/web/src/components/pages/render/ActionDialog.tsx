@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Play, Spinner } from '@phosphor-icons/react';
 import type { NotebookPageAction, NotebookParam } from '@zaa-tool/shared';
 import { Button } from '../../ui/button';
@@ -57,9 +57,13 @@ export function ActionDialog({ action, pageValues, notebookId, shareToken, onCan
   const [isRunning, setIsRunning] = useState(false);
 
   // Reset per opening: yesterday's answer is not a sensible default for today's run.
-  useEffect(() => {
-    if (action) setValues(startingValues(action.asks ?? [], pageValues));
-  }, [action, pageValues]);
+  const [prevAction, setPrevAction] = useState(action);
+  if (action !== prevAction) {
+    setPrevAction(action);
+    if (action) {
+      setValues(startingValues(action.asks ?? [], pageValues));
+    }
+  }
 
   const submit = async () => {
     setIsRunning(true);

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import ReactMarkdown from 'react-markdown';
 import {
@@ -37,7 +37,11 @@ export function SkillEditorDialog({ open, onOpenChange, skill, onSave }: SkillEd
 
   const editorRef = useRef<any>(null);
 
-  useEffect(() => {
+  const [prevOpen, setPrevOpen] = useState(open);
+  const [prevSkill, setPrevSkill] = useState(skill);
+  if (open !== prevOpen || skill !== prevSkill) {
+    setPrevOpen(open);
+    setPrevSkill(skill);
     if (open) {
       if (skill) {
         setName(skill.name);
@@ -50,7 +54,7 @@ export function SkillEditorDialog({ open, onOpenChange, skill, onSave }: SkillEd
       }
       setViewMode('edit');
     }
-  }, [open, skill]);
+  }
 
   const monacoTheme = isDarkMode ? 'vs-dark' : 'light';
 

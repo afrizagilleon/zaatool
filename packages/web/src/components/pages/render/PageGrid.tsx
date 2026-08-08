@@ -55,15 +55,21 @@ export function PageGrid({ outputs, layout, onLayoutChange, renderTile }: PageGr
   const placed = useMemo(() => {
     const stored = new Map((layout ?? []).map((item) => [item.i, item]));
     const fallback = derivedLayout(outputs);
-    let nextY = Math.max(0, ...(layout ?? []).map((item) => item.y + item.h));
+    let currentY = Math.max(0, ...(layout ?? []).map((item) => item.y + item.h));
 
-    return outputs.map((output, index) => {
+    const result: NotebookLayoutItem[] = [];
+    for (let index = 0; index < outputs.length; index++) {
+      const output = outputs[index];
       const found = stored.get(output.name);
-      if (found) return found;
-      const item = { ...fallback[index], y: nextY };
-      nextY += item.h;
-      return item;
-    });
+      if (found) {
+        result.push(found);
+      } else {
+        const item = { ...fallback[index], y: currentY };
+        currentY += item.h;
+        result.push(item);
+      }
+    }
+    return result;
   }, [outputs, layout]);
 
   return (

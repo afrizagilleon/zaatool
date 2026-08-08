@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -26,9 +26,15 @@ export function NameInputDialog({
 }: NameInputDialogProps) {
   const [value, setValue] = useState(initialValue);
 
-  useEffect(() => {
-    if (open) setValue(initialValue);
-  }, [open, initialValue]);
+  const [prevOpen, setPrevOpen] = useState(open);
+  const [prevInitialValue, setPrevInitialValue] = useState(initialValue);
+  if (open !== prevOpen || initialValue !== prevInitialValue) {
+    setPrevOpen(open);
+    setPrevInitialValue(initialValue);
+    if (open) {
+      setValue(initialValue);
+    }
+  }
 
   const handleConfirm = async () => {
     if (!value.trim()) return;

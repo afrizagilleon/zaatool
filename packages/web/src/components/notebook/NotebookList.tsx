@@ -113,7 +113,28 @@ export function NotebookList({ onOpen, onCreate }: NotebookListProps) {
   };
 
   useEffect(() => {
-    refresh();
+    let cancelled = false;
+    notebooksApi
+      .list()
+      .then((data) => {
+        if (!cancelled) {
+          setNotebooks(data);
+          setError(null);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setError((err as Error).message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Deploy in the editor, and this list knows. Before it, every screen was a photograph

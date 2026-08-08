@@ -53,15 +53,32 @@ export function ShareDialog({
     }
   }, [notebookId]);
 
-  useEffect(() => {
-    if (open) void refresh();
-    else {
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (!open) {
       // The one-time token must not still be on screen the next time this opens.
       setFresh(null);
       setPassword('');
       setError(null);
     }
-  }, [open, refresh]);
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    notebooksApi
+      .shares(notebookId)
+      .then((data) => {
+        if (!cancelled) setShares(data);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError((err as Error).message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, notebookId]);
 
   const create = async () => {
     setBusy(true);

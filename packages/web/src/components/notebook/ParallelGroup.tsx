@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   ArrowsMerge,
   ArrowsSplit,
@@ -50,9 +50,10 @@ export function ParallelGroup({
   const [renamingLaneId, setRenamingLaneId] = useState<string | null>(null);
 
   // Removing a lane can leave the index past the end.
-  useEffect(() => {
-    if (activeIndex > group.lanes.length - 1) setActiveIndex(Math.max(0, group.lanes.length - 1));
-  }, [group.lanes.length, activeIndex]);
+  const maxIndex = Math.max(0, group.lanes.length - 1);
+  if (activeIndex > maxIndex) {
+    setActiveIndex(maxIndex);
+  }
 
   const activeLane = group.lanes[Math.min(activeIndex, group.lanes.length - 1)];
   if (!activeLane) return null;

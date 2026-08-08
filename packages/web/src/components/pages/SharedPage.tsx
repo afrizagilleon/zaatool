@@ -147,8 +147,41 @@ export function SharedPage({ token }: { token: string }) {
   );
 
   useEffect(() => {
-    void load('');
-  }, [load]);
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/shared/${token}`, {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+        const body = await res.json().catch(() => ({}));
+
+        if (cancelled) return;
+        if (res.status === 401 && body.needsPassword) {
+          setNeedsPassword(true);
+          setPage(null);
+          return;
+        }
+        if (!res.ok) {
+          setError(body.error ?? 'This link does not work.');
+          setPage(null);
+          return;
+        }
+
+        setNeedsPassword(false);
+        setPage(body as NotebookPage);
+        setValues(initialValues((body as NotebookPage).inputs));
+      } catch (err: unknown) {
+        if (!cancelled) setError((err as Error).message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   const run = async () => {
     if (!page) return;
@@ -223,7 +256,7 @@ export function SharedPage({ token }: { token: string }) {
       socket.onclose = null;
       socket.close();
     };
-  }, [runId, page]);
+  }, [runId, page, token]);
 
   if (needsPassword) {
     return (

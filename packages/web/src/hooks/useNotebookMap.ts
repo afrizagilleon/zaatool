@@ -34,8 +34,29 @@ export function useNotebookMap() {
   const refresh = useCallback(() => load(), [load]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    let cancelled = false;
+    notebooksApi
+      .map()
+      .then((data) => {
+        if (!cancelled) {
+          setMap(data);
+          setError(null);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setError((err as Error).message);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Quietly: a redraw is disruptive enough without the whole canvas blanking first.
   const live = useCatalogRefresh(() => void load({ quietly: true }));

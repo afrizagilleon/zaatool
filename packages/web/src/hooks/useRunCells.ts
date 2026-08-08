@@ -17,8 +17,13 @@ export type CellActivity = 'running' | 'done' | 'error';
 export function useRunCells(runId: string | undefined): Record<string, CellActivity> {
   const [cells, setCells] = useState<Record<string, CellActivity>>({});
 
-  useEffect(() => {
+  const [prevRunId, setPrevRunId] = useState(runId);
+  if (runId !== prevRunId) {
+    setPrevRunId(runId);
     setCells({});
+  }
+
+  useEffect(() => {
     if (!runId) return;
 
     const socket = connectRunSocket(

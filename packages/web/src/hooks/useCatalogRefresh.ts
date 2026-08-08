@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { reviveWatch, watchCatalog, watchConnection, watchStatusNow } from '../lib/watch-socket.js';
 
 /**
@@ -21,7 +21,9 @@ export function useCatalogRefresh(reload: () => void): boolean {
   // Held in a ref so a screen may pass a fresh closure on every render — which every
   // screen does — without tearing down the subscription each time.
   const latest = useRef(reload);
-  latest.current = reload;
+  useLayoutEffect(() => {
+    latest.current = reload;
+  });
 
   useEffect(() => {
     // A burst is one refetch. An agent writing four notebooks in a second is four

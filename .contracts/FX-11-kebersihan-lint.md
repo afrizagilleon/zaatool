@@ -282,7 +282,7 @@ pnpm --filter @zaa-tool/web test
 ```
 
 ### T-02 — `react-hooks/*` (23 titik: set-state-in-effect 18, exhaustive-deps 3, refs 1, immutability 1)
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-01, RQ-03
 - Lakukan: sesuai D-2, satu situs pada satu waktu. Untuk tiap situs: baca efek/hook yang
@@ -393,8 +393,49 @@ $ <perintah>
 ```
 
 ### Catatan per situs react-hooks/* (T-02, wajib — 23 baris, satu per titik)
-- <berkas:baris> — <pola dipilih: turunkan saat render / event handler / key> —
-  <satu kalimat kenapa ini tidak mengubah perilaku yang terlihat>
+- packages/web/src/components/map/SystemMap.tsx:103 — turunkan saat render — mereset document/insideError/replayRunId/openCellId saat state `inside` berubah secara sinkron sebelum render selesai sehingga UI tetap konsisten tanpa render berantai.
+- packages/web/src/components/map/SystemMap.tsx:203 — turunkan saat render — mereset state `replay` ke null saat `replayRunId` dibersihkan secara sinkron sebelum render selesai.
+- packages/web/src/components/notebook/DeployButton.tsx:54 — promise callback — memperbarui state secara asinkron saat respons API `deployState` tiba alih-alih memanggil setState sinkron dalam efek.
+- packages/web/src/components/notebook/DeployReviewDialog.tsx:77 — turunkan saat render — mereset diff/error/firstDeploy saat dialog dibuka secara sinkron sebelum render selesai.
+- packages/web/src/components/notebook/NotebookList.tsx:116 — promise callback — mengambil daftar notebook dalam handler janji asinkron alih-alih memanggil `refresh()` sinkron dalam efek mount.
+- packages/web/src/components/notebook/ParallelGroup.tsx:54 — turunkan saat render — menyesuaikan `activeIndex` ke batas maksimum secara sinkron saat render jika jumlah lane berkurang.
+- packages/web/src/components/notebook/RunHistory.tsx:60 — promise callback — mengambil riwayat run dalam handler janji asinkron saat popover dibuka alih-alih memanggil `refresh()` sinkron dalam efek.
+- packages/web/src/components/pages/AppsPage.tsx:337 (site 8) — konstanta modul — menggunakan fallback array statis `EMPTY_PAGES` agar referensi `all` pada `useMemo` tagCounts stabil.
+- packages/web/src/components/pages/AppsPage.tsx:366 (site 9) — konstanta modul — referensi `EMPTY_PAGES` yang stabil juga menstabilkan dependensi `all` pada `useMemo` view.
+- packages/web/src/components/pages/NotebooksPage.tsx:67 — turunkan saat render — mereset `isDrafting` ke false secara sinkron saat render ketika draf pertama kali tersimpan.
+- packages/web/src/components/pages/ShareDialog.tsx:57 — turunkan saat render & promise callback — mereset token/password saat dialog ditutup secara sinkron saat render, dan mengambil daftar share via janji asinkron saat dibuka.
+- packages/web/src/components/pages/SharedPage.tsx:150 (site 12) — promise callback — mengambil data halaman berbagi via janji asinkron saat mount alih-alih memanggil `load()` sinkron dalam efek.
+- packages/web/src/components/pages/SharedPage.tsx:226 (site 13) — dependensi hook — menambahkan `token` yang dipakai pada autentikasi socket ke array dependensi `useEffect`.
+- packages/web/src/components/pages/render/ActionDialog.tsx:61 — turunkan saat render — mereset nilai form `values` secara sinkron saat render ketika objek `action` berubah.
+- packages/web/src/components/pages/render/PageGrid.tsx:64 — imutabilitas & perulangan murni — mengganti mutasi `nextY` di dalam `.map` dengan loop `for` lokal di dalam `useMemo`.
+- packages/web/src/components/resources/FilePreviewDialog.tsx:39 — turunkan saat render & promise callback — mereset `textContent` saat dialog ditutup secara sinkron saat render, dan mengambil data teks via fetch asinkron.
+- packages/web/src/components/resources/NameInputDialog.tsx:30 — turunkan saat render — mereset input `value` ke `initialValue` secara sinkron saat render ketika dialog dibuka.
+- packages/web/src/components/resources/SkillEditorDialog.tsx:43 — turunkan saat render — mereset input `name`/`description`/`content` secara sinkron saat render ketika dialog dibuka atau prop skill berubah.
+- packages/web/src/components/ui/carousel.tsx:96 — microtask / event callback — menunda panggilan `onSelect` inisial via `queueMicrotask` agar tidak memicu setState sinkron dalam efek.
+- packages/web/src/hooks/useCatalogRefresh.ts:24 — layout effect — memperbarui `latest.current` ref di dalam `useLayoutEffect` alih-alih penugasan langsung saat render.
+- packages/web/src/hooks/useNotebookMap.ts:37 — promise callback — mengambil data peta sistem via janji asinkron saat mount alih-alih memanggil `load()` sinkron dalam efek.
+- packages/web/src/hooks/useRunCells.ts:21 — turunkan saat render — mereset state `cells` ke objek kosong secara sinkron saat render ketika `runId` berubah.
+- packages/web/src/hooks/useStorage.ts:47 — promise callback — mengambil daftar berkas via `fetch` asinkron saat path/searchTerm berubah alih-alih memanggil `fetchFiles()` sinkron dalam efek.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ### File diubah
 - <daftar>

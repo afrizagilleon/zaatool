@@ -44,8 +44,30 @@ export function useStorage() {
   }, [currentPath, searchTerm]);
 
   useEffect(() => {
-    fetchFiles();
-  }, [fetchFiles]);
+    let cancelled = false;
+    const dir = currentPath.join('/');
+    const query = [
+      dir ? `dir=${encodeURIComponent(dir)}` : '',
+      searchTerm ? `q=${encodeURIComponent(searchTerm)}` : '',
+    ].filter(Boolean).join('&');
+    const queryString = query ? `?${query}` : '';
+
+    fetch(`${API_BASE_URL}/api/resources/files${queryString}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data) setFiles(data);
+      })
+      .catch((e: unknown) => {
+        console.error('Failed to fetch files:', e);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentPath, searchTerm]);
 
   const uploadFiles = useCallback(async (files: File[]) => {
     if (files.length === 0) return false;

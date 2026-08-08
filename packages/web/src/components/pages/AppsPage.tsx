@@ -35,7 +35,9 @@ import { InputField } from './render/InputField';
 import { initialValues, toArgs } from '../../lib/app-inputs';
 
 import { PageActions } from './render/PageActions';
-import { cn } from '../../lib/utils';
+const EMPTY_PAGES: NotebookPage[] = [];
+
+const PAGE_SIZE = 12;
 
 /**
  * A page for every deployed notebook, built from its contract.
@@ -334,7 +336,7 @@ export function AppsPage() {
   // that failed.
   const live = useCatalogRefresh(() => void reload());
 
-  const all = pages ?? [];
+  const all = pages ?? EMPTY_PAGES;
   const tags = useMemo(() => tagCounts(all), [all]);
   const hiddenFixtures = hiddenFixtureCount(all, showFixtures);
 
