@@ -80,9 +80,6 @@ export function maxNotebookStorageBytes(): number {
   return Math.floor(megabytes * 1024 * 1024);
 }
 
-
-
-
 /**
  * Reasons this process should not be serving traffic.
  *

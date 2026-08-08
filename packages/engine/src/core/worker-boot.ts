@@ -28,8 +28,6 @@ export const DENIED_BUILTINS = new Set([
   "repl",
 ]);
 
-
-
 const scopedRequire = (specifier: string): unknown => {
   const name = String(specifier ?? "");
   const bare = name.replace(/^node:/, "").split("/")[0];
@@ -45,7 +43,6 @@ const scopedRequire = (specifier: string): unknown => {
   }
 
   if (allowed.has(bare) || isBuiltin(bare)) return nodeRequire(name);
-
 
   throw new Error(
     `require("${name}") is not available. Declare it in the notebook's \`packages:\` list, ` +

@@ -3,6 +3,26 @@ import fs from "node:fs";
 import path from "node:path";
 import { corsPolicy } from "../src/server/app.js";
 
+/**
+ * Accounts made by a test are named so they can be found again, and deleted.
+ *
+ * The first version of this file created users called `creator_<timestamp>` and left them
+ * in the database. They are real accounts — they appear in the Accounts tab, they can log
+ * in, and their password is written a few lines below in plain sight. After a dozen runs
+ * there were thirty of them, ten with the `creator` role.
+ *
+ * So: one prefix, swept before and after. `zz-` is the project's mark for "made by a test"
+ * (see `fixtures.ts`), and the rest of the engine suite already uses `zz-test-%` this way.
+ */
+const PREFIX = "zz-sec-";
+const TEST_PASSWORD = "password123456";
+
+async function sweepTestUsers(): Promise<void> {
+  const { pool } = await import("../src/db/connection.js");
+  await pool.query("DELETE FROM users WHERE username LIKE $1", [`${PREFIX}%`]);
+}
+
+await sweepTestUsers();
 
 let passed = 0;
 let failed = 0;
@@ -73,7 +93,6 @@ console.log("\nsecurity-hardening (T-02: Login rate limiting)");
 await check("login rate limiter returns 429 after exceeding LOGIN_RATE_LIMIT_MAX", async () => {
   const { createApp } = await import("../src/server/app.js");
   const { initDb } = await import("../src/db/initializer.js");
-  const { pool } = await import("../src/db/connection.js");
 
   await initDb();
   process.env.LOGIN_RATE_LIMIT_MAX = "2";
@@ -112,7 +131,6 @@ await check("login rate limiter returns 429 after exceeding LOGIN_RATE_LIMIT_MAX
   }
 });
 
-
 console.log(`\n${passed} passed, ${failed} failed\n`);
 
 console.log("\nsecurity-hardening (T-03: Webhook rate limiting)");
@@ -120,8 +138,6 @@ console.log("\nsecurity-hardening (T-03: Webhook rate limiting)");
 await check("webhook rate limiter skips authenticated requests and limits unauthenticated ones", async () => {
   const { createApp } = await import("../src/server/app.js");
   const { initDb } = await import("../src/db/initializer.js");
-  const { pool } = await import("../src/db/connection.js");
-  const { notebookTriggersService } = await import("../src/services/notebook-triggers.service.js");
   const { notebooksService } = await import("../src/services/notebooks.service.js");
   const { secretsService } = await import("../src/services/secrets.service.js");
 
@@ -143,8 +159,6 @@ await check("webhook rate limiter skips authenticated requests and limits unauth
     ],
   });
   await notebooksService.deploy(nb.id, "test");
-
-
 
   const app = createApp(() => {});
   const server = app.listen(0);
@@ -178,8 +192,6 @@ await check("webhook rate limiter skips authenticated requests and limits unauth
   }
 });
 
-
-
 console.log(`\n${passed} passed, ${failed} failed\n`);
 
 console.log("\nsecurity-hardening (T-04: Minimum password length)");
@@ -191,8 +203,8 @@ await check("minimum password length is 12 and refuses 11 characters while accep
   await initDb();
   assert.equal(MIN_PASSWORD_LENGTH, 12);
 
-  const u11 = `user11_${Date.now()}`;
-  const u12 = `user12_${Date.now()}`;
+  const u11 = `${PREFIX}pw11-${Date.now()}`;
+  const u12 = `${PREFIX}pw12-${Date.now()}`;
 
   // 11 characters -> refused
   await assert.rejects(
@@ -210,7 +222,6 @@ await check("minimum password length is 12 and refuses 11 characters while accep
   assert.equal(user.username, u12);
 });
 
-
 console.log(`\n${passed} passed, ${failed} failed\n`);
 
 console.log("\nsecurity-hardening (T-05: Agent tokens endpoints)");
@@ -222,12 +233,12 @@ await check("creator can issue, list, and revoke agent tokens; viewer is refused
 
   await initDb();
 
-  const creatorName = `creator_${Date.now()}`;
-  const viewerName = `viewer_${Date.now()}`;
-  const password = "password123456";
+  const creatorName = `${PREFIX}creator-${Date.now()}`;
+  const viewerName = `${PREFIX}viewer-${Date.now()}`;
+  const password = TEST_PASSWORD;
 
-  const creator = await authService.createUser(creatorName, password, "creator");
-  const viewer = await authService.createUser(viewerName, password, "viewer");
+  await authService.createUser(creatorName, password, "creator");
+  await authService.createUser(viewerName, password, "viewer");
 
   const creatorLogin = await authService.login(creatorName, password);
   const viewerLogin = await authService.login(viewerName, password);
@@ -330,7 +341,16 @@ await check("deploying a python notebook pins packages to locked_packages in dat
   const locked = rows[0].locked_packages;
   assert.ok(Array.isArray(locked), "locked_packages should be an array");
   assert.ok(locked.length > 0, "locked_packages should not be empty");
-  assert.ok(locked[0].startsWith("cowsay"), "locked package should start with cowsay");
+
+  // `startsWith("cowsay")` was the original assertion, and it could not fail for the
+  // reason that matters: `resolvePythonLockedPackages` swallows every error and returns
+  // the raw `packages:` list, so a resolution that never happened also yields "cowsay".
+  // A lock that is not pinned to a version is not a lock, so check for the pin.
+  assert.match(
+    locked[0],
+    /^cowsay==\d/,
+    `locked package must be pinned to a concrete version, got: ${locked[0]}`
+  );
 
   // 2. Verify getDeployedDocument returns locked_packages
   const deployedDoc = await notebooksService.getDeployedDocument(nb.id);
@@ -446,15 +466,11 @@ await check("deleting notebook removes uploads and notebooks folders from disk",
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
+
+// Swept at the end as well as the start: a run that is interrupted here still leaves the
+// next run a clean slate, and a run that finishes leaves the operator's account list alone.
+await sweepTestUsers();
+
 const { pool } = await import("../src/db/connection.js");
 await pool.end();
 if (failed > 0) process.exit(1);
-
-
-
-
-
-
-
-
-

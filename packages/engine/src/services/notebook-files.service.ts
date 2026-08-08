@@ -11,7 +11,7 @@ import {
   type FileWriter,
   type StoredFile,
 } from "../core/notebook-files.js";
-import { maxUploadBytes, maxNotebookStorageBytes } from "../config.js";
+import { maxNotebookStorageBytes } from "../config.js";
 
 export function getFolderSizeRecursive(dirPath: string): number {
   if (!fs.existsSync(dirPath)) return 0;
@@ -43,7 +43,6 @@ export function checkNotebookStorageQuota(notebookId: string, additionalBytes: n
     );
   }
 }
-
 
 /**
  * Where a notebook's own files live, and where an attachment on its way in lands.
@@ -140,7 +139,6 @@ export class NotebookFilesService {
   }
 
   /**
-
    * Keeps something that arrived from outside — a page's file picker, a webhook's
    * multipart body, a voice recording.
    *
@@ -163,7 +161,6 @@ export class NotebookFilesService {
 
     return describe(`uploads/${segment(notebookId)}/${filename}`, bytes.byteLength);
   }
-
 
   /** The absolute path of a stored file, for a cell that wants to read one it was given. */
   absolutePathOf(relativePath: string): string {
