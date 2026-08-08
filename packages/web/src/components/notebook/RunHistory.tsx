@@ -57,8 +57,25 @@ export function RunHistory({ notebookId, activeRunId, refreshKey, onOpenRun }: R
   }, [notebookId, refresh]);
 
   useEffect(() => {
-    if (isOpen) void refresh();
-  }, [isOpen, refresh, refreshKey]);
+    if (!isOpen || !notebookId) return;
+    let cancelled = false;
+    notebooksApi
+      .listRuns(notebookId)
+      .then((data) => {
+        if (!cancelled) {
+          setRuns(data);
+          setError(null);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setError((err as Error).message);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, notebookId, refreshKey]);
 
   return (
     <div className="relative">

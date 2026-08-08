@@ -51,8 +51,20 @@ export function DeployButton({ notebookId, refreshKey, hasTriggers, isDirty }: D
   }, [notebookId]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh, refreshKey]);
+    if (!notebookId) return;
+    let cancelled = false;
+    notebooksApi
+      .deployState(notebookId)
+      .then((res) => {
+        if (!cancelled) setState(res);
+      })
+      .catch(() => {
+        if (!cancelled) setState(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [notebookId, refreshKey]);
 
   if (!notebookId) return null;
 

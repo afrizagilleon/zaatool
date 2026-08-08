@@ -303,7 +303,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
         .map(([cellId, run]) => [cellId, { ...emptyRun(), ranSource: run.ranSource }])
     );
 
-    let cellRuns = onlyCellId ? { ...get().cellRuns, ...cleared } : cleared;
+    const cellRuns = onlyCellId ? { ...get().cellRuns, ...cleared } : cleared;
 
     if (onlyCellId) {
       // Re-running one cell changes what everything downstream was computed from,

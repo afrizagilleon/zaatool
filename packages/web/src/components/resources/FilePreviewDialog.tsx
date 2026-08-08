@@ -34,17 +34,34 @@ export function FilePreviewDialog({ file, open, onOpenChange }: FilePreviewDialo
   // path, which `/storage` no longer serves to anyone.
   const fileUrl = file?.url ? `${API_BASE_URL}${file.url}` : '';
 
-  useEffect(() => {
-    if (!open || !file || !isTextLike(file.mime_type)) {
+  const [prevOpen, setPrevOpen] = useState(open);
+  const [prevFileUrl, setPrevFileUrl] = useState(fileUrl);
+  if (open !== prevOpen || fileUrl !== prevFileUrl) {
+    setPrevOpen(open);
+    setPrevFileUrl(fileUrl);
+    if (!open || !file || !isTextLike(file?.mime_type)) {
       setTextContent(null);
-      return;
+      setIsLoadingText(false);
     }
-    setIsLoadingText(true);
+  }
+
+  useEffect(() => {
+    if (!open || !file || !isTextLike(file.mime_type) || !fileUrl) return;
+    let cancelled = false;
     fetch(fileUrl)
       .then((res) => res.text())
-      .then(setTextContent)
-      .catch(() => setTextContent(null))
-      .finally(() => setIsLoadingText(false));
+      .then((text) => {
+        if (!cancelled) setTextContent(text);
+      })
+      .catch(() => {
+        if (!cancelled) setTextContent(null);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingText(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [open, file, fileUrl]);
 
   if (!file) return null;

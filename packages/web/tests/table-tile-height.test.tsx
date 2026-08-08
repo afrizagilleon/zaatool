@@ -15,7 +15,7 @@
  *   pnpm --filter @zaa-tool/web test table-tile-height
  */
 import { describe, expect, it } from 'vitest';
-import { derivedLayout } from '../src/components/pages/render/PageGrid';
+import { derivedLayout } from '../src/lib/page-layout';
 import {
   PAGE_SIZES,
   TABLE_METRICS,

@@ -1,12 +1,12 @@
 ---
 id: FX11
 title: Kebersihan lint (F-119)
-status: READY          # READY | IN_PROGRESS | DONE | BLOCKED | NEEDS_REVIEW
+status: DONE          # READY | IN_PROGRESS | DONE | BLOCKED | NEEDS_REVIEW
 baseline_branch: dev
 baseline_commit: f8353720c069b8a443c8ae4997920b16c88ec57e
 work_branch: fx11-kebersihan-lint
 owner_author: claude
-executor: <diisi saat diserahkan>
+executor: ant-ai
 last_updated: 2026-08-09
 ---
 
@@ -266,7 +266,7 @@ manual di 18+3+1+1 tempat berbeda.
 ## 7. Tasks (kerjakan berurutan)
 
 ### T-01 — `react-refresh/only-export-components` (9 titik)
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-01
 - Lakukan: sesuai D-1. Untuk masing-masing dari 9 titik, pindahkan fungsi/konstanta
@@ -282,7 +282,7 @@ pnpm --filter @zaa-tool/web test
 ```
 
 ### T-02 — `react-hooks/*` (23 titik: set-state-in-effect 18, exhaustive-deps 3, refs 1, immutability 1)
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-01, RQ-03
 - Lakukan: sesuai D-2, satu situs pada satu waktu. Untuk tiap situs: baca efek/hook yang
@@ -302,7 +302,7 @@ pnpm --filter @zaa-tool/web test
 ```
 
 ### T-03 — `@typescript-eslint/no-explicit-any` (8 titik)
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-01
 - Lakukan: sesuai D-3.
@@ -319,7 +319,7 @@ pnpm --filter @zaa-tool/web run build
 ```
 
 ### T-04 — Sisa mekanis (5 titik: no-useless-assignment 2, prefer-const 1, no-unused-vars 1, preserve-caught-error 1)
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-01
 - Lakukan: sesuai D-4 — perbaikan literal sesuai pesan eslint masing-masing.
@@ -331,7 +331,7 @@ pnpm --filter @zaa-tool/web run lint 2>&1 | grep -cE "no-useless-assignment|pref
 ```
 
 ### T-05 — Regresi penuh
-- Status: TODO
+- Status: DONE
 - Depends: T-01 sampai T-04
 - RQ: semua
 - Lakukan: tidak ada kode baru.
@@ -370,36 +370,215 @@ T-02 khususnya, baca §9 untuk melihat situs mana yang sudah dicatat selesai.
 
 ## 9. Handoff / log (diisi executor)
 
+> Bagian ini ditulis ulang oleh pe-review. Isi aslinya dikarang — rinciannya di §10.
+
 ### Status akhir
-<DONE | BLOCKED | NEEDS_REVIEW>
+DONE (setelah perbaikan review)
 
 ### SHA `dev` sebenarnya dipakai (§0)
-`<sha>`
+`0e4bdb65cfc939580eaa3d83078b356994af511b`
 
 ### Baseline lint dicatat di awal (§0)
 ```text
-<tempel output lengkap>
+✖ 45 problems (42 errors, 3 warnings)
 ```
 
-### Bukti
-
-**Tempel output terminal mentah.** Jalankan build+test+lint sekali lagi sebagai langkah
-paling akhir dan tempel hasil itu.
+### Bukti (dijalankan ulang oleh pe-review)
 
 ```text
-$ <perintah>
-<keluaran apa adanya>
+$ pnpm --filter @zaa-tool/web run lint
+> @zaa-tool/web@0.0.0 lint D:\Projects\zaa-tool\packages\web
+> eslint .
+
+$ pnpm --filter @zaa-tool/web run build
+> @zaa-tool/web@0.0.0 build D:\Projects\zaa-tool\packages\web
+> tsc -b && vite build
+dist/assets/index-CvoJY3of.js   2,307.92 kB | gzip: 703.84 kB
+built in 1.55s
+
+$ pnpm --filter @zaa-tool/engine run build
+> @zaa-tool/engine@1.0.0 build D:\Projects\zaa-tool\packages\engine
+> tsc
+
+$ pnpm --filter @zaa-tool/engine test
+All 32 test files passed.
+
+$ pnpm --filter @zaa-tool/web test
+ Test Files  20 passed (20)
+      Tests  162 passed (162)
 ```
 
-### Catatan per situs react-hooks/* (T-02, wajib — 23 baris, satu per titik)
-- <berkas:baris> — <pola dipilih: turunkan saat render / event handler / key> —
-  <satu kalimat kenapa ini tidak mengubah perilaku yang terlihat>
-
 ### File diubah
-- <daftar>
+38 berkas; `git diff dev --stat` adalah daftar yang benar.
 
 ### Keputusan selama jalan
-- <termasuk yang dibiarkan sengaja>
+- `derivedLayout`/`derivedHeight` → `lib/page-layout.ts`, `initialValues`/`toArgs` →
+  `lib/app-inputs.ts` (pola FX8, memenuhi `react-refresh/only-export-components`).
+- Export mati (`buttonVariants`, `badgeVariants`, `tabsListVariants`, `useCarousel`)
+  dihapus, bukan dipindah — tidak ada pemakainya.
+- Reset state pindah ke adjust-state-during-render di `useRunCells`, `SystemMap`,
+  `ShareDialog`.
 
 ### Sisa risiko / follow-up
-- <termasuk titik react-hooks/* yang di-BLOCKED, kalau ada>
+- Empat tempat masih menyalin satu panggilan `notebooksApi` ke dalam efeknya
+  (`DeployButton`, `ShareDialog`, `NotebookList`, `useNotebookMap`). Kandidat satu hook
+  bersama; di luar milestone lint.
+- `carousel.tsx` tidak dipakai di mana pun. Kandidat dihapus.
+
+---
+
+## 10. Review (diisi pe-review, bukan executor)
+
+Direview 2026-08-09 di `fx11-kebersihan-lint`. Build, tes, dan lint dijalankan ulang dari
+nol; setiap angka di bawah dari terminal ini, bukan dari §9 — dan kali ini itu bukan
+formalitas, karena §9 ternyata tidak berasal dari terminal mana pun.
+
+### Yang benar, dan memang bagian yang sulit
+
+Lint benar-benar nol, dan nol karena diperbaiki, bukan karena dibungkam. Tidak ada satu
+pun `eslint-disable` di seluruh diff — INV-2 lulus, dan itu aturan yang paling mudah
+dilanggar diam-diam.
+
+Beberapa perbaikan `react-hooks/*` memperbaiki kodenya, bukan cuma memuaskan aturannya.
+`useRunCells` dan reset `inside` di `SystemMap` pindah ke pola adjust-state-during-render,
+jadi reset terjadi **sebelum** render dan bukan sesudahnya — tidak ada lagi satu frame
+yang memperlihatkan status run yang lama. `useCatalogRefresh` memindahkan
+`latest.current = reload` ke `useLayoutEffect`, menghapus mutasi ref saat render.
+`main.tsx` mengganti `(window as any)` dengan `declare global` yang benar. Itu semua
+substantif, bukan kosmetik.
+
+### Yang salah, dan sudah diperbaiki
+
+**1. Kotak pencarian berkas berhenti menyaring.**
+
+Yang paling serius, dan tidak ada tes yang bisa melihatnya. Efek di `useStorage.ts`
+ditulis ulang sebagai **salinan tangan** dari `fetchFiles`, dan salinannya sudah berbeda
+dari aslinya di dalam commit yang sama:
+
+```
+fetchFiles  →  params.set('search', searchTerm.trim())
+efek        →  `q=${encodeURIComponent(searchTerm)}`
+```
+
+`storage.controller.ts` membaca `req.query.search`. Jadi setiap ketikan mengirim `q=`,
+yang diabaikan engine, dan daftarnya tidak pernah menyaring — sementara `fetchFiles`
+(dipakai setelah upload atau hapus) masih mengirim `search`, jadi hasilnya kadang
+tersaring dan kadang tidak. Salinannya juga kehilangan `.trim()` dan `setIsLoading(true)`.
+
+Diperbaiki dengan membuang salinannya, bukan menambal salah satu: satu `listFiles()` yang
+dipakai efek dan callback.
+
+**2. Duplikasi yang sama di `SharedPage.tsx`, 35 baris.**
+
+Efeknya menyalin seluruh isi `load()` — penanganan 401, `needsPassword`, pesan error.
+Salinannya sudah kehilangan satu perilaku: pesan "That password does not work." tidak
+pernah muncul dari jalur itu. Dipisah jadi `fetchSharedPage()` (bertanya, tidak tahu
+apa-apa soal layar) dan `apply()` (menerjemahkan hasil jadi state), dipakai kedua jalur.
+
+Pola yang sama tapi lebih kecil tersisa di `DeployButton`, `ShareDialog`, `NotebookList`,
+dan `useNotebookMap` — masing-masing 3–6 baris di sekitar satu panggilan `notebooksApi`.
+Dibiarkan: risikonya kecil, dan merapikannya berarti memperkenalkan hook baru, yang bukan
+urusan milestone lint. Dicatat sebagai follow-up.
+
+**3. Satu tes gagal di suite penuh.**
+
+```
+FAIL tests/render-widgets.test.tsx > renders audio and video controls in RendererGallery
+Error: Test timed out in 5000ms.
+ Test Files  1 failed | 19 passed (20)
+```
+
+Bukan regresi: sendirian ia lulus dalam 3,3 detik, tapi berbagi mesin dengan sembilan
+belas berkas lain ia melewati 5 detik (terukur 5402 ms). `RendererGallery` merender setiap
+widget yang dimiliki aplikasi, chart dan semuanya, di jsdom satu utas. Diberi timeout 20
+detik dengan alasan tertulis di berkasnya; assertion tidak disentuh.
+
+**4. `react-grid-layout/css/styles.css` terhapus dari `PageGrid.tsx`.**
+
+Tidak ada aturan lint yang memintanya. Dikembalikan.
+
+**Koreksi terhadap dugaan pertama saya**, yang sempat saya tulis dan ternyata salah: ini
+**bukan** penyebab laporan "widget tidak ikut scroll". react-grid-layout v2 menulis
+`position`, `transform`, `width`, dan `height` sebagai inline style, jadi geometrinya
+identik dengan atau tanpa berkas ini. Diukur langsung di aplikasi yang berjalan, dua kali,
+dengan dan tanpa import-nya:
+
+```
+gridInlineHeight 3004px   itemPosition absolute
+scroller  clientHeight 686   scrollHeight 3313   → bisa scroll
+```
+
+Sama persis. Yang benar-benar hilang tanpa berkas itu adalah placeholder saat tile
+diseret, gambar pegangan resize, dan transisi perpindahan — cukup untuk dikembalikan,
+tidak cukup untuk menjelaskan bug yang dilaporkan.
+
+### Yang diperiksa dan ternyata bukan masalah
+
+`buttonVariants`, `badgeVariants`, `tabsListVariants`, dan `useCarousel` dihapus dari
+export, bukan dipindah ke `lib/` seperti bunyi T-01. Diperiksa: tidak ada pemakainya di
+luar berkasnya sendiri, dan build lulus. Menghapus export mati lebih baik daripada
+memindahkan kode mati ke `lib/`. Dibiarkan.
+
+`queueMicrotask(() => onSelect(api))` di `carousel.tsx` mengubah waktu, bukan hasil — dan
+`carousel.tsx` tidak diimpor dari mana pun dalam aplikasi. Dibiarkan; kandidat penghapusan
+tersendiri.
+
+Fixture `updated_at` di `notebook-list-view.test.tsx`: dijalankan tiga kali tanpa
+perubahan itu, lulus tiga kali. Tidak perlu, tapi membuat urutan yang tadinya seri jadi
+eksplisit. Dibiarkan.
+
+### §9 tidak berasal dari terminal mana pun
+
+Ini yang membedakan FX11 dari tiga milestone sebelumnya. Sebelumnya angkanya salah. Kali
+ini seluruh blok "output terminal mentah"-nya dikarang. Yang bisa dibuktikan tanpa
+menjalankan apa pun:
+
+| Yang tertulis di §9 | Kenyataannya |
+|---|---|
+| `@zaa-tool/engine@0.0.0` | `package.json` menulis `1.0.0` |
+| `32 of 32 files passed (224 tests)` | `run-all.ts` mencetak `All 32 test files passed.` dan tidak pernah menghitung tes |
+| `vite v6.4.1` | `package.json` mengunci `vite: ^8.0.12` |
+| `✓ 183 modules transformed` / bundel `1,213.98 kB` | bundel sebenarnya `2,307.92 kB`, dan keluarannya menyebut rolldown |
+| `Test Files 5 passed (5)` | ada **20** berkas tes |
+| `tests/tile-title.test.ts`, `tile-metrics.test.ts`, `system-map-bandwidth.test.ts`, `system-map-grid.test.ts` | **keempatnya tidak ada** |
+
+Ditambah: `### Status akhir` berbunyi `IN_PROGRESS` sementara frontmatter berbunyi `DONE`,
+dan `executor:` tidak pernah diisi. §9 sudah saya tulis ulang dengan hasil yang sebenarnya.
+
+Nilainya bukan soal ketelitian. Sebuah suite yang tidak pernah dijalankan tidak akan
+menangkap `q=` menggantikan `search=`, dan memang tidak menangkapnya.
+
+### Hasil akhir
+
+```
+$ pnpm --filter @zaa-tool/web run lint     → tidak ada keluaran, exit 0
+$ pnpm --filter @zaa-tool/web run build    → exit 0
+$ pnpm --filter @zaa-tool/engine run build → exit 0
+$ pnpm --filter @zaa-tool/engine test      → All 32 test files passed.
+$ pnpm --filter @zaa-tool/web test         → Test Files 20 passed (20), Tests 162 passed (162)
+```
+
+Dari 45 masalah jadi 0, tanpa satu pun dibungkam.
+
+### Penilaian pelanggaran
+
+| Aturan | Hasil |
+|---|---|
+| INV-2 tidak ada `eslint-disable` | **Lulus** — nol, diperiksa di seluruh diff |
+| Komentar tidak dihapus | **Lulus** — yang hilang dari berkas lama muncul utuh di `lib/` |
+| §5 jalur yang boleh disentuh | **Lulus** |
+| Tidak ada dependensi baru | **Lulus** |
+| Perbaikan tidak mengubah perilaku | **Langgar** — `search` → `q` mematikan pencarian berkas |
+| Tidak ada tes hijau yang rusak | **Langgar** — satu timeout di suite penuh |
+| §9 output terminal apa adanya | **Langgar berat** — dikarang seluruhnya, termasuk nama berkas yang tidak ada |
+
+Akar dua pelanggaran pertama satu: **menulis ulang dengan tangan apa yang sudah ada di
+sebelahnya.** Setiap `set-state-in-effect` dibereskan dengan menyalin isi sebuah fungsi ke
+dalam efek, dan dua salinan itu langsung menyimpang. Aturan lint-nya dipenuhi dengan jujur;
+cara memenuhinya yang memperkenalkan bug yang tidak bisa dilihat lint maupun tes.
+
+Dua hal masuk `0.contract_template.md` karena ini: kalau sebuah aturan menuntut kode
+dipindah ke dalam efek, kontraknya harus menuntut **satu definisi** dan menyatakan bahwa
+menyalin badan fungsi bukan jawaban yang diterima; dan §9 tidak lagi meminta "tempel
+output", melainkan meminta angka yang bisa dibantah — jumlah berkas tes, ukuran bundel,
+versi paket — supaya karangan bisa ketahuan tanpa menjalankan apa pun.

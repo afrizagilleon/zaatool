@@ -69,8 +69,9 @@ export function useRunActivity(enabled: boolean): Record<string, NotebookActivit
         parsed.notebookId,
         window.setTimeout(() => {
           setActivity((current) => {
-            const { [parsed.notebookId]: _removed, ...rest } = current;
-            return rest;
+            const next = { ...current };
+            delete next[parsed.notebookId];
+            return next;
           });
           pending.delete(parsed.notebookId);
         }, SETTLE_MS)

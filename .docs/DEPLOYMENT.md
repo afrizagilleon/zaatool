@@ -86,6 +86,87 @@ Instalasi yang bisa login tapi tidak bisa menjalankan apa pun belum terbukti apa
 
 ---
 
+## Cara backup, kapan saja
+
+Backup otomatis hanya terjadi saat `./scripts/update.sh` berjalan. Kalau kamu ingin satu
+sekarang — sebelum mencoba sesuatu, atau sekadar rutin — tidak ada skrip untuknya. Dua
+perintah ini yang dijalankan `update.sh`, dan menjalankannya sendiri aman kapan pun,
+termasuk saat aplikasi sedang dipakai:
+
+```bash
+cd /path/ke/zaa-tool
+mkdir -p backups
+STAMP=$(date +%Y%m%d-%H%M%S)
+
+# 1. Database.
+docker compose exec -T postgres pg_dump -U zaa_user -d zaa_tool > backups/zaatool-$STAMP.sql
+
+# 2. Berkas yang ditulis notebook. Ini TIDAK ada di database.
+docker compose exec -T engine tar -cf - -C /app/packages storage > backups/storage-$STAMP.tar
+```
+
+**Periksa hasilnya. Ini bagian yang sering dilewati:**
+
+```bash
+ls -lh backups/ | tail -2
+```
+
+`pg_dump` yang gagal tetap meninggalkan berkas, dan berkas kosong terlihat persis seperti
+backup sampai saat kamu membutuhkannya. Ukuran nol atau beberapa ratus byte = bukan backup.
+Punyamu seharusnya puluhan KB ke atas.
+
+Keduanya diperlukan. Database menyimpan notebook, run, secret, dan akun; `storage` menyimpan
+berkas yang diunggah dan yang ditulis notebook. Memulihkan salah satunya saja menghasilkan
+baris database yang menunjuk ke berkas yang tidak ada.
+
+Tidak ada yang menghapus isi `backups/`. Sesekali hapus yang lama dengan tanganmu sendiri.
+
+---
+
+## Cara update: apakah harus branch `main`? apakah pull dulu?
+
+Dua pertanyaan itu punya jawaban pendek:
+
+**Jangan `git pull` duluan.** `update.sh` melakukannya sendiri, dan urutannya penting —
+skrip itu mengambil backup **sebelum** menarik apa pun. Kalau kamu pull duluan lalu
+menjalankan skripnya, backup yang diambil sudah backup dari kode yang baru, dan kalau
+migrasi barunya yang bermasalah, kamu memegang dump dari masalah itu.
+
+**Ya, produksi berada di `main`** — atau lebih tepatnya, di branch apa pun yang di-checkout
+di folder produksi, dan itu seharusnya `main`. Skripnya memakai `git pull --ff-only`, yang
+menolak menggabungkan apa pun yang tidak bisa maju lurus. Jadi kalau checkout produksimu
+tidak sengaja berada di `dev` atau punya commit lokal, skripnya **berhenti** dengan pesan
+git, bukan menggabungkan diam-diam. Itu perilaku yang diinginkan.
+
+Periksa sebelum menjalankan:
+
+```bash
+cd /path/ke/zaa-tool
+git status --short --branch
+```
+
+Yang ingin kamu lihat: `## main...origin/main` dan tidak ada baris lain. Kalau ada berkas
+termodifikasi di produksi, cari tahu kenapa dulu — `--ff-only` akan gagal karenanya.
+
+Lalu, satu perintah, dari root repo:
+
+```bash
+./scripts/update.sh
+```
+
+Skripnya, berurutan: backup database → backup storage → `git pull --ff-only` →
+`docker compose up -d --build` → tunggu engine sehat sampai 30 detik.
+
+**Kalau berhenti di tengah:** tidak ada yang rusak. Backup diambil paling awal, dan `pull`
+maupun `build` tidak menyentuh data. Baca pesannya, perbaiki, jalankan lagi.
+
+**Kalau engine tidak mau naik:** skripnya mencetak 40 baris terakhir log engine dan lokasi
+backup-mu, lalu keluar dengan kode 1. Jalan pulangnya ada di bagian F-125 di bawah — dan
+perhatikan, baris rollback yang **dicetak skrip itu sendiri tidak akan bekerja**; pakai
+prosedur enam langkah di F-125.
+
+---
+
 ## F-124 · `update.sh` pada instalasi yang punya data sungguhan
 
 Yang dibuktikan: pembaruan tidak memakan data. Ini **tidak boleh** diuji pertama kali pada

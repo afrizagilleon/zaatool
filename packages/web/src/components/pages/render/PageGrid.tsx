@@ -1,9 +1,15 @@
 import { useMemo, useRef } from 'react';
 import { ResponsiveGridLayout, useContainerWidth, type Layout } from 'react-grid-layout';
 import type { NotebookLayoutItem, NotebookOutput } from '@zaa-tool/shared';
-import 'react-grid-layout/css/styles.css';
 import { cn } from '../../../lib/utils';
 import { GRID_MARGIN_Y, ROW_HEIGHT } from '../../../lib/tile-metrics';
+import { derivedLayout } from '../../../lib/page-layout';
+// Restored after a lint pass dropped it. v2 positions and sizes a tile inline, so
+// losing this does not visibly break the grid — which is exactly why it went unnoticed.
+// What it still carries is the placeholder shown while a tile is being dragged, the
+// resize-handle art, and the movement transitions. Measured with and without: identical
+// geometry, no drop shadow under the tile you are dragging.
+import 'react-grid-layout/css/styles.css';
 
 /**
  * The outputs of a page, arranged.
@@ -23,40 +29,6 @@ import { GRID_MARGIN_Y, ROW_HEIGHT } from '../../../lib/tile-metrics';
 
 const COLUMNS = { lg: 12, sm: 1 } as const;
 const BREAKPOINTS = { lg: 768, sm: 0 } as const;
-
-/** A tile tall enough to be worth showing, per what the renderer usually needs. */
-function derivedHeight(output: NotebookOutput): number {
-  switch (output.render) {
-    case 'chart':
-    case 'bar':
-    case 'line':
-    case 'area':
-    case 'pie':
-      return 10;
-    case 'table':
-      // FX8 T-09: Table tile height set to h=12 (outer height 612px) so 10-row tables
-      // (content height ~447px including search, header, 10 rows & pagination) fit
-      // without internal vertical scrolling.
-      return 12;
-
-
-    case 'text':
-      return 3;
-    default:
-      return 6;
-  }
-}
-
-
-export function derivedLayout(outputs: NotebookOutput[]): NotebookLayoutItem[] {
-  let y = 0;
-  return outputs.map((output) => {
-    const h = derivedHeight(output);
-    const item = { i: output.name, x: 0, y, w: 12, h };
-    y += h;
-    return item;
-  });
-}
 
 interface PageGridProps {
   outputs: NotebookOutput[];
@@ -86,15 +58,21 @@ export function PageGrid({ outputs, layout, onLayoutChange, renderTile }: PageGr
   const placed = useMemo(() => {
     const stored = new Map((layout ?? []).map((item) => [item.i, item]));
     const fallback = derivedLayout(outputs);
-    let nextY = Math.max(0, ...(layout ?? []).map((item) => item.y + item.h));
+    let currentY = Math.max(0, ...(layout ?? []).map((item) => item.y + item.h));
 
-    return outputs.map((output, index) => {
+    const result: NotebookLayoutItem[] = [];
+    for (let index = 0; index < outputs.length; index++) {
+      const output = outputs[index];
       const found = stored.get(output.name);
-      if (found) return found;
-      const item = { ...fallback[index], y: nextY };
-      nextY += item.h;
-      return item;
-    });
+      if (found) {
+        result.push(found);
+      } else {
+        const item = { ...fallback[index], y: currentY };
+        currentY += item.h;
+        result.push(item);
+      }
+    }
+    return result;
   }, [outputs, layout]);
 
   return (

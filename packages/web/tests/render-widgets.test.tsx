@@ -83,6 +83,11 @@ describe('FileField inline preview & duration (T-01, T-02)', () => {
 });
 
 describe('RendererGallery audio and video cases (T-03)', () => {
+  // The gallery renders every widget the app has, charts included, and jsdom lays all of
+  // it out on one thread. Alone it takes about three seconds; sharing a machine with the
+  // other nineteen files it has gone over five and failed the whole suite on a timeout
+  // that had nothing to say about the code. The assertions are unchanged — only the
+  // clock is, and it is the clock that was wrong.
   it('renders audio and video controls in RendererGallery', async () => {
     const { RendererGallery } = await import('../src/components/pages/RendererGallery');
     const { container } = render(<RendererGallery />);
@@ -92,7 +97,7 @@ describe('RendererGallery audio and video cases (T-03)', () => {
 
     expect(audioElements.length).toBeGreaterThan(0);
     expect(videoElements.length).toBeGreaterThan(0);
-  });
+  }, 20_000);
 });
 
 describe('NotesBlock (T-04)', () => {

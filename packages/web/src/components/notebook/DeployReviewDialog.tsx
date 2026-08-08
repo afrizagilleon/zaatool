@@ -71,12 +71,19 @@ export function DeployReviewDialog({
   const [error, setError] = useState<string | null>(null);
   const [isDeploying, setIsDeploying] = useState(false);
 
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setDiff(null);
+      setError(null);
+      setFirstDeploy(false);
+    }
+  }
+
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    setDiff(null);
-    setError(null);
-    setFirstDeploy(false);
 
     void (async () => {
       try {

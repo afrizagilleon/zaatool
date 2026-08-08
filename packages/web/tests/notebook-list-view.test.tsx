@@ -52,6 +52,7 @@ const WORKSPACE: NotebookSummary[] = [
     deployed: true,
     trigger_kinds: ["cron"],
     tags: ["finance", "daily"],
+    updated_at: new Date(Date.now() - 100).toISOString(),
     last_run_at: new Date(Date.now() - 3600_000).toISOString(),
     last_run_status: "success",
   }),

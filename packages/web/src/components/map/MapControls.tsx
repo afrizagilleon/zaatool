@@ -1,5 +1,5 @@
 import { MagnifyingGlass, X } from '@phosphor-icons/react';
-import { MAP_ROLE_LABELS, MAP_ROLE_NOTES, MAP_ROLE_ORDER } from '@zaa-tool/shared';
+import { MAP_ROLE_LABELS, MAP_ROLE_NOTES } from '@zaa-tool/shared';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import type { MapBand } from '../../lib/map-layout';
@@ -148,6 +148,3 @@ export function BandTitles({ bands }: { bands: MapBand[] }) {
     </>
   );
 }
-
-/** Exported for the tests, which check the canvas and the agent use the same words. */
-export const BAND_TITLES = MAP_ROLE_ORDER.map((role) => MAP_ROLE_LABELS[role]);

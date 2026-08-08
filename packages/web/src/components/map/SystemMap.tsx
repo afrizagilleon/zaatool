@@ -98,16 +98,18 @@ function MapCanvas({ onOpenNotebook, openInside }: SystemMapProps) {
   const [replay, setReplay] = useState<NotebookRunDetail | null>(null);
   const [openCellId, setOpenCellId] = useState<string | undefined>();
 
-  useEffect(() => {
-    if (!inside) {
-      setDocument(null);
-      return;
-    }
-    let cancelled = false;
+  const [prevInside, setPrevInside] = useState(inside);
+  if (inside !== prevInside) {
+    setPrevInside(inside);
     setDocument(null);
     setInsideError(null);
     setReplayRunId(undefined);
     setOpenCellId(undefined);
+  }
+
+  useEffect(() => {
+    if (!inside) return;
+    let cancelled = false;
 
     notebooksApi
       .getById(inside)
@@ -198,11 +200,16 @@ function MapCanvas({ onOpenNotebook, openInside }: SystemMapProps) {
   const liveRunId = inside && !replayRunId ? activity[inside]?.runId : undefined;
   const cellActivity = useRunCells(liveRunId);
 
-  useEffect(() => {
-    if (!inside || !replayRunId) {
+  const [prevReplayRunId, setPrevReplayRunId] = useState(replayRunId);
+  if (replayRunId !== prevReplayRunId) {
+    setPrevReplayRunId(replayRunId);
+    if (!replayRunId) {
       setReplay(null);
-      return;
     }
+  }
+
+  useEffect(() => {
+    if (!inside || !replayRunId) return;
     let cancelled = false;
     notebooksApi
       .getRun(inside, replayRunId)

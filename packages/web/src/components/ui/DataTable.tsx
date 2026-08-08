@@ -13,18 +13,20 @@ import { Button } from './button';
 import { CaretUp, CaretDown, CaretUpDown, CaretLeft, CaretRight, MagnifyingGlass } from '@phosphor-icons/react';
 import { cn } from '../../lib/utils';
 
-interface DataTableProps {
-  data: any[];
+type DataRow = Record<string, unknown>;
+
+interface DataTableProps<T extends Record<string, unknown> = DataRow> {
+  data: T[];
   columns?: { key: string; header: string; format?: string }[];
   selectable?: boolean;
   striped?: boolean;
   compact?: boolean;
-  selectedRow?: any;
-  onRowClick?: (row: any) => void;
+  selectedRow?: T | null;
+  onRowClick?: (row: T) => void;
   pageSizeDefault?: number;
 }
 
-export function DataTable({
+export function DataTable<T extends Record<string, unknown> = DataRow>({
   data = [],
   columns,
   selectable = false,
@@ -78,7 +80,7 @@ export function DataTable({
       const query = searchQuery.toLowerCase().trim();
       result = result.filter((row) =>
         cols.some((col) => {
-          const val = row[col.key];
+          const val = (row as Record<string, unknown>)[col.key];
           return val !== undefined && val !== null && String(val).toLowerCase().includes(query);
         })
       );
@@ -88,8 +90,8 @@ export function DataTable({
     if (sortConfig) {
       const { key, direction } = sortConfig;
       result.sort((a, b) => {
-        const valA = a[key];
-        const valB = b[key];
+        const valA = (a as Record<string, unknown>)[key];
+        const valB = (b as Record<string, unknown>)[key];
         if (valA === undefined || valA === null) return 1;
         if (valB === undefined || valB === null) return -1;
 
@@ -116,7 +118,7 @@ export function DataTable({
     return processedData.slice(start, start + pageSize);
   }, [processedData, currentPage, pageSize]);
 
-  const isRowSelected = (row: any) => {
+  const isRowSelected = (row: T) => {
     if (!selectable || !selectedRow) return false;
     return JSON.stringify(row) === JSON.stringify(selectedRow);
   };
@@ -204,7 +206,7 @@ export function DataTable({
           <TableBody>
             {paginatedData.length > 0 ? (
               paginatedData.map((row, rowIdx) => {
-                const selected = isRowSelected(row);
+                const selected = isRowSelected(row as T);
                 return (
                   <TableRow
                     key={rowIdx}

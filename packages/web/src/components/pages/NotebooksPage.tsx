@@ -62,12 +62,17 @@ export function NotebooksPage({
    * never heard of.
    */
   const isDirty = useNotebookStore((s) => s.isDirty);
+  if (isDrafting && loadedId && !isDirty) {
+    setIsDrafting(false);
+  }
+
+  const prevIsDrafting = useRef(isDrafting);
   useEffect(() => {
-    if (isDrafting && loadedId && !isDirty) {
-      setIsDrafting(false);
+    if (prevIsDrafting.current && !isDrafting && loadedId) {
       onOpenNotebook(loadedId);
     }
-  }, [isDrafting, isDirty, loadedId, onOpenNotebook]);
+    prevIsDrafting.current = isDrafting;
+  }, [isDrafting, loadedId, onOpenNotebook]);
 
   const create = (runtime: NotebookRuntime) => {
     createNotebook(runtime);

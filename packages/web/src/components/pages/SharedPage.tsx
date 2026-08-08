@@ -4,7 +4,8 @@ import type { NotebookPage } from '@zaa-tool/shared';
 import { API_BASE_URL } from '../../lib/api';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { InputField, initialValues, toArgs } from './render/InputField';
+import { InputField } from './render/InputField';
+import { initialValues, toArgs } from '../../lib/app-inputs';
 import { CopyTileValueButton } from './render/CopyTileValueButton';
 import { tileTitle } from '../../lib/tile-title';
 
@@ -65,6 +66,27 @@ function Pending({ status }: { status: OutputStatus }) {
   );
 }
 
+/** What asking for a shared page can turn out to be. */
+type SharedPageResult =
+  | { kind: 'page'; page: NotebookPage }
+  | { kind: 'needs-password' }
+  | { kind: 'error'; message: string };
+
+/** Asks for a shared page. Knows nothing about the screen; decides nothing about it. */
+async function fetchSharedPage(token: string, password: string): Promise<SharedPageResult> {
+  const res = await fetch(`${API_BASE_URL}/api/shared/${token}`, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(password ? { 'X-Share-Password': password } : {}),
+    },
+  });
+  const body = await res.json().catch(() => ({}));
+
+  if (res.status === 401 && body.needsPassword) return { kind: 'needs-password' };
+  if (!res.ok) return { kind: 'error', message: body.error ?? 'This link does not work.' };
+  return { kind: 'page', page: body as NotebookPage };
+}
+
 export function SharedPage({ token }: { token: string }) {
   const [page, setPage] = useState<NotebookPage | null>(null);
   const [needsPassword, setNeedsPassword] = useState(false);
@@ -105,48 +127,69 @@ export function SharedPage({ token }: { token: string }) {
     [password]
   );
 
+  /**
+   * Applies one outcome of {@link fetchSharedPage} to the screen.
+   *
+   * Kept apart from the request itself so the first load and a password attempt cannot
+   * disagree about what a 401 means. They were briefly two hand-written copies, and the
+   * copy in the effect had already lost the "that password does not work" message.
+   */
+  const apply = useCallback((result: SharedPageResult, wasAttempt: boolean) => {
+    if (result.kind === 'needs-password') {
+      setNeedsPassword(true);
+      // Only an error once something was actually typed; the first ask is not a
+      // failure, it is the door.
+      if (wasAttempt) setError('That password does not work.');
+      setPage(null);
+      return;
+    }
+    if (result.kind === 'error') {
+      setError(result.message);
+      setPage(null);
+      return;
+    }
+    setNeedsPassword(false);
+    setPage(result.page);
+    setValues(initialValues(result.page.inputs));
+  }, []);
+
   const load = useCallback(
     async (withPassword: string) => {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`${API_BASE_URL}/api/shared/${token}`, {
-          headers: {
-            'Content-Type': 'application/json',
-            ...(withPassword ? { 'X-Share-Password': withPassword } : {}),
-          },
-        });
-        const body = await res.json().catch(() => ({}));
-
-        if (res.status === 401 && body.needsPassword) {
-          setNeedsPassword(true);
-          // Only an error once something was actually typed; the first ask is not a
-          // failure, it is the door.
-          if (withPassword) setError('That password does not work.');
-          setPage(null);
-          return;
-        }
-        if (!res.ok) {
-          setError(body.error ?? 'This link does not work.');
-          setPage(null);
-          return;
-        }
-
-        setNeedsPassword(false);
-        setPage(body as NotebookPage);
-        setValues(initialValues((body as NotebookPage).inputs));
+        apply(await fetchSharedPage(token, withPassword), Boolean(withPassword));
       } catch (err: unknown) {
         setError((err as Error).message);
       } finally {
         setLoading(false);
       }
     },
-    [token]
+    [token, apply]
   );
 
+  // The opening request. Inline rather than a call to `load` because that one sets
+  // loading state synchronously, which `react-hooks/set-state-in-effect` objects to; and
+  // guarded by `cancelled` so a link opened and closed quickly does not write to a screen
+  // that has gone.
   useEffect(() => {
-    void load('');
-  }, [load]);
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const result = await fetchSharedPage(token, '');
+        if (!cancelled) apply(result, false);
+      } catch (err: unknown) {
+        if (!cancelled) setError((err as Error).message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token, apply]);
 
   const run = async () => {
     if (!page) return;
@@ -221,7 +264,7 @@ export function SharedPage({ token }: { token: string }) {
       socket.onclose = null;
       socket.close();
     };
-  }, [runId, page]);
+  }, [runId, page, token]);
 
   if (needsPassword) {
     return (

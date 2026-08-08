@@ -1,6 +1,7 @@
 import dagre from 'dagre';
 import type { Edge, Node } from '@xyflow/react';
 import {
+  MAP_ROLE_LABELS,
   MAP_ROLE_ORDER,
   connectedNotebooks,
   mapRoles,
@@ -400,11 +401,14 @@ export function layoutSystem(
   }
 
   if (showStandalone && alone.length > 0) {
-    const { nodes: placed, height } = placeGrid(alone, top, targetWidth);
+    const { nodes: placed } = placeGrid(alone, top, targetWidth);
     placedNodes.push(...placed);
     bands.push({ key: 'alone', role: null, y: top, count: alone.length });
-    top += height;
   }
 
   return { nodes: placedNodes, edges, standaloneCount: alone.length, bands };
 }
+
+/** Exported for the tests, which check the canvas and the agent use the same words. */
+export const BAND_TITLES = MAP_ROLE_ORDER.map((role) => MAP_ROLE_LABELS[role]);
+
