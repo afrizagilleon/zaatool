@@ -1,5 +1,8 @@
 import { useState, useRef } from 'react';
-import Editor from '@monaco-editor/react';
+import Editor, { type OnMount } from '@monaco-editor/react';
+
+type EditorInstance = Parameters<OnMount>[0];
+
 import ReactMarkdown from 'react-markdown';
 import {
   Dialog,
@@ -35,7 +38,7 @@ export function SkillEditorDialog({ open, onOpenChange, skill, onSave }: SkillEd
   const [content, setContent] = useState('');
   const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
 
-  const editorRef = useRef<any>(null);
+  const editorRef = useRef<EditorInstance | null>(null);
 
   const [prevOpen, setPrevOpen] = useState(open);
   const [prevSkill, setPrevSkill] = useState(skill);

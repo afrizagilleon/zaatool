@@ -302,7 +302,7 @@ pnpm --filter @zaa-tool/web test
 ```
 
 ### T-03 — `@typescript-eslint/no-explicit-any` (8 titik)
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-01
 - Lakukan: sesuai D-3.

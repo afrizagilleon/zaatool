@@ -13,18 +13,20 @@ import { Button } from './button';
 import { CaretUp, CaretDown, CaretUpDown, CaretLeft, CaretRight, MagnifyingGlass } from '@phosphor-icons/react';
 import { cn } from '../../lib/utils';
 
-interface DataTableProps {
-  data: any[];
+type DataRow = Record<string, unknown>;
+
+interface DataTableProps<T extends Record<string, unknown> = DataRow> {
+  data: T[];
   columns?: { key: string; header: string; format?: string }[];
   selectable?: boolean;
   striped?: boolean;
   compact?: boolean;
-  selectedRow?: any;
-  onRowClick?: (row: any) => void;
+  selectedRow?: T | null;
+  onRowClick?: (row: T) => void;
   pageSizeDefault?: number;
 }
 
-export function DataTable({
+export function DataTable<T extends Record<string, unknown> = DataRow>({
   data = [],
   columns,
   selectable = false,
@@ -116,7 +118,7 @@ export function DataTable({
     return processedData.slice(start, start + pageSize);
   }, [processedData, currentPage, pageSize]);
 
-  const isRowSelected = (row: any) => {
+  const isRowSelected = (row: T) => {
     if (!selectable || !selectedRow) return false;
     return JSON.stringify(row) === JSON.stringify(selectedRow);
   };

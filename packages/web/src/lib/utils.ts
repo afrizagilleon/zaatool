@@ -5,7 +5,7 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function safeJsonStringify(obj: any): string {
+export function safeJsonStringify(obj: unknown): string {
   const cache = new Set();
   return JSON.stringify(obj, (_key, value) => {
     if (typeof value === 'object' && value !== null) {
