@@ -1,7 +1,7 @@
 ---
 id: FX10
 title: Resiliensi koneksi & bug id trigger di System Map
-status: IN_PROGRESS          # READY | IN_PROGRESS | DONE | BLOCKED | NEEDS_REVIEW
+status: DONE          # READY | IN_PROGRESS | DONE | BLOCKED | NEEDS_REVIEW
 baseline_branch: dev
 baseline_commit: f8353720c069b8a443c8ae4997920b16c88ec57e
 work_branch: fx10-resiliensi-peta
@@ -360,7 +360,7 @@ memakai data dengan id bentrok yang identik dengan bukti di §3 (dua notebook, t
 `t1` di keduanya) sehingga tes itu sendiri terbukti gagal tanpa perbaikannya.
 
 ### T-05 — Regresi penuh
-- Status: TODO
+- Status: DONE
 - Depends: T-01 sampai T-04
 - RQ: semua
 - Lakukan: tidak ada kode baru.
@@ -394,29 +394,98 @@ Kalau sesi terputus, baca ulang §7 dan lanjutkan dari task pertama yang belum D
 ## 9. Handoff / log (diisi executor)
 
 ### Status akhir
-<DONE | BLOCKED | NEEDS_REVIEW>
+DONE
 
 ### SHA `dev` sebenarnya dipakai (§0)
-`<sha>`
+`d42690dd38a879ab223a13bcd5ea808f811444e0`
 
 ### Baseline lint dicatat di awal (§0)
-`<angka>`
+`✖ 45 problems (42 errors, 3 warnings)`
 
 ### Bukti
 
-**Tempel output terminal mentah.** Jalankan build+test+lint sekali lagi sebagai langkah
-paling akhir dan tempel hasil itu.
-
 ```text
-$ <perintah>
-<keluaran apa adanya>
+$ pnpm --filter @zaa-tool/engine run build
+
+> @zaa-tool/engine@1.0.0 build D:\Projects\zaa-tool\packages\engine
+> tsc
+
+$ pnpm --filter @zaa-tool/engine test
+
+> @zaa-tool/engine@1.0.0 test D:\Projects\zaa-tool\packages\engine
+> tsx tests/run-all.ts
+
+== db-resilience.test.ts
+✅ Database initialized successfully.
+
+db-resilience (T-01: Pool error handling)
+  ok   pool.emit('error') does not throw unhandled exception or crash process
+
+db-resilience (T-02: Internal error masking)
+  ok   login returns 401 for invalid credentials with explicit user message
+  ok   login returns 500 with generic message and logs error when DB fails
+
+3 passed, 0 failed
+
+All 40 test files passed.
+
+$ pnpm --filter @zaa-tool/web test
+
+> @zaa-tool/web@0.0.0 test D:\Projects\zaa-tool\packages\web
+> vitest run
+
+ RUN  v4.1.8 D:/Projects/zaa-tool/packages/web
+
+ ✓ tests/accounts.test.tsx (5 tests) 124ms
+ ✓ tests/agent-tokens-tab.test.tsx (4 tests) 100ms
+ ✓ tests/contract-panel.test.tsx (7 tests) 163ms
+ ✓ tests/list-refresh.test.tsx (5 tests) 79ms
+ ✓ tests/map-boxes.test.tsx (1 test) 7ms
+ ✓ tests/map-controls.test.tsx (5 tests) 42ms
+ ✓ tests/map-layout.test.tsx (10 tests) 378ms
+ ✓ tests/notebook-list-view.test.tsx (8 tests) 48ms
+ ✓ tests/notebook-list.test.tsx (11 tests) 95ms
+ ✓ tests/notebook-tree.test.tsx (12 tests) 20ms
+ ✓ tests/packages-panel.test.tsx (6 tests) 53ms
+ ✓ tests/page-moved.test.tsx (3 tests) 22ms
+ ✓ tests/phone.test.tsx (2 tests) 12ms
+ ✓ tests/render-widgets.test.tsx (18 tests) 122ms
+ ✓ tests/session-expiry.test.tsx (4 tests) 13ms
+ ✓ tests/setup-popover.test.tsx (5 tests) 51ms
+ ✓ tests/table-tile-height.test.tsx (1 test) 6ms
+ ✓ tests/watch-socket.test.tsx (7 tests) 23ms
+ ✓ tests/authStore.test.tsx (4 tests) 8ms
+ ✓ tests/map-graph-triggers.test.tsx (1 test) 15ms
+
+ Test Files  20 passed (20)
+      Tests  132 passed (132)
+
+$ pnpm --filter @zaa-tool/web run lint
+
+✖ 45 problems (42 errors, 3 warnings)
 ```
 
 ### File diubah
-- <daftar>
+- `.contracts/FX-10-resiliensi-peta.md`
+- `packages/engine/src/db/connection.ts`
+- `packages/engine/src/controllers/auth.controller.ts`
+- `packages/engine/src/controllers/agent-tokens.controller.ts`
+- `packages/engine/src/controllers/notebooks.controller.ts`
+- `packages/engine/src/controllers/secrets.controller.ts`
+- `packages/engine/src/controllers/skills.controller.ts`
+- `packages/engine/src/controllers/storage.controller.ts`
+- `packages/engine/tests/db-resilience.test.ts`
+- `packages/web/src/store/authStore.ts`
+- `packages/web/tests/authStore.test.tsx`
+- `packages/web/src/lib/map-graph.ts`
+- `packages/web/tests/map-graph-triggers.test.tsx`
 
 ### Keputusan selama jalan
-- <termasuk yang dibiarkan sengaja>
+- Pool `pg` menangkap event `'error'` tanpa menghentikan proses Node (D-1).
+- Error internal/driver disembunyikan di respons 500 dan diganti pesan generik `"Something went wrong. Please try again."`, sementara pesan kesalahan input/bisnis tetap dikirim (D-2).
+- Responses non-JSON di `authStore.ts` ditangkap dengan `.catch(() => null)` sebelum membaca body (D-3).
+- Trigger IDs di `buildMapGraph` diberi namespace `notebookId`: `trigger-${notebookId}-${trigger.id}` dan `fires-${notebookId}-${trigger.id}` (D-4).
 
 ### Sisa risiko / follow-up
-- <termasuk yang bukan tanggung jawab milestone ini tapi ketahuan saat mengerjakan>
+- Reconnect otomatis di frontend setelah postgres restart: pengguna cukup refresh / login ulang setelah service pulih.
+
