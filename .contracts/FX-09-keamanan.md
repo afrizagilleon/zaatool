@@ -419,7 +419,7 @@ Mitigasi:
 ## 7. Tasks (kerjakan berurutan)
 
 ### T-01 — Verifikasi CORS (bukan perbaikan)
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-01
 - Lakukan: tulis tes yang memanggil `corsPolicy()` langsung (bukan lewat HTTP penuh) untuk
