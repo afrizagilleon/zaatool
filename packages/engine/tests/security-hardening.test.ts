@@ -178,9 +178,37 @@ await check("webhook rate limiter skips authenticated requests and limits unauth
 
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
+
+console.log("\nsecurity-hardening (T-04: Minimum password length)");
+
+await check("minimum password length is 12 and refuses 11 characters while accepting 12 simple characters", async () => {
+  const { authService, MIN_PASSWORD_LENGTH } = await import("../src/services/auth.service.js");
+  const { initDb } = await import("../src/db/initializer.js");
+
+  await initDb();
+  assert.equal(MIN_PASSWORD_LENGTH, 12);
+
+  // 11 characters -> refused
+  await assert.rejects(
+    async () => {
+      await authService.createUser("testuser11", "elevenchars", "viewer");
+    },
+    (err: Error) => {
+      return err.message.includes("at least 12 characters");
+    }
+  );
+
+  // 12 characters plain -> accepted
+  const user = await authService.createUser("testuser12", "twelvecharsa", "viewer");
+  assert.ok(user.id);
+  assert.equal(user.username, "testuser12");
+});
+
+console.log(`\n${passed} passed, ${failed} failed\n`);
 const { pool } = await import("../src/db/connection.js");
 await pool.end();
 if (failed > 0) process.exit(1);
+
 
 
 

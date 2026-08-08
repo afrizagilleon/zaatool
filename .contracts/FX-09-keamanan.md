@@ -469,7 +469,7 @@ pnpm --filter @zaa-tool/engine test security-hardening
 ```
 
 ### T-04 — Password minimum 12
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-04
 - Lakukan: satu konstanta `MIN_PASSWORD_LENGTH = 12` di `auth.service.ts`, dipakai di
