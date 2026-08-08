@@ -41,9 +41,9 @@ export const useAuthStore = create<AuthState>()(
             body: JSON.stringify({ username, password: passwordPlain }),
           });
 
-          const data = await res.json();
+          const data = await res.json().catch(() => null);
           if (!res.ok) {
-            throw new Error(data.error || 'Login failed');
+            throw new Error(data?.error || `Login failed (${res.status})`);
           }
 
           set({
@@ -71,9 +71,9 @@ export const useAuthStore = create<AuthState>()(
             body: JSON.stringify({ username, password: passwordPlain, email }),
           });
 
-          const data = await res.json();
+          const data = await res.json().catch(() => null);
           if (!res.ok) {
-            throw new Error(data.error || 'Registration failed');
+            throw new Error(data?.error || `Registration failed (${res.status})`);
           }
 
           set({ isLoading: false });
@@ -93,9 +93,9 @@ export const useAuthStore = create<AuthState>()(
             body: JSON.stringify({ currentPassword, newPassword }),
           });
 
-          const data = await res.json();
+          const data = await res.json().catch(() => null);
           if (!res.ok) {
-            throw new Error(data.error || 'Failed to change password');
+            throw new Error(data?.error || `Failed to change password (${res.status})`);
           }
 
           set({ isLoading: false });
@@ -135,7 +135,8 @@ export const useAuthStore = create<AuthState>()(
             return false;
           }
 
-          const data = await res.json();
+          const data = await res.json().catch(() => null);
+          if (!data || !data.user) return false;
           set({ user: data.user });
           return true;
         } catch {
@@ -143,6 +144,7 @@ export const useAuthStore = create<AuthState>()(
           return false;
         }
       },
+
 
       clearError: () => set({ error: null }),
     }),

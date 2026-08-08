@@ -324,9 +324,10 @@ pnpm --filter @zaa-tool/engine test db-resilience
 ```
 
 ### T-03 — Frontend tidak melempar SyntaxError mentah
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-03
+
 - Lakukan: sesuai D-3. Terapkan pola `notebooks-api.ts` (`.catch(() => null)` sebelum
   membaca body) ke setiap `await res.json()` di `authStore.ts` yang saat ini tidak
   dijaga.
