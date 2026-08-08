@@ -1,11 +1,16 @@
+import fs from "fs";
+import path from "path";
 import { pool } from "../db/connection.js";
 import { v4 as uuidv4 } from "uuid";
 import { notebookTriggersService } from "./notebook-triggers.service.js";
+import { STORAGE_DIR } from "./storage.service.js";
+import { safeFilename } from "../core/storage-paths.js";
 import { stampAuthors } from "../core/notebook-provenance.js";
 import { toolNameFor } from "../core/notebook-tool-name.js";
 import { notifyCatalogChanged } from "../core/catalog-events.js";
 import { resolvePythonLockedPackages } from "../core/python-runner.js";
 import { normaliseTags } from "@zaa-tool/shared";
+
 
 import type {
   NotebookDeployState,
@@ -292,9 +297,16 @@ export class NotebooksService {
     await notebookTriggersService.deleteByNotebook(id);
     await pool.query("DELETE FROM notebooks WHERE id = $1", [id]);
 
+    const seg = safeFilename(id) || id;
+    const uploadsFolder = path.join(STORAGE_DIR, "uploads", seg);
+    const notebooksFolder = path.join(STORAGE_DIR, "notebooks", seg);
+    if (fs.existsSync(uploadsFolder)) fs.rmSync(uploadsFolder, { recursive: true, force: true });
+    if (fs.existsSync(notebooksFolder)) fs.rmSync(notebooksFolder, { recursive: true, force: true });
+
     notifyCatalogChanged({ change: "deleted", notebookId: id });
     return { success: true };
   }
+
 
   parseDocument(record: NotebookRecord): NotebookJson {
     return typeof record.document === "string"

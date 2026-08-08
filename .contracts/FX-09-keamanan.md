@@ -585,7 +585,7 @@ pnpm --filter @zaa-tool/engine test security-hardening
 ```
 
 ### T-10 — Hapus notebook, hapus berkasnya
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-09
 - Lakukan: di `notebooksService.delete()`, setelah baris DB berhasil dihapus (D-10),

@@ -407,9 +407,49 @@ await check("uploads exceeding MAX_NOTEBOOK_STORAGE_MB are rejected", async () =
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
+
+console.log("\nsecurity-hardening (T-10: Notebook deletion removes files on disk)");
+
+await check("deleting notebook removes uploads and notebooks folders from disk", async () => {
+  const { notebooksService } = await import("../src/services/notebooks.service.js");
+  const { notebookFilesService } = await import("../src/services/notebook-files.service.js");
+  const { STORAGE_DIR } = await import("../src/services/storage.service.js");
+  const { initDb } = await import("../src/db/initializer.js");
+
+  await initDb();
+
+  const nb = await notebooksService.save({ name: "zz-delete-disk-test" });
+  const writer = notebookFilesService.writerFor(nb.id);
+
+  // Write a file via cell writer -> notebooks/<id>/
+  await writer({ name: "test-cell.txt", data: "cell content" });
+
+  // Keep an upload -> uploads/<id>/
+  notebookFilesService.keepUpload(nb.id, "test-upload.txt", Buffer.from("upload content"));
+
+  const uploadsDir = path.join(STORAGE_DIR, "uploads", nb.id);
+  const notebooksDir = path.join(STORAGE_DIR, "notebooks", nb.id);
+
+  assert.ok(fs.existsSync(uploadsDir), "uploads folder should exist before delete");
+  assert.ok(fs.existsSync(notebooksDir), "notebooks folder should exist before delete");
+
+  // Delete notebook
+  const res = await notebooksService.delete(nb.id);
+  assert.equal(res.success, true);
+
+  assert.equal(fs.existsSync(uploadsDir), false, "uploads folder should be removed");
+  assert.equal(fs.existsSync(notebooksDir), false, "notebooks folder should be removed");
+
+  // Deleting again (no folders exist) should not throw
+  const res2 = await notebooksService.delete(nb.id);
+  assert.equal(res2.success, true);
+});
+
+console.log(`\n${passed} passed, ${failed} failed\n`);
 const { pool } = await import("../src/db/connection.js");
 await pool.end();
 if (failed > 0) process.exit(1);
+
 
 
 
