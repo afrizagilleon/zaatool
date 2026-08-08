@@ -30,7 +30,7 @@ const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 await pool.query("DELETE FROM users WHERE username LIKE 'zz-test-%'");
 
 await check("T-01: currentUser and setActive manage active state", async () => {
-  const created = await authService.createUser("zz-test-t01", "password123", "viewer");
+  const created = await authService.createUser("zz-test-t01", "password123456", "viewer");
   assert.equal(created.active, true);
 
   const current = await authService.currentUser(created.id);
@@ -48,13 +48,13 @@ await check("T-01: currentUser and setActive manage active state", async () => {
 
   await assert.rejects(
     async () => {
-      await authService.login("zz-test-t01", "password123");
+      await authService.login("zz-test-t01", "password123456");
     },
     (err: unknown) => (err as Error).message === "This account has been deactivated."
   );
 
   await authService.setActive(created.id, true);
-  const loginRes = await authService.login("zz-test-t01", "password123");
+  const loginRes = await authService.login("zz-test-t01", "password123456");
   assert.ok(loginRes.token);
 
   const users = await authService.listUsers();
@@ -64,8 +64,8 @@ await check("T-01: currentUser and setActive manage active state", async () => {
 });
 
 await check("T-02: authMiddleware re-reads DB role and active status per request", async () => {
-  const user = await authService.createUser("zz-test-t02", "password123", "viewer");
-  const loginRes = await authService.login("zz-test-t02", "password123");
+  const user = await authService.createUser("zz-test-t02", "password123456", "viewer");
+  const loginRes = await authService.login("zz-test-t02", "password123456");
   const token = loginRes.token;
 
   // Change role in DB to creator directly
@@ -92,12 +92,12 @@ await check("T-02: authMiddleware re-reads DB role and active status per request
 });
 
 await check("T-03: PATCH /api/auth/users/:id deactivates/reactivates accounts and prevents self-deactivation", async () => {
-  const creator = await authService.createUser("zz-test-creator1", "password123", "creator");
-  const target = await authService.createUser("zz-test-target1", "password123", "viewer");
-  await authService.createUser("zz-test-viewer1", "password123", "viewer");
+  const creator = await authService.createUser("zz-test-creator1", "password123456", "creator");
+  const target = await authService.createUser("zz-test-target1", "password123456", "viewer");
+  await authService.createUser("zz-test-viewer1", "password123456", "viewer");
 
-  const creatorLogin = await authService.login("zz-test-creator1", "password123");
-  const viewerLogin = await authService.login("zz-test-viewer1", "password123");
+  const creatorLogin = await authService.login("zz-test-creator1", "password123456");
+  const viewerLogin = await authService.login("zz-test-viewer1", "password123456");
 
   // Deactivate target account
   const patch1 = await fetch(`${base}/api/auth/users/${target.id}`, {
@@ -151,8 +151,8 @@ await check("T-03: PATCH /api/auth/users/:id deactivates/reactivates accounts an
 });
 
 await check("T-04: POST /api/auth/me/password changes self password with current password verification", async () => {
-  await authService.createUser("zz-test-pwd1", "password123", "viewer");
-  const loginRes = await authService.login("zz-test-pwd1", "password123");
+  await authService.createUser("zz-test-pwd1", "password123456", "viewer");
+  const loginRes = await authService.login("zz-test-pwd1", "password123456");
 
   // Wrong current password attempt
   const wrongReq = await fetch(`${base}/api/auth/me/password`, {
@@ -163,7 +163,7 @@ await check("T-04: POST /api/auth/me/password changes self password with current
     },
     body: JSON.stringify({
       currentPassword: "wrongpassword",
-      newPassword: "newpassword123",
+      newPassword: "newpassword123456",
     }),
   });
   assert.equal(wrongReq.status, 400);
@@ -178,8 +178,8 @@ await check("T-04: POST /api/auth/me/password changes self password with current
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      currentPassword: "password123",
-      newPassword: "newpassword123",
+      currentPassword: "password123456",
+      newPassword: "newpassword123456",
     }),
   });
   assert.equal(correctReq.status, 200);
@@ -189,13 +189,13 @@ await check("T-04: POST /api/auth/me/password changes self password with current
   // Login with old password fails
   await assert.rejects(
     async () => {
-      await authService.login("zz-test-pwd1", "password123");
+      await authService.login("zz-test-pwd1", "password123456");
     },
     (err: unknown) => (err as Error).message === "Invalid username or password"
   );
 
   // Login with new password succeeds
-  const newLogin = await authService.login("zz-test-pwd1", "newpassword123");
+  const newLogin = await authService.login("zz-test-pwd1", "newpassword123456");
   assert.ok(newLogin.token);
 });
 
@@ -203,23 +203,23 @@ await check("T-05: reset-password takes a password, prompts for one, or generate
   const { execFileSync, spawnSync } = await import("node:child_process");
   const run = (...args: string[]) => ["--import", "tsx", "scripts/reset-password.ts", ...args];
 
-  await authService.createUser("zz-test-reset1", "password123", "viewer");
+  await authService.createUser("zz-test-reset1", "password123456", "viewer");
 
   // 1. --password: the caller already knows what they want.
-  execFileSync(process.execPath, run("zz-test-reset1", "--password", "flagpass123"), {
+  execFileSync(process.execPath, run("zz-test-reset1", "--password", "flagpass123456"), {
     cwd: process.cwd(),
   });
-  assert.ok((await authService.login("zz-test-reset1", "flagpass123")).token);
+  assert.ok((await authService.login("zz-test-reset1", "flagpass123456")).token);
 
   // 2. --prompt: typed where nobody can read it off the screen or the shell history.
   const prompted = spawnSync(process.execPath, run("zz-test-reset1", "--prompt"), {
     cwd: process.cwd(),
-    input: "stdinpass123\n",
+    input: "stdinpass123456\n",
     encoding: "utf-8",
   });
   assert.equal(prompted.status, 0);
-  assert.ok(!prompted.stdout.includes("stdinpass123"), "typed characters must not be echoed");
-  assert.ok((await authService.login("zz-test-reset1", "stdinpass123")).token);
+  assert.ok(!prompted.stdout.includes("stdinpass123456"), "typed characters must not be echoed");
+  assert.ok((await authService.login("zz-test-reset1", "stdinpass123456")).token);
 
   // 3. No flag: generated, printed once. This is the locked-out path, and it is the
   //    default because a password invented at a prompt in a hurry is the one that gets
@@ -246,20 +246,21 @@ await check("T-06: create-user script creates account with required --role and a
   const { execFileSync, spawnSync } = await import("node:child_process");
 
   // 1. Missing --role fails
-  const noRoleProc = spawnSync(process.execPath, ["--import", "tsx", "scripts/create-user.ts", "zz-test-norole", "--password", "password123"], {
+  const noRoleProc = spawnSync(process.execPath, ["--import", "tsx", "scripts/create-user.ts", "zz-test-norole", "--password", "password123456"], {
     cwd: process.cwd(),
     encoding: "utf-8",
   });
   assert.notEqual(noRoleProc.status, 0);
 
   // 2. Success with --role viewer and --password
-  const proc = spawnSync(process.execPath, ["--import", "tsx", "scripts/create-user.ts", "zz-test-create1", "--role", "viewer", "--password", "userpass123"], {
+  const proc = spawnSync(process.execPath, ["--import", "tsx", "scripts/create-user.ts", "zz-test-create1", "--role", "viewer", "--password", "userpass123456"], {
     cwd: process.cwd(),
     encoding: "utf-8",
   });
   assert.equal(proc.status, 0);
 
-  const loginRes = await authService.login("zz-test-create1", "userpass123");
+  const loginRes = await authService.login("zz-test-create1", "userpass123456");
+
   assert.ok(loginRes.token);
   assert.equal(loginRes.user.role, "viewer");
 });
@@ -273,8 +274,8 @@ await check("T-06: create-user script creates account with required --role and a
  * catch that and neither can the compiler: only a test that looks at the wire can.
  */
 await check("R-02: the users API sends the field names the shared type promises", async () => {
-  const creator = await authService.createUser("zz-test-shape", "password123", "creator");
-  const { token } = await authService.login("zz-test-shape", "password123");
+  const creator = await authService.createUser("zz-test-shape", "password123456", "creator");
+  const { token } = await authService.login("zz-test-shape", "password123456");
 
   const res = await fetch(`${base}/api/auth/users`, {
     headers: { Authorization: `Bearer ${token}` },

@@ -1,10 +1,17 @@
+import fs from "fs";
+import path from "path";
 import { pool } from "../db/connection.js";
 import { v4 as uuidv4 } from "uuid";
 import { notebookTriggersService } from "./notebook-triggers.service.js";
+import { STORAGE_DIR } from "./storage.service.js";
+import { safeFilename } from "../core/storage-paths.js";
 import { stampAuthors } from "../core/notebook-provenance.js";
 import { toolNameFor } from "../core/notebook-tool-name.js";
 import { notifyCatalogChanged } from "../core/catalog-events.js";
+import { resolvePythonLockedPackages } from "../core/python-runner.js";
 import { normaliseTags } from "@zaa-tool/shared";
+
+
 import type {
   NotebookDeployState,
   NotebookJson,
@@ -159,11 +166,17 @@ export class NotebooksService {
     const record = await this.getById(id);
     if (!record) return null;
 
+    const doc = this.parseDocument(record);
+    let lockedPackages: string[] | null = null;
+    if (record.runtime === "python" && Array.isArray(doc.packages) && doc.packages.length > 0) {
+      lockedPackages = await resolvePythonLockedPackages(doc.packages);
+    }
+
     const versionId = uuidv4();
     await pool.query(
-      `INSERT INTO notebook_versions (id, notebook_id, document, deployed_by)
-       VALUES ($1, $2, $3, $4)`,
-      [versionId, id, JSON.stringify(this.parseDocument(record)), deployedBy]
+      `INSERT INTO notebook_versions (id, notebook_id, document, deployed_by, locked_packages)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [versionId, id, JSON.stringify(doc), deployedBy, lockedPackages]
     );
     await pool.query("UPDATE notebooks SET deployed_version_id = $1 WHERE id = $2", [
       versionId,
@@ -199,17 +212,24 @@ export class NotebooksService {
   /** What a trigger should run, or null when nothing has been deployed yet. */
   async getDeployedDocument(id: string): Promise<NotebookJson | null> {
     const { rows } = await pool.query(
-      `SELECT v.document
+      `SELECT v.document, v.locked_packages
        FROM notebooks n
        JOIN notebook_versions v ON v.id = n.deployed_version_id
        WHERE n.id = $1`,
       [id]
     );
     if (rows.length === 0) return null;
-    return typeof rows[0].document === "string"
-      ? (JSON.parse(rows[0].document) as NotebookJson)
-      : (rows[0].document as NotebookJson);
+    const doc =
+      typeof rows[0].document === "string"
+        ? (JSON.parse(rows[0].document) as NotebookJson)
+        : (rows[0].document as NotebookJson);
+
+    if (Array.isArray(rows[0].locked_packages) && rows[0].locked_packages.length > 0) {
+      doc.packages = rows[0].locked_packages;
+    }
+    return doc;
   }
+
 
   /**
    * Whether a notebook is deployed, and whether the draft has moved on since.
@@ -276,9 +296,16 @@ export class NotebooksService {
     await notebookTriggersService.deleteByNotebook(id);
     await pool.query("DELETE FROM notebooks WHERE id = $1", [id]);
 
+    const seg = safeFilename(id) || id;
+    const uploadsFolder = path.join(STORAGE_DIR, "uploads", seg);
+    const notebooksFolder = path.join(STORAGE_DIR, "notebooks", seg);
+    if (fs.existsSync(uploadsFolder)) fs.rmSync(uploadsFolder, { recursive: true, force: true });
+    if (fs.existsSync(notebooksFolder)) fs.rmSync(notebooksFolder, { recursive: true, force: true });
+
     notifyCatalogChanged({ change: "deleted", notebookId: id });
     return { success: true };
   }
+
 
   parseDocument(record: NotebookRecord): NotebookJson {
     return typeof record.document === "string"

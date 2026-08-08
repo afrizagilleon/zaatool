@@ -77,6 +77,16 @@ export async function initDb() {
       ON notebook_versions (notebook_id, created_at DESC);
     `);
 
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE notebook_versions ADD COLUMN locked_packages TEXT[];
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
+
+
     // Adding the column and backfilling in one block, so the backfill happens exactly
     // once: every notebook that existed before deploys came along keeps running what it
     // was already running. Notebooks made afterwards must be deployed deliberately.

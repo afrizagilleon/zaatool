@@ -6,8 +6,10 @@ import { pool } from "../db/connection.js";
 import { jwtSecret, registrationOpen } from "../config.js";
 
 const SALT_ROUNDS = 10;
+export const MIN_PASSWORD_LENGTH = 12;
 
 export { ROLES, type Role };
+
 
 export function isRole(value: unknown): value is Role {
   return typeof value === "string" && (ROLES as readonly string[]).includes(value);
@@ -55,8 +57,8 @@ export class AuthService {
   async createUser(username: string, passwordPlain: string, role: Role, email?: string) {
     const name = String(username ?? "").trim();
     if (name.length === 0) throw new Error("Username is required");
-    if (String(passwordPlain ?? "").length < 8) {
-      throw new Error("Password must be at least 8 characters");
+    if (String(passwordPlain ?? "").length < MIN_PASSWORD_LENGTH) {
+      throw new Error(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
     }
 
     const existing = await pool.query("SELECT id FROM users WHERE username = $1", [name]);
@@ -131,8 +133,8 @@ export class AuthService {
 
   /** Replaces a password outright. Used by the terminal reset; there is no email path. */
   async setPassword(username: string, passwordPlain: string): Promise<boolean> {
-    if (String(passwordPlain ?? "").length < 8) {
-      throw new Error("Password must be at least 8 characters");
+    if (String(passwordPlain ?? "").length < MIN_PASSWORD_LENGTH) {
+      throw new Error(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
     }
     const passwordHash = await bcrypt.hash(passwordPlain, SALT_ROUNDS);
     const { rowCount } = await pool.query(
@@ -143,9 +145,10 @@ export class AuthService {
   }
 
   async changePassword(userId: string, currentPasswordPlain: string, newPasswordPlain: string): Promise<boolean> {
-    if (String(newPasswordPlain ?? "").length < 8) {
-      throw new Error("Password must be at least 8 characters");
+    if (String(newPasswordPlain ?? "").length < MIN_PASSWORD_LENGTH) {
+      throw new Error(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
     }
+
     const { rows } = await pool.query("SELECT * FROM users WHERE id = $1", [userId]);
     if (rows.length === 0) {
       throw new Error("User not found");

@@ -19,9 +19,22 @@ const { code, inputs, inputsSchema, canCall, canWriteFile, packages } = workerDa
  */
 const allowed = new Set<string>(Array.isArray(packages) ? packages : []);
 
+export const DENIED_BUILTINS = new Set([
+  "child_process",
+  "worker_threads",
+  "cluster",
+  "vm",
+  "inspector",
+  "repl",
+]);
+
 const scopedRequire = (specifier: string): unknown => {
   const name = String(specifier ?? "");
   const bare = name.replace(/^node:/, "").split("/")[0];
+
+  if (DENIED_BUILTINS.has(bare)) {
+    throw new Error(`require("${name}") is not available in a notebook cell.`);
+  }
 
   // A path is not a package, and there is nothing on this disk a cell should be reading
   // by path — the notebook is the unit, not the filesystem around it.

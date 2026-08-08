@@ -54,6 +54,32 @@ export function maxUploadBytes(): number {
   return Math.floor(megabytes * 1024 * 1024);
 }
 
+export function loginRateLimitWindowMs(): number {
+  const raw = Number(process.env.LOGIN_RATE_LIMIT_WINDOW_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 15 * 60 * 1000;
+}
+
+export function loginRateLimitMax(): number {
+  const raw = Number(process.env.LOGIN_RATE_LIMIT_MAX);
+  return Number.isFinite(raw) && raw > 0 ? raw : 10;
+}
+
+export function hookRateLimitWindowMs(): number {
+  const raw = Number(process.env.HOOK_RATE_LIMIT_WINDOW_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 15 * 60 * 1000;
+}
+
+export function hookRateLimitMax(): number {
+  const raw = Number(process.env.HOOK_RATE_LIMIT_MAX);
+  return Number.isFinite(raw) && raw > 0 ? raw : 10;
+}
+
+export function maxNotebookStorageBytes(): number {
+  const raw = Number(process.env.MAX_NOTEBOOK_STORAGE_MB);
+  const megabytes = Number.isFinite(raw) && raw > 0 ? raw : 500;
+  return Math.floor(megabytes * 1024 * 1024);
+}
+
 /**
  * Reasons this process should not be serving traffic.
  *

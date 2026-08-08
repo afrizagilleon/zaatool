@@ -10,7 +10,9 @@ import { createHooksRouter } from "../routes/hooks.route.js";
 import { createMcpRouter } from "../routes/mcp.route.js";
 import { createShareRouter } from "../routes/share.route.js";
 import { authRouter } from "../routes/auth.route.js";
+import { agentTokensRouter } from "../routes/agent-tokens.route.js";
 import { authMiddleware } from "../middleware/auth.middleware.js";
+
 import { storageAccess } from "../middleware/storage-access.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 
@@ -66,7 +68,9 @@ export function createApp(publishRunEvent: RunEventSink) {
   app.use("/api", authMiddleware);
 
   app.use("/api/auth", authRouter);
+  app.use("/api/agent-tokens", agentTokensRouter);
   app.use("/api/resources/skills", skillsRouter);
+
   app.use("/api/resources/secrets", secretsRouter);
   app.use("/api/resources", storageRouter);
 

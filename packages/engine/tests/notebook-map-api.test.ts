@@ -45,7 +45,8 @@ const { port } = server.address() as AddressInfo;
 const base = `http://127.0.0.1:${port}`;
 
 await pool.query("DELETE FROM users WHERE username LIKE 'zz-map-%'");
-const testUser = await authService.createUser("zz-map-tester", "password123", "creator");
+const testUser = await authService.createUser("zz-map-tester", "password123456", "creator");
+
 
 const token = jwt.sign(
   { id: testUser.id, username: testUser.username, role: "creator" },

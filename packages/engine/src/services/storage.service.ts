@@ -84,6 +84,23 @@ function inside(raw: unknown): string {
   return relative;
 }
 
+/**
+ * The per-notebook quota (F-113 / D-9) is enforced in `notebook-files.service.ts`, not here.
+ *
+ * It was briefly enforced in `resolvePath` below, which reads like the write path and is
+ * not one: `resolvePath` has no callers anywhere in the engine. Uploads through the storage
+ * manager are written by multer's `diskStorage` in `storage.route.ts`, and every file that
+ * belongs to a notebook — page pickers, webhook bodies, recordings — goes through
+ * `notebookFilesService.keepUpload`, which is where the check now lives and where the
+ * `uploads/<notebookId>/` folder that D-9 measures is actually created.
+ *
+ * Putting it here also made `storage.service` and `notebook-files.service` import each
+ * other, which ESM tolerates until the day it does not.
+ *
+ * The storage manager's own uploads land wherever `?dir=` points and are not scoped to a
+ * notebook, so a per-notebook quota has nothing to measure there. Bounding that surface is
+ * a separate question, and it is not F-113's.
+ */
 export class StorageService {
   constructor() {
     if (!fs.existsSync(STORAGE_DIR)) {
