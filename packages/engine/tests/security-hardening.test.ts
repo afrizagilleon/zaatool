@@ -299,9 +299,55 @@ await check("creator can issue, list, and revoke agent tokens; viewer is refused
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
+
+console.log("\nsecurity-hardening (T-07: Python package version locking)");
+
+await check("deploying a python notebook pins packages to locked_packages in database", async () => {
+  const { notebooksService } = await import("../src/services/notebooks.service.js");
+  const { initDb } = await import("../src/db/initializer.js");
+  const { pool } = await import("../src/db/connection.js");
+
+  await initDb();
+
+  const nb = await notebooksService.save({
+    name: "zz-python-lock-test",
+    runtime: "python",
+    packages: ["cowsay"],
+  });
+
+  const deployRes = await notebooksService.deploy(nb.id, "test");
+  assert.ok(deployRes?.versionId);
+
+  // 1. Verify DB contains locked_packages
+  const { rows } = await pool.query(
+    "SELECT locked_packages FROM notebook_versions WHERE id = $1",
+    [deployRes.versionId]
+  );
+  assert.equal(rows.length, 1);
+  const locked = rows[0].locked_packages;
+  assert.ok(Array.isArray(locked), "locked_packages should be an array");
+  assert.ok(locked.length > 0, "locked_packages should not be empty");
+  assert.ok(locked[0].startsWith("cowsay"), "locked package should start with cowsay");
+
+  // 2. Verify getDeployedDocument returns locked_packages
+  const deployedDoc = await notebooksService.getDeployedDocument(nb.id);
+  assert.ok(deployedDoc);
+  assert.deepEqual(deployedDoc.packages, locked);
+
+  // 3. Verify draft still returns raw packages
+  const draftRecord = await notebooksService.getById(nb.id);
+  assert.ok(draftRecord);
+  const draftDoc = notebooksService.parseDocument(draftRecord);
+  assert.deepEqual(draftDoc.packages, ["cowsay"]);
+
+  await notebooksService.delete(nb.id);
+});
+
+console.log(`\n${passed} passed, ${failed} failed\n`);
 const { pool } = await import("../src/db/connection.js");
 await pool.end();
 if (failed > 0) process.exit(1);
+
 
 
 

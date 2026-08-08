@@ -3,6 +3,64 @@ import { buildSandboxEnv } from "./sandbox-env.js";
 import { PY_RPC_PREFIX, type NotebookCaller } from "./notebook-call.js";
 import type { FileWriter } from "./notebook-files.js";
 
+export function resolvePythonLockedPackages(packages: string[]): Promise<string[]> {
+  if (!Array.isArray(packages) || packages.length === 0) {
+    return Promise.resolve([]);
+  }
+
+  return new Promise((resolve) => {
+    const pyScript = `import json, importlib.metadata, re
+reqs = ${JSON.stringify(packages)}
+locked = []
+for req in reqs:
+    name = re.split(r'[[<>=!~]', req)[0].strip()
+    try:
+        ver = importlib.metadata.version(name)
+        locked.append(f"{name}=={ver}")
+    except Exception:
+        locked.append(req)
+print(json.dumps(locked))
+`;
+
+    const bin = process.env.UV_PATH || "uv";
+    const args = [
+      "run",
+      "--no-project",
+      "--quiet",
+      ...packages.flatMap((req) => ["--with", req]),
+      "--",
+      "python",
+      "-c",
+      pyScript,
+    ];
+
+    const proc = spawn(bin, args);
+    let stdout = "";
+    proc.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+
+    proc.on("error", () => {
+      resolve(packages);
+    });
+
+    proc.on("close", (code) => {
+      if (code === 0) {
+        try {
+          const parsed = JSON.parse(stdout.trim());
+          if (Array.isArray(parsed) && parsed.length === packages.length) {
+            return resolve(parsed);
+          }
+        } catch {
+          // ignore
+        }
+      }
+      resolve(packages);
+    });
+  });
+}
+
+
 export function runPythonNode(
   code: string,
   inputs: Record<string, unknown>,

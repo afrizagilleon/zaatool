@@ -25,7 +25,7 @@ describe('AgentTokensTab (T-06)', () => {
     const onIssue = vi.fn().mockResolvedValue('zaa_mock_secret_token_123456');
     const onRevoke = vi.fn().mockResolvedValue(true);
 
-    render(
+    const { unmount } = render(
       <AgentTokensTab
         tokens={dummyTokens}
         onIssue={onIssue}
@@ -34,8 +34,8 @@ describe('AgentTokensTab (T-06)', () => {
     );
 
     // 1. Renders token labels in table
-    expect(screen.getByText('Hermes Agent')).toBeInTheDocument();
-    expect(screen.getByText('Reader Bot')).toBeInTheDocument();
+    expect(screen.getByText('Hermes Agent')).toBeDefined();
+    expect(screen.getByText('Reader Bot')).toBeDefined();
 
     // 2. Click Issue Token button to open dialog
     const openBtn = screen.getByRole('button', { name: /issue token/i });
@@ -53,8 +53,10 @@ describe('AgentTokensTab (T-06)', () => {
       expect(onIssue).toHaveBeenCalledWith('New Test Token', 'author');
     });
 
+    unmount();
+
     // 4. Test newlyIssuedToken banner if passed
-    const { rerender } = render(
+    render(
       <AgentTokensTab
         tokens={dummyTokens}
         newlyIssuedToken="zaa_mock_secret_token_123456"
@@ -63,8 +65,8 @@ describe('AgentTokensTab (T-06)', () => {
       />
     );
 
-    expect(screen.getByText('zaa_mock_secret_token_123456')).toBeInTheDocument();
-    expect(screen.getByText(/save this token now/i)).toBeInTheDocument();
+    expect(screen.getByText('zaa_mock_secret_token_123456')).toBeDefined();
+    expect(screen.getByText(/save this token now/i)).toBeDefined();
 
     // 5. Test revoke button
     const revokeBtns = screen.getAllByRole('button', { name: /revoke/i });

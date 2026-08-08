@@ -526,7 +526,7 @@ pnpm --filter @zaa-tool/web test agent-tokens-tab
 ```
 
 ### T-07 — Kunci versi `packages:` Python saat deploy
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-06
 - Lakukan: sesuai D-7 — tambah kolom penyimpan `locked_packages` pada baris versi yang
