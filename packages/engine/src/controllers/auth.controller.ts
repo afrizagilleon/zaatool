@@ -1,7 +1,23 @@
 import { Request, Response } from "express";
-import { authService, isRole, RegistrationClosedError } from "../services/auth.service.js";
+import { AuthInputError, authService, isRole, RegistrationClosedError } from "../services/auth.service.js";
 import { registrationOpen } from "../config.js";
 import { pool } from "../db/connection.js";
+
+/**
+ * The one place that decides what a failure is allowed to say out loud.
+ *
+ * `AuthInputError` carries a message written for the person who caused it, so it is sent
+ * as-is under whatever status the route considers a refusal — 400 for a form, 401 for a
+ * sign-in. Anything else is a fault on our side: it goes to the log in full and to the
+ * client as a sentence that describes nothing.
+ */
+function refuse(res: Response, err: unknown, where: string, status = 400) {
+  if (err instanceof AuthInputError) {
+    return res.status(status).json({ error: err.message });
+  }
+  console.error(`${where}:`, err);
+  return res.status(500).json({ error: "Something went wrong. Please try again." });
+}
 
 export class AuthController {
   /**
@@ -15,7 +31,8 @@ export class AuthController {
       const count = await authService.userCount();
       res.json({ registrationOpen: count === 0 || registrationOpen(), firstUser: count === 0 });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      console.error("Auth policy error:", err);
+      res.status(500).json({ error: "Something went wrong. Please try again." });
     }
   }
 
@@ -28,8 +45,10 @@ export class AuthController {
       const user = await authService.register(username, password, email);
       res.status(201).json({ success: true, user });
     } catch (err) {
-      const status = err instanceof RegistrationClosedError ? 403 : 400;
-      res.status(status).json({ error: (err as Error).message });
+      if (err instanceof RegistrationClosedError) {
+        return res.status(403).json({ error: err.message });
+      }
+      refuse(res, err, "Register error");
     }
   }
 
@@ -45,7 +64,7 @@ export class AuthController {
       const user = await authService.createUser(username, password, role, email);
       res.status(201).json({ success: true, user });
     } catch (err) {
-      res.status(400).json({ error: (err as Error).message });
+      refuse(res, err, "Invite user error");
     }
   }
 
@@ -53,7 +72,8 @@ export class AuthController {
     try {
       res.json({ success: true, users: await authService.listUsers() });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      console.error("List users error:", err);
+      res.status(500).json({ error: "Something went wrong. Please try again." });
     }
   }
 
@@ -66,7 +86,7 @@ export class AuthController {
       const result = await authService.login(username, password);
       res.json({ success: true, ...result });
     } catch (err) {
-      res.status(401).json({ error: (err as Error).message });
+      refuse(res, err, "Login error", 401);
     }
   }
 
@@ -85,7 +105,8 @@ export class AuthController {
       }
       res.json({ success: true, user: rows[0] });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      console.error("Get me error:", err);
+      res.status(500).json({ error: "Something went wrong. Please try again." });
     }
   }
 
@@ -109,7 +130,7 @@ export class AuthController {
       }
       res.json({ success: true, active });
     } catch (err) {
-      res.status(400).json({ error: (err as Error).message });
+      refuse(res, err, "Set active error");
     }
   }
 
@@ -126,11 +147,9 @@ export class AuthController {
       await authService.changePassword(user.id, currentPassword, newPassword);
       res.json({ success: true });
     } catch (err) {
-      res.status(400).json({ error: (err as Error).message });
+      refuse(res, err, "Change password error");
     }
   }
 }
-
-
 
 export const authController = new AuthController();

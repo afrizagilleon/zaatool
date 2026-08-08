@@ -7,7 +7,8 @@ export class SkillsController {
       const skills = await skillsService.getAll();
       res.json(skills);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      console.error("Skills controller error:", err);
+      res.status(500).json({ error: "Something went wrong. Please try again." });
     }
   }
 
@@ -17,7 +18,8 @@ export class SkillsController {
       const skill = await skillsService.create(name, description, content);
       res.json(skill);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      console.error("Skills controller error:", err);
+      res.status(500).json({ error: "Something went wrong. Please try again." });
     }
   }
 
@@ -27,7 +29,8 @@ export class SkillsController {
       const skill = await skillsService.update(String(req.params.id), name, description, content);
       res.json(skill);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      console.error("Skills controller error:", err);
+      res.status(500).json({ error: "Something went wrong. Please try again." });
     }
   }
 
@@ -36,7 +39,8 @@ export class SkillsController {
       const result = await skillsService.delete(String(req.params.id));
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      console.error("Skills controller error:", err);
+      res.status(500).json({ error: "Something went wrong. Please try again." });
     }
   }
 }

@@ -7,8 +7,11 @@ import { STORAGE_DIR } from "../services/storage.service.js";
 
 /** A refused path is the caller's mistake, not the server's. */
 function fail(res: Response, err: unknown) {
-  const status = err instanceof OutsideStorageError ? 400 : 500;
-  res.status(status).json({ error: (err as Error).message });
+  if (err instanceof OutsideStorageError) {
+    return res.status(400).json({ error: err.message });
+  }
+  console.error("Storage controller error:", err);
+  res.status(500).json({ error: "Something went wrong. Please try again." });
 }
 
 export class StorageController {

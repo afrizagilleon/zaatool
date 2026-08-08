@@ -23,3 +23,6 @@ RULES.md
 
 CLAUDE.md
 .claude/
+
+# Obsidian vault UI state (personal, not project config)
+.obsidian/

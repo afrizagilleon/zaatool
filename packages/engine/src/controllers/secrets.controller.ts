@@ -7,7 +7,8 @@ export class SecretsController {
       const secrets = await secretsService.getAll();
       res.json(secrets);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      console.error("Secrets controller error:", err);
+      res.status(500).json({ error: "Something went wrong. Please try again." });
     }
   }
 
@@ -17,7 +18,8 @@ export class SecretsController {
       const secret = await secretsService.create(key, value, Boolean(is_secret));
       res.json(secret);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      console.error("Secrets controller error:", err);
+      res.status(500).json({ error: "Something went wrong. Please try again." });
     }
   }
 
@@ -27,7 +29,8 @@ export class SecretsController {
       const secret = await secretsService.update(String(req.params.id), key, value, Boolean(is_secret));
       res.json(secret);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      console.error("Secrets controller error:", err);
+      res.status(500).json({ error: "Something went wrong. Please try again." });
     }
   }
 
@@ -36,7 +39,8 @@ export class SecretsController {
       const result = await secretsService.delete(String(req.params.id));
       res.json(result);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      console.error("Secrets controller error:", err);
+      res.status(500).json({ error: "Something went wrong. Please try again." });
     }
   }
 }

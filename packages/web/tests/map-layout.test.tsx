@@ -317,7 +317,7 @@ describe('calls, which used to be a spider web', () => {
     // more the system reused — which is exactly backwards. The only edges left are a
     // trigger to the notebook it fires, which is one short line between two neighbours.
     const { edges } = buildMapGraph(web(), { showStandalone: true });
-    expect(edges.map((edge) => edge.id)).toEqual(['fires-t1']);
+    expect(edges.map((edge) => edge.id)).toEqual(['fires-daily-t1']);
   });
 
   it('gives each caller one chip listing everything it calls', () => {
