@@ -15,7 +15,8 @@ export class AuthController {
       const count = await authService.userCount();
       res.json({ registrationOpen: count === 0 || registrationOpen(), firstUser: count === 0 });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      console.error("Auth policy error:", err);
+      res.status(500).json({ error: "Something went wrong. Please try again." });
     }
   }
 
@@ -28,8 +29,15 @@ export class AuthController {
       const user = await authService.register(username, password, email);
       res.status(201).json({ success: true, user });
     } catch (err) {
-      const status = err instanceof RegistrationClosedError ? 403 : 400;
-      res.status(status).json({ error: (err as Error).message });
+      if (err instanceof RegistrationClosedError) {
+        return res.status(403).json({ error: (err as Error).message });
+      }
+      const msg = (err as Error).message;
+      if (msg.includes("Username") || msg.includes("already exists") || msg.includes("Password must be at least")) {
+        return res.status(400).json({ error: msg });
+      }
+      console.error("Register error:", err);
+      res.status(500).json({ error: "Something went wrong. Please try again." });
     }
   }
 
@@ -45,7 +53,12 @@ export class AuthController {
       const user = await authService.createUser(username, password, role, email);
       res.status(201).json({ success: true, user });
     } catch (err) {
-      res.status(400).json({ error: (err as Error).message });
+      const msg = (err as Error).message;
+      if (msg.includes("Username") || msg.includes("already exists") || msg.includes("Password must be at least") || msg.includes("Role must be")) {
+        return res.status(400).json({ error: msg });
+      }
+      console.error("Invite user error:", err);
+      res.status(500).json({ error: "Something went wrong. Please try again." });
     }
   }
 
@@ -53,7 +66,8 @@ export class AuthController {
     try {
       res.json({ success: true, users: await authService.listUsers() });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      console.error("List users error:", err);
+      res.status(500).json({ error: "Something went wrong. Please try again." });
     }
   }
 
@@ -66,7 +80,12 @@ export class AuthController {
       const result = await authService.login(username, password);
       res.json({ success: true, ...result });
     } catch (err) {
-      res.status(401).json({ error: (err as Error).message });
+      const msg = (err as Error).message;
+      if (msg === "Invalid username or password" || msg === "This account has been deactivated.") {
+        return res.status(401).json({ error: msg });
+      }
+      console.error("Login error:", err);
+      res.status(500).json({ error: "Something went wrong. Please try again." });
     }
   }
 
@@ -85,7 +104,8 @@ export class AuthController {
       }
       res.json({ success: true, user: rows[0] });
     } catch (err) {
-      res.status(500).json({ error: (err as Error).message });
+      console.error("Get me error:", err);
+      res.status(500).json({ error: "Something went wrong. Please try again." });
     }
   }
 
@@ -109,7 +129,12 @@ export class AuthController {
       }
       res.json({ success: true, active });
     } catch (err) {
-      res.status(400).json({ error: (err as Error).message });
+      const msg = (err as Error).message;
+      if (msg === "active field must be a boolean" || msg.includes("cannot deactivate")) {
+        return res.status(400).json({ error: msg });
+      }
+      console.error("Set active error:", err);
+      res.status(500).json({ error: "Something went wrong. Please try again." });
     }
   }
 
@@ -126,7 +151,12 @@ export class AuthController {
       await authService.changePassword(user.id, currentPassword, newPassword);
       res.json({ success: true });
     } catch (err) {
-      res.status(400).json({ error: (err as Error).message });
+      const msg = (err as Error).message;
+      if (msg === "Unauthorized" || msg === "Current password is incorrect" || msg.includes("Password must be at least") || msg.includes("required") || msg === "User not found") {
+        return res.status(400).json({ error: msg });
+      }
+      console.error("Change password error:", err);
+      res.status(500).json({ error: "Something went wrong. Please try again." });
     }
   }
 }

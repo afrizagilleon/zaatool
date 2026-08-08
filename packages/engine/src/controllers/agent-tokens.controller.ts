@@ -15,7 +15,8 @@ export const agentTokensController = {
       const result = await agentTokensService.issue(label, scope);
       res.status(201).json(result);
     } catch (err: unknown) {
-      res.status(500).json({ error: (err as Error).message });
+      console.error("Agent tokens issue error:", err);
+      res.status(500).json({ error: "Something went wrong. Please try again." });
     }
   },
 
@@ -24,7 +25,8 @@ export const agentTokensController = {
       const tokens = await agentTokensService.list();
       res.status(200).json(tokens);
     } catch (err: unknown) {
-      res.status(500).json({ error: (err as Error).message });
+      console.error("Agent tokens list error:", err);
+      res.status(500).json({ error: "Something went wrong. Please try again." });
     }
   },
 
@@ -37,7 +39,9 @@ export const agentTokensController = {
       }
       res.status(200).json({ success: true });
     } catch (err: unknown) {
-      res.status(500).json({ error: (err as Error).message });
+      console.error("Agent tokens revoke error:", err);
+      res.status(500).json({ error: "Something went wrong. Please try again." });
     }
   },
 };
+

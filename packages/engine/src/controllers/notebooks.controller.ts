@@ -108,8 +108,10 @@ function respondWithError(res: Response, err: unknown) {
   if (err instanceof NotebookNotDeployedError) {
     return res.status(409).json({ error: err.message });
   }
-  return res.status(500).json({ error: (err as Error).message });
+  console.error("Notebooks controller error:", err);
+  return res.status(500).json({ error: "Something went wrong. Please try again." });
 }
+
 
 export class NotebooksController {
   constructor(private readonly publishRunEvent: RunEventSink) {}

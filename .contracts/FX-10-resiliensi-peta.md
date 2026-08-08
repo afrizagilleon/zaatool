@@ -1,13 +1,14 @@
 ---
 id: FX10
 title: Resiliensi koneksi & bug id trigger di System Map
-status: READY          # READY | IN_PROGRESS | DONE | BLOCKED | NEEDS_REVIEW
+status: IN_PROGRESS          # READY | IN_PROGRESS | DONE | BLOCKED | NEEDS_REVIEW
 baseline_branch: dev
 baseline_commit: f8353720c069b8a443c8ae4997920b16c88ec57e
 work_branch: fx10-resiliensi-peta
 owner_author: claude
-executor: <diisi saat diserahkan>
+executor: ant-ai
 last_updated: 2026-08-09
+
 ---
 
 # FX10 — Resiliensi koneksi & bug id trigger di System Map
@@ -291,7 +292,7 @@ koneksi apa pun — itu yang diuji, bukan perilaku jaringan sungguhan.
 ## 7. Tasks (kerjakan berurutan)
 
 ### T-01 — Pool tidak menjatuhkan proses
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-01
 - Lakukan: tambah `pool.on('error', (err) => { console.error(...) })` di
@@ -305,9 +306,10 @@ pnpm --filter @zaa-tool/engine test db-resilience
 ```
 
 ### T-02 — Pesan internal tidak bocor ke klien
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-02
+
 - Lakukan: sesuai D-2. Periksa **semua** controller (`grep -rn "err as Error).message"
   packages/engine/src/controllers`), bukan cuma `auth.controller.ts` — ganti pola yang
   mengirim `(err as Error).message` mentah ke klien untuk kegagalan yang bukan pesan yang
