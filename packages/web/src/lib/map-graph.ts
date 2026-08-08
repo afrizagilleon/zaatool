@@ -159,14 +159,14 @@ export function buildMapGraph(
 
   for (const trigger of map.triggers) {
     nodes.push({
-      id: `trigger-${trigger.id}`,
+      id: `trigger-${trigger.notebookId}-${trigger.id}`,
       type: 'mapTrigger',
       position: { x: 0, y: 0 },
       data: { trigger } satisfies TriggerNodeData,
     });
     edges.push({
-      id: `fires-${trigger.id}`,
-      source: `trigger-${trigger.id}`,
+      id: `fires-${trigger.notebookId}-${trigger.id}`,
+      source: `trigger-${trigger.notebookId}-${trigger.id}`,
       target: `notebook-${trigger.notebookId}`,
       className: trigger.enabled ? 'map-edge-trigger' : 'map-edge-disabled',
       // Moving, and only when the trigger is live. An arrowhead says which way; the flow
@@ -175,6 +175,7 @@ export function buildMapGraph(
       markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14 },
     });
   }
+
 
   for (const notebook of map.notebooks) {
     nodes.push({

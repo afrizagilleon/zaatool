@@ -340,9 +340,10 @@ pnpm --filter @zaa-tool/web test authStore
 ```
 
 ### T-04 — Id trigger unik lintas notebook
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-04
+
 - Lakukan: sesuai D-4, di `buildMapGraph()` (`map-graph.ts`).
 - Selesai jika: dua notebook yang masing-masing punya trigger dengan `id` lokal yang
   sama (mis. keduanya `t1`) menghasilkan **dua** node dan **dua** edge terpisah di
