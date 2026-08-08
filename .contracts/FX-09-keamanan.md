@@ -437,7 +437,7 @@ pnpm --filter @zaa-tool/engine test security-hardening
 ```
 
 ### T-02 — Rate limit login
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-02
 - Lakukan: tambah `express-rate-limit` ke `packages/engine/package.json`. Pasang

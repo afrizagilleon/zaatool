@@ -64,4 +64,52 @@ await check("CORS policy in development with empty CORS_ORIGINS returns origin: 
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
+
+console.log("\nsecurity-hardening (T-02: Login rate limiting)");
+
+await check("login rate limiter returns 429 after exceeding LOGIN_RATE_LIMIT_MAX", async () => {
+  const { createApp } = await import("../src/server/app.js");
+  const { initDb } = await import("../src/db/initializer.js");
+  const { pool } = await import("../src/db/connection.js");
+
+  await initDb();
+  process.env.LOGIN_RATE_LIMIT_MAX = "2";
+
+  const app = createApp(() => {});
+
+  // Simulate requests using supertest-like fetch against app/http server or mocked req/res
+  const server = app.listen(0);
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+
+  try {
+    const res1 = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "nobody", password: "wrong-password-123" }),
+    });
+    assert.equal(res1.status, 401);
+
+    const res2 = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "nobody", password: "wrong-password-123" }),
+    });
+    assert.equal(res2.status, 401);
+
+    const res3 = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: "nobody", password: "wrong-password-123" }),
+    });
+    assert.equal(res3.status, 429);
+  } finally {
+    server.close();
+    delete process.env.LOGIN_RATE_LIMIT_MAX;
+    await pool.end();
+  }
+});
+
+console.log(`\n${passed} passed, ${failed} failed\n`);
 if (failed > 0) process.exit(1);
+
