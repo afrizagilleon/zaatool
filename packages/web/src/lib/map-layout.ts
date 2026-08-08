@@ -401,10 +401,9 @@ export function layoutSystem(
   }
 
   if (showStandalone && alone.length > 0) {
-    const { nodes: placed, height } = placeGrid(alone, top, targetWidth);
+    const { nodes: placed } = placeGrid(alone, top, targetWidth);
     placedNodes.push(...placed);
     bands.push({ key: 'alone', role: null, y: top, count: alone.length });
-    top += height;
   }
 
   return { nodes: placedNodes, edges, standaloneCount: alone.length, bands };

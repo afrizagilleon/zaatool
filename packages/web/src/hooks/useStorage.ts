@@ -72,7 +72,7 @@ export function useStorage() {
   const uploadFiles = useCallback(async (files: File[]) => {
     if (files.length === 0) return false;
     setIsUploading(true);
-    let success = true;
+    let success: boolean;
     try {
       const dirQuery = currentPath.length > 0 ? `?dir=${encodeURIComponent(currentPath.join('/'))}` : '';
       const uploadPromises = files.map(async (file) => {

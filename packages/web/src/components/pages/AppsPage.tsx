@@ -39,8 +39,6 @@ import { cn } from '../../lib/utils';
 
 const EMPTY_PAGES: NotebookPage[] = [];
 
-const PAGE_SIZE = 12;
-
 /**
  * A page for every deployed notebook, built from its contract.
  *

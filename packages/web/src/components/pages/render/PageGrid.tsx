@@ -1,9 +1,10 @@
 import { useMemo, useRef } from 'react';
 import { ResponsiveGridLayout, useContainerWidth, type Layout } from 'react-grid-layout';
 import type { NotebookLayoutItem, NotebookOutput } from '@zaa-tool/shared';
-import 'react-grid-layout/css/styles.css';
 import { cn } from '../../../lib/utils';
 import { GRID_MARGIN_Y, ROW_HEIGHT } from '../../../lib/tile-metrics';
+import { derivedLayout } from '../../../lib/page-layout';
+
 
 
 

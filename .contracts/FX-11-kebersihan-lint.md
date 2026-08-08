@@ -319,7 +319,7 @@ pnpm --filter @zaa-tool/web run build
 ```
 
 ### T-04 — Sisa mekanis (5 titik: no-useless-assignment 2, prefer-const 1, no-unused-vars 1, preserve-caught-error 1)
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-01
 - Lakukan: sesuai D-4 — perbaikan literal sesuai pesan eslint masing-masing.

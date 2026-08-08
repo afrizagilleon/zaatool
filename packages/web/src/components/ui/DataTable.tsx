@@ -73,7 +73,7 @@ export function DataTable<T extends Record<string, unknown> = DataRow>({
 
   // Filtered and sorted data
   const processedData = useMemo(() => {
-    let result = [...data];
+    let result: T[] = [...data];
 
     // Local Search filtering
     if (searchQuery.trim()) {

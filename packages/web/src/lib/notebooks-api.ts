@@ -23,7 +23,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   } catch (err) {
     // Never reached the engine at all, which is a different problem from a refusal and
     // used to arrive as a bare `Failed to fetch` with no address in it.
-    throw new Error(describeRequestFailure(err));
+    throw new Error(describeRequestFailure(err), { cause: err });
   }
 
   if (!res.ok) {
