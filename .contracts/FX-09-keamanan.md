@@ -489,7 +489,7 @@ pnpm --filter @zaa-tool/engine test security-hardening
 ```
 
 ### T-05 — Rute & controller token agent
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-05 (bagian server)
 - Lakukan: `agent-tokens.controller.ts` membungkus `agentTokensService.issue/list/revoke`

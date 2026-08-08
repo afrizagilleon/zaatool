@@ -188,10 +188,13 @@ await check("minimum password length is 12 and refuses 11 characters while accep
   await initDb();
   assert.equal(MIN_PASSWORD_LENGTH, 12);
 
+  const u11 = `user11_${Date.now()}`;
+  const u12 = `user12_${Date.now()}`;
+
   // 11 characters -> refused
   await assert.rejects(
     async () => {
-      await authService.createUser("testuser11", "elevenchars", "viewer");
+      await authService.createUser(u11, "elevenchars", "viewer");
     },
     (err: Error) => {
       return err.message.includes("at least 12 characters");
@@ -199,15 +202,107 @@ await check("minimum password length is 12 and refuses 11 characters while accep
   );
 
   // 12 characters plain -> accepted
-  const user = await authService.createUser("testuser12", "twelvecharsa", "viewer");
+  const user = await authService.createUser(u12, "twelvecharsa", "viewer");
   assert.ok(user.id);
-  assert.equal(user.username, "testuser12");
+  assert.equal(user.username, u12);
+});
+
+
+console.log(`\n${passed} passed, ${failed} failed\n`);
+
+console.log("\nsecurity-hardening (T-05: Agent tokens endpoints)");
+
+await check("creator can issue, list, and revoke agent tokens; viewer is refused with 403", async () => {
+  const { createApp } = await import("../src/server/app.js");
+  const { initDb } = await import("../src/db/initializer.js");
+  const { authService } = await import("../src/services/auth.service.js");
+
+  await initDb();
+
+  const creatorName = `creator_${Date.now()}`;
+  const viewerName = `viewer_${Date.now()}`;
+  const password = "password123456";
+
+  const creator = await authService.createUser(creatorName, password, "creator");
+  const viewer = await authService.createUser(viewerName, password, "viewer");
+
+  const creatorLogin = await authService.login(creatorName, password);
+  const viewerLogin = await authService.login(viewerName, password);
+
+  const creatorToken = creatorLogin.token;
+  const viewerToken = viewerLogin.token;
+
+  const app = createApp(() => {});
+  const server = app.listen(0);
+  const address = server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+
+  try {
+    // 1. Viewer is refused 403 on POST, GET, DELETE
+    const vPost = await fetch(`http://127.0.0.1:${port}/api/agent-tokens`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${viewerToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ label: "test-viewer-agent" }),
+    });
+    assert.equal(vPost.status, 403);
+
+    const vGet = await fetch(`http://127.0.0.1:${port}/api/agent-tokens`, {
+      headers: { Authorization: `Bearer ${viewerToken}` },
+    });
+    assert.equal(vGet.status, 403);
+
+    const vDel = await fetch(`http://127.0.0.1:${port}/api/agent-tokens/fake-id`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${viewerToken}` },
+    });
+    assert.equal(vDel.status, 403);
+
+    // 2. Creator can issue token
+    const cPost = await fetch(`http://127.0.0.1:${port}/api/agent-tokens`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${creatorToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ label: "Hermes Bot", scope: "author" }),
+    });
+    assert.equal(cPost.status, 201);
+    const postData = (await cPost.json()) as { token: string; record: { id: string; label: string } };
+    assert.ok(postData.token.startsWith("zaa_"), "token should have zaa_ prefix");
+    assert.equal(postData.record.label, "Hermes Bot");
+
+    const tokenId = postData.record.id;
+
+    // 3. Creator can list tokens (does NOT contain plain text token)
+    const cGet = await fetch(`http://127.0.0.1:${port}/api/agent-tokens`, {
+      headers: { Authorization: `Bearer ${creatorToken}` },
+    });
+    assert.equal(cGet.status, 200);
+    const listData = (await cGet.json()) as any[];
+    const found = listData.find((t) => t.id === tokenId);
+    assert.ok(found, "token record should be in list");
+    assert.equal(found.token, undefined, "plain text token should not be in list record");
+
+    // 4. Creator can revoke token
+    const cDel = await fetch(`http://127.0.0.1:${port}/api/agent-tokens/${tokenId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${creatorToken}` },
+    });
+    assert.equal(cDel.status, 200);
+
+    // List after revoke should no longer contain token
+    const cGetAfter = await fetch(`http://127.0.0.1:${port}/api/agent-tokens`, {
+      headers: { Authorization: `Bearer ${creatorToken}` },
+    });
+    const listAfter = (await cGetAfter.json()) as any[];
+    assert.equal(listAfter.find((t) => t.id === tokenId), undefined);
+  } finally {
+    server.close();
+  }
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
 const { pool } = await import("../src/db/connection.js");
 await pool.end();
 if (failed > 0) process.exit(1);
+
 
 
 
