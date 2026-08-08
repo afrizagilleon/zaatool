@@ -1,6 +1,7 @@
 import dagre from 'dagre';
 import type { Edge, Node } from '@xyflow/react';
 import {
+  MAP_ROLE_LABELS,
   MAP_ROLE_ORDER,
   connectedNotebooks,
   mapRoles,
@@ -408,3 +409,7 @@ export function layoutSystem(
 
   return { nodes: placedNodes, edges, standaloneCount: alone.length, bands };
 }
+
+/** Exported for the tests, which check the canvas and the agent use the same words. */
+export const BAND_TITLES = MAP_ROLE_ORDER.map((role) => MAP_ROLE_LABELS[role]);
+

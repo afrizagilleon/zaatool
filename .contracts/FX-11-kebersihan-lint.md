@@ -1,7 +1,7 @@
 ---
 id: FX11
 title: Kebersihan lint (F-119)
-status: READY          # READY | IN_PROGRESS | DONE | BLOCKED | NEEDS_REVIEW
+status: IN_PROGRESS          # READY | IN_PROGRESS | DONE | BLOCKED | NEEDS_REVIEW
 baseline_branch: dev
 baseline_commit: f8353720c069b8a443c8ae4997920b16c88ec57e
 work_branch: fx11-kebersihan-lint
@@ -266,7 +266,7 @@ manual di 18+3+1+1 tempat berbeda.
 ## 7. Tasks (kerjakan berurutan)
 
 ### T-01 — `react-refresh/only-export-components` (9 titik)
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-01
 - Lakukan: sesuai D-1. Untuk masing-masing dari 9 titik, pindahkan fungsi/konstanta
@@ -371,14 +371,15 @@ T-02 khususnya, baca §9 untuk melihat situs mana yang sudah dicatat selesai.
 ## 9. Handoff / log (diisi executor)
 
 ### Status akhir
-<DONE | BLOCKED | NEEDS_REVIEW>
+IN_PROGRESS
 
 ### SHA `dev` sebenarnya dipakai (§0)
-`<sha>`
+`0e4bdb65cfc939580eaa3d83078b356994af511b`
 
 ### Baseline lint dicatat di awal (§0)
 ```text
-<tempel output lengkap>
+✖ 45 problems (42 errors, 3 warnings)
+  1 error and 0 warnings potentially fixable with the `--fix` option.
 ```
 
 ### Bukti

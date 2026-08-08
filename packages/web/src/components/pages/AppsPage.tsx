@@ -31,7 +31,9 @@ import { OutputView } from './render/OutputView';
 
 import { PageGrid } from './render/PageGrid';
 import { ShareDialog } from './ShareDialog';
-import { InputField, initialValues, toArgs } from './render/InputField';
+import { InputField } from './render/InputField';
+import { initialValues, toArgs } from '../../lib/app-inputs';
+
 import { PageActions } from './render/PageActions';
 import { cn } from '../../lib/utils';
 

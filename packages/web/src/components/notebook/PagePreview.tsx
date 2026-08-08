@@ -18,8 +18,10 @@ import { tileTitle } from '../../lib/tile-title';
 import { OutputView } from '../pages/render/OutputView';
 
 import { NotesBlock } from '../pages/render/NotesBlock';
-import { PageGrid, derivedLayout } from '../pages/render/PageGrid';
+import { PageGrid } from '../pages/render/PageGrid';
+import { derivedLayout } from '../../lib/page-layout';
 import { InputField } from '../pages/render/InputField';
+
 import { cn } from '../../lib/utils';
 
 

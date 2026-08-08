@@ -10,7 +10,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../../ui/dialog';
-import { InputField, initialValues, toArgs } from './InputField';
+import { InputField } from './InputField';
+import { initialValues, toArgs } from '../../../lib/app-inputs';
+
 
 /**
  * The form of the notebook a button calls, shown where the button is.

@@ -4,7 +4,9 @@ import type { NotebookPage } from '@zaa-tool/shared';
 import { API_BASE_URL } from '../../lib/api';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { InputField, initialValues, toArgs } from './render/InputField';
+import { InputField } from './render/InputField';
+import { initialValues, toArgs } from '../../lib/app-inputs';
+
 import { CopyTileValueButton } from './render/CopyTileValueButton';
 import { tileTitle } from '../../lib/tile-title';
 
