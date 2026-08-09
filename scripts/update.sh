@@ -69,9 +69,12 @@ for attempt in $(seq 1 30); do
     echo "    healthy after ${attempt}s"
     echo
     echo "Done. If something is wrong, the way back is:"
-    echo "  docker compose down"
-    echo "  git checkout ${BUILD_COMMIT}"
+    echo "  docker compose stop engine web"
+    echo "  docker compose exec -T postgres dropdb   -U ${POSTGRES_USER:-zaa_user} ${POSTGRES_DB:-zaa_tool}"
+    echo "  docker compose exec -T postgres createdb -U ${POSTGRES_USER:-zaa_user} ${POSTGRES_DB:-zaa_tool}"
     echo "  docker compose exec -T postgres psql -U ${POSTGRES_USER:-zaa_user} -d ${POSTGRES_DB:-zaa_tool} < ${BACKUP_FILE}"
+    echo "  git checkout ${BUILD_COMMIT}"
+    echo "  docker compose up -d --build"
     exit 0
   fi
   sleep 1

@@ -5,6 +5,32 @@ followed a year from now by someone who has forgotten all of this — which is p
 
 ---
 
+## Two things that bite on the first deploy
+
+**One.** `JWT_SECRET` must be at least 32 characters, and the engine refuses to start in
+production without one. That is deliberate. Generate it once, keep it:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+Changing it later signs everyone out **and** kills every share link and file link you have
+ever handed out.
+
+**Two.** `NODE_ENV` must be the exact string `production` — the check is `===`, so
+`Production`, `prod`, or leaving it unset all fall through to a wide-open CORS policy.
+`docker-compose.yml` already writes `NODE_ENV: production` literally for the `engine`
+service, so this does not bite as long as you deploy through compose. It bites if you run
+the engine outside compose — systemd, pm2, `node dist/` directly. If that is your plan,
+check:
+
+```bash
+docker compose exec engine node -e "console.log(JSON.stringify(process.env.NODE_ENV))"
+# must print exactly: "production"
+```
+
+---
+
 ## First time
 
 ```bash
@@ -45,6 +71,27 @@ CORS_ORIGINS=https://app.example.com,https://staging.example.com
 Not optional: sessions and share tokens travel in headers, and the microphone in a
 notebook's page will not work at all without HTTPS.
 
+**Checking a fresh install actually works** — not just that it started:
+
+```bash
+docker compose ps
+# three services: postgres, engine, web — all Up. postgres should say (healthy).
+
+curl -fsS http://localhost:8080/api/health && echo " ← engine answered"
+```
+
+Then open `http://<machine>:8080` and **register the first account**. An installation with
+no users at all always accepts the first one, and that account becomes `creator` — no need
+to flip `ALLOW_REGISTRATION`.
+
+The test that is easiest to skip and matters most: **create one notebook, deploy it, run
+it.** An installation that can log in but cannot execute anything has proven nothing yet.
+
+> **If it fails:** `docker compose logs --tail 40 engine`. Two failures look like bugs on
+> first encounter and are not: `Refusing to start: JWT_SECRET is not set`, and a notebook
+> declaring `packages:` failing with a message about `uv` (only possible if you are not
+> using the provided image — `uv` is baked into it).
+
 ---
 
 ## The first account
@@ -82,26 +129,127 @@ secrets and uploads files.
 
 ---
 
+## Backing up, any time
+
+Automatic backups only happen when `./scripts/update.sh` runs. If you want one right now —
+before trying something, or just on a schedule — there is no separate script for it. These
+are the same two commands `update.sh` runs, and running them by hand is safe at any time,
+including while the app is in use:
+
+```bash
+cd /path/to/zaatool
+mkdir -p backups
+STAMP=$(date +%Y%m%d-%H%M%S)
+
+# 1. The database.
+docker compose exec -T postgres pg_dump -U zaa_user -d zaa_tool > backups/zaatool-$STAMP.sql
+
+# 2. Files notebooks wrote. This is NOT in the database.
+docker compose exec -T engine tar -cf - -C /app/packages storage > backups/storage-$STAMP.tar
+```
+
+**Check the result. This is the step that gets skipped:**
+
+```bash
+ls -lh backups/ | tail -2
+```
+
+A `pg_dump` that failed still leaves a file, and an empty file looks exactly like a backup
+right up until you need it. Zero bytes or a few hundred = not a backup. Yours should be
+tens of KB or more.
+
+Both are required. The database holds notebooks, runs, secrets, and accounts; `storage`
+holds uploaded and notebook-written files. Restoring only one leaves database rows pointing
+at files that no longer exist.
+
+Nothing deletes the contents of `backups/`. Prune old ones by hand occasionally.
+
+---
+
 ## Updating
+
+**Do not `git pull` first.** `./scripts/update.sh` does that itself, and the order is the
+whole point — it takes a backup **before** pulling anything. Pull first and the backup you
+end up with is a backup of the new code; if a new migration is what breaks, you are holding
+a dump of the problem.
+
+**Production should be on `main`** — or whatever branch is checked out in the production
+folder, and that should be `main`. The script uses `git pull --ff-only`, which refuses to
+merge anything that cannot fast-forward. So if the production checkout is accidentally on
+`dev`, or has local commits, the script **stops** with a git error instead of merging
+silently. Check first:
+
+```bash
+cd /path/to/zaatool
+git status --short --branch
+```
+
+You want to see `## main...origin/main` and nothing else. If there are modified files in
+production, find out why before running the script — `--ff-only` will fail on them.
+
+Then, one command, from the repo root:
 
 ```bash
 ./scripts/update.sh
 ```
 
-It backs up the database **and** the storage folder before touching anything, then pulls,
-rebuilds and waits for the engine to answer. The order is the point: the engine migrates on
-startup, so a dump taken after an update is a dump of the problem.
+In order: back up the database, back up storage, `git pull --ff-only`, `docker compose up
+-d --build`, wait up to 30s for the engine to answer healthy.
 
-Backups land in `./backups` and nothing deletes them.
+**If it stops partway through:** nothing is broken. The backup is taken first, and neither
+`pull` nor `build` touch data. Read the message, fix it, run again.
 
-Going back:
+**If the engine will not come up:** the script prints the last 40 lines of the engine's log
+and where your backup landed, then exits 1. The way back is the restore procedure below —
+the rollback line the script itself prints is intentionally the short version; use the full
+procedure here, not that one-liner, if the schema has already changed.
+
+To verify an update did not lose data, count something before and after:
 
 ```bash
-docker compose down
-git checkout <the commit it printed>
-docker compose exec -T postgres psql -U zaa_user -d zaa_tool < backups/zaatool-<stamp>.sql
-docker compose up -d --build
+docker compose exec -T postgres psql -U zaa_user -d zaa_tool -c \
+  "SELECT 'notebooks' AS t, count(*) FROM notebooks
+   UNION ALL SELECT 'runs', count(*) FROM notebook_runs
+   UNION ALL SELECT 'secrets', count(*) FROM secrets
+   UNION ALL SELECT 'users', count(*) FROM users;"
 ```
+
+Same numbers before and after `update.sh` = pass.
+
+---
+
+## Restoring from a backup
+
+The most important thing on this page. A backup that has never been restored is not a
+backup — it is an archive of hope.
+
+```bash
+# 1. Stop what writes. Postgres stays up.
+docker compose stop engine web
+
+# 2. Drop and recreate the database. A plain psql restore into a database that
+#    still has its schema fails on every CREATE TABLE — this step is not optional.
+docker compose exec -T postgres dropdb   -U zaa_user zaa_tool
+docker compose exec -T postgres createdb -U zaa_user zaa_tool
+
+# 3. Pour the dump back in.
+docker compose exec -T postgres psql -U zaa_user -d zaa_tool < backups/zaatool-<stamp>.sql
+
+# 4. Bring back the files — these are NOT in the database.
+docker compose start engine
+docker compose exec -T engine tar -xf - -C /app/packages < backups/storage-<stamp>.tar
+
+# 5. Start the rest.
+docker compose start web
+```
+
+What to check: step 3 finishes with no `ERROR` lines. Run the counting query above and
+compare it to the state when the backup was taken. Then **open a page that has a file on
+it** and confirm the file actually renders — a database row pointing at a file that did not
+come back looks fine in a query and broken on screen.
+
+**Confirmed working, 2026-08-09**: backup → drop the postgres volume → restore → app runs
+normally, files included.
 
 ---
 
@@ -143,7 +291,17 @@ things to bring.
 
 ---
 
-## When something is wrong
+## If postgres goes down mid-run
+
+Since FX10 (2026-08-09) the pool survives it: a `pool.on('error', ...)` listener stops a
+dropped idle connection from taking the whole process down with it, internal driver errors
+no longer reach an unauthenticated login screen, and the frontend no longer throws a raw
+`SyntaxError` on a non-JSON response. No manual `docker compose restart engine` should be
+needed after postgres comes back. If you see otherwise, that is a regression worth a report.
+
+---
+
+## When something else is wrong
 
 ```bash
 docker compose logs -f engine        # what the engine is saying
