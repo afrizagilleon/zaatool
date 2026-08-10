@@ -121,3 +121,41 @@ describe("what a file input asks for", () => {
   });
 });
 
+describe("output render warning note (T-02)", () => {
+  it("displays warning note when render: chart is chosen, and not for text", () => {
+    render(
+      <ContractPanel
+        name="zz-test"
+        runtime="node"
+        inputs={[]}
+        outputs={[{ name: "sales", render: "chart" }]}
+        testArgs={{}}
+        onAddInput={vi.fn()}
+        onUpdateInput={vi.fn()}
+        onRemoveInput={vi.fn()}
+        onOutputsChange={vi.fn()}
+        onTestArgChange={vi.fn()}
+      />
+    );
+    expect(screen.getByText(/array of objects/i)).toBeTruthy();
+
+    cleanup();
+
+    render(
+      <ContractPanel
+        name="zz-test"
+        runtime="node"
+        inputs={[]}
+        outputs={[{ name: "sales", render: "text" }]}
+        testArgs={{}}
+        onAddInput={vi.fn()}
+        onUpdateInput={vi.fn()}
+        onRemoveInput={vi.fn()}
+        onOutputsChange={vi.fn()}
+        onTestArgChange={vi.fn()}
+      />
+    );
+    expect(screen.queryByText(/array of objects/i)).toBeNull();
+  });
+});
+

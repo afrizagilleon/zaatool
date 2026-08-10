@@ -169,6 +169,10 @@ function callSignature(name: string, runtime: NotebookRuntime, inputs: NotebookP
  * it — so what a caller may pass and what it may read are written down here, and only
  * here. A notebook with an empty contract still runs; it just cannot be called usefully.
  */
+function isChartRender(render?: string): boolean {
+  return render !== undefined && ['chart', 'bar', 'line', 'area', 'pie'].includes(render);
+}
+
 export function ContractPanel({
   name,
   runtime,
@@ -381,54 +385,64 @@ export function ContractPanel({
 
         {specs.length > 0 && (
           <div className="space-y-1">
-            {specs.map((spec, index) => (
-              <div key={spec.name} className="flex items-center gap-1">
-                <span className="min-w-0 flex-1 truncate bg-muted px-1.5 py-1 text-[10px] font-mono">
-                  {spec.name}
-                </span>
+            {specs.map((spec, index) => {
+              const renderType = typeof spec === 'string' ? undefined : spec.render;
+              return (
+                <div key={typeof spec === 'string' ? spec : spec.name} className="space-y-0.5">
+                  <div className="flex items-center gap-1">
+                    <span className="min-w-0 flex-1 truncate bg-muted px-1.5 py-1 text-[10px] font-mono">
+                      {spec.name}
+                    </span>
 
-                {/* `auto` is the value's own shape deciding, which is right almost
-                    always — this is here for the times it is not. */}
-                <Select
-                  value={spec.render ?? 'auto'}
-                  onValueChange={(render) =>
-                    onOutputsChange(
-                      specs.map((existing, at) =>
-                        at === index
-                          ? render === 'auto'
-                            ? existing.name
-                            : { ...existing, render: render as NotebookOutputRender }
-                          : toDeclaration(existing)
-                      )
-                    )
-                  }
-                >
-                  <SelectTrigger className="h-6 w-20 text-[10px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {RENDERS.map((render) => (
-                      <SelectItem key={render} value={render} className="text-xs">
-                        {render}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                    {/* `auto` is the value's own shape deciding, which is right almost
+                        always — this is here for the times it is not. */}
+                    <Select
+                      value={spec.render ?? 'auto'}
+                      onValueChange={(render) =>
+                        onOutputsChange(
+                          specs.map((existing, at) =>
+                            at === index
+                              ? render === 'auto'
+                                ? existing.name
+                                : { ...existing, render: render as NotebookOutputRender }
+                              : toDeclaration(existing)
+                          )
+                        )
+                      }
+                    >
+                      <SelectTrigger className="h-6 w-20 text-[10px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {RENDERS.map((render) => (
+                          <SelectItem key={render} value={render} className="text-xs">
+                            {render}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
 
-                <button
-                  type="button"
-                  onClick={() =>
-                    onOutputsChange(
-                      specs.filter((_, at) => at !== index).map(toDeclaration)
-                    )
-                  }
-                  className="shrink-0 text-muted-foreground hover:text-foreground"
-                  title={`Stop returning ${spec.name}`}
-                >
-                  <X size={10} />
-                </button>
-              </div>
-            ))}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onOutputsChange(
+                          specs.filter((_, at) => at !== index).map(toDeclaration)
+                        )
+                      }
+                      className="shrink-0 text-muted-foreground hover:text-foreground"
+                      title={`Stop returning ${spec.name}`}
+                    >
+                      <X size={10} />
+                    </button>
+                  </div>
+                  {isChartRender(renderType) && (
+                    <p className="text-[10px] text-muted-foreground pl-0.5">
+                      Chart renderers require an array of objects (rows).
+                    </p>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 

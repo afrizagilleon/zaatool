@@ -245,7 +245,7 @@ pnpm --filter @zaa-tool/web test FileField
 ```
 
 ### T-02 — Peringatan render yang tidak bisa dihormati
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-02
 - Lakukan: di `ContractPanel.tsx`, saat `render: chart|bar|line|area|pie` dipilih untuk
