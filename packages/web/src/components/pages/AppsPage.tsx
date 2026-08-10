@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Play,
   Spinner,
@@ -7,6 +7,7 @@ import {
   ShareNetwork,
   WarningCircle,
   CircleDashed,
+  CheckCircle,
 } from '@phosphor-icons/react';
 import { isFixtureName, type NotebookPage } from '@zaa-tool/shared';
 import { ListControls, Pager } from '../notebook/ListControls';
@@ -18,6 +19,7 @@ import {
   hiddenFixtureCount,
   matchesQuery,
   tagCounts,
+  whenLabel,
   type NotebookSort,
 } from '../../lib/notebook-list-view';
 import { Button } from '../ui/button';
@@ -128,6 +130,19 @@ export function PageRunner({
 
   const hasResult = Object.keys(status).length > 0;
   const [isSharing, setIsSharing] = useState(false);
+  const [lastRun, setLastRun] = useState<{ at: string; success: boolean } | null>(null);
+  const prevRunning = useRef(false);
+
+  useEffect(() => {
+    if (prevRunning.current && !isRunning) {
+      setLastRun({
+        at: new Date().toISOString(),
+        success: !error,
+      });
+    }
+    prevRunning.current = isRunning;
+  }, [isRunning, error]);
+
   const run = () => void start(toArgs(page.inputs, values));
 
   return (
@@ -218,67 +233,97 @@ export function PageRunner({
           </div>
         )}
 
-        {!hasResult && !isRunning && page.outputs.length > 0 && (
-          <div className="border border-border p-6 text-center">
+        {page.outputs.length === 0 ? (
+          <div className="border border-border p-4 space-y-2">
             <p className="text-xs text-muted-foreground">
-              This page has not been run yet. Click <span className="font-semibold text-foreground">Run</span> to execute it.
+              This notebook has no declared outputs.
             </p>
+            {isRunning && (
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground/70" data-testid="no-output-running">
+                <Spinner size={13} className="animate-spin" />
+                Running…
+              </span>
+            )}
+            {!isRunning && lastRun && (
+              <div className="flex items-center gap-2 text-xs" data-testid="no-output-last-run">
+                {lastRun.success ? (
+                  <span className="flex items-center gap-1 font-medium text-status-success">
+                    <CheckCircle size={13} weight="fill" />
+                    Last run succeeded
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 font-medium text-status-error">
+                    <WarningCircle size={13} weight="fill" />
+                    Last run failed
+                  </span>
+                )}
+                <span className="text-muted-foreground">
+                  ({whenLabel(lastRun.at)})
+                </span>
+              </div>
+            )}
           </div>
-        )}
-
-        {(hasResult || isRunning) && (
-          <div className="space-y-2">
-            <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-              Result
-            </h2>
-            {page.outputs.length === 0 && (
-              <p className="text-xs text-muted-foreground">It declares no outputs.</p>
+        ) : (
+          <>
+            {!hasResult && !isRunning && (
+              <div className="border border-border p-6 text-center">
+                <p className="text-xs text-muted-foreground">
+                  This page has not been run yet. Click <span className="font-semibold text-foreground">Run</span> to execute it.
+                </p>
+              </div>
             )}
 
-            <PageGrid
-              outputs={page.outputs}
-              layout={page.layout.length > 0 ? page.layout : undefined}
-              renderTile={(output) => {
-                const state = status[output.name] ?? 'waiting';
-                // Whatever we have is shown; only a value from this run is shown at full
-                // strength. Blanking on re-run makes the page jump, and showing a previous
-                // run's number as if it were current is worse than either.
-                const hasValue = output.name in outputs;
-                const isCurrent = state === 'ready';
+            {(hasResult || isRunning) && (
+              <div className="space-y-2">
+                <h2 className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                  Result
+                </h2>
 
-                return (
-                  <>
-                    <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-3 py-1.5">
-                      <span className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                        {tileTitle(output)}
-                      </span>
-                      <div className="flex-1" />
-                      {hasValue && <CopyTileValueButton value={outputs[output.name]} />}
-                      {(state === 'running' || (state === 'stale' && isRunning)) && (
+                <PageGrid
+                  outputs={page.outputs}
+                  layout={page.layout.length > 0 ? page.layout : undefined}
+                  renderTile={(output) => {
+                    const state = status[output.name] ?? 'waiting';
+                    // Whatever we have is shown; only a value from this run is shown at full
+                    // strength. Blanking on re-run makes the page jump, and showing a previous
+                    // run's number as if it were current is worse than either.
+                    const hasValue = output.name in outputs;
+                    const isCurrent = state === 'ready';
 
-                        <span className="flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground/70">
-                          <Spinner size={10} className="animate-spin" />
-                          {state === 'running' ? 'Working' : 'From the last run'}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-auto p-3">
-                      {output.description && (
-                        <p className="text-[11px] text-muted-foreground/70">{output.description}</p>
-                      )}
-                      {hasValue ? (
-                        <div className={cn('min-h-0 flex-1', !isCurrent && 'opacity-40')}>
-                          <OutputView output={output} value={outputs[output.name]} />
+                    return (
+                      <>
+                        <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-3 py-1.5">
+                          <span className="min-w-0 truncate text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                            {tileTitle(output)}
+                          </span>
+                          <div className="flex-1" />
+                          {hasValue && <CopyTileValueButton value={outputs[output.name]} />}
+                          {(state === 'running' || (state === 'stale' && isRunning)) && (
+                            <span className="flex shrink-0 items-center gap-1 text-[10px] text-muted-foreground/70">
+                              <Spinner size={10} className="animate-spin" />
+                              {state === 'running' ? 'Working' : 'From the last run'}
+                            </span>
+                          )}
                         </div>
-                      ) : (
-                        <Pending status={state} />
-                      )}
-                    </div>
-                  </>
-                );
-              }}
-            />
-          </div>
+                        <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-auto p-3">
+                          {output.description && (
+                            <p className="text-[11px] text-muted-foreground/70">{output.description}</p>
+                          )}
+                          {hasValue ? (
+                            <div className={cn('min-h-0 flex-1', !isCurrent && 'opacity-40')}>
+                              <OutputView output={output} value={outputs[output.name]} />
+                            </div>
+                          ) : (
+                            <Pending status={state} />
+                          )}
+                        </div>
+                      </>
+                    );
+                  }}
+                />
+              </div>
+            )}
+          </>
         )}
 
       </div>

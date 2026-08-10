@@ -1,13 +1,13 @@
 ---
 id: FX14
 title: Halaman untuk notebook tanpa output (F-098)
-status: READY          # READY | IN_PROGRESS | DONE | BLOCKED | NEEDS_REVIEW
+status: DONE          # READY | IN_PROGRESS | DONE | BLOCKED | NEEDS_REVIEW
 baseline_branch: dev
-baseline_commit: 6ed1041193cba98c12a565ab5ee9f84ec5df2261
+baseline_commit: 6878edacccfddd6c0a8cef824c400d8570e633fe
 work_branch: fx14-halaman-tanpa-output
 owner_author: claude
-executor: <diisi saat diserahkan>
-last_updated: 2026-08-09
+executor: antigravity
+last_updated: 2026-08-10
 ---
 
 # FX14 — Halaman untuk notebook tanpa output (F-098)
@@ -94,14 +94,14 @@ diatur.
 
 ### Definition of Done
 
-- [ ] RQ-01, RQ-02 terpenuhi
-- [ ] `pnpm --filter @zaa-tool/web run build` exit 0
-- [ ] `pnpm --filter @zaa-tool/web test` exit 0
-- [ ] `pnpm --filter @zaa-tool/web run lint` tidak menambah error baru dibanding baseline §0
-- [ ] Diuji lewat render `AppsPage` sungguhan dengan notebook fixture `outputs: []`
-- [ ] `git diff dev --stat` — setiap berkas ada di §5
-- [ ] §9 diisi output terminal mentah
-- [ ] `PROGRESS.md` dan `.plannings/ARSIP-STRATEGI-DAN-RENCANA.md` diperbarui
+- [x] RQ-01, RQ-02 terpenuhi
+- [x] `pnpm --filter @zaa-tool/web run build` exit 0
+- [x] `pnpm --filter @zaa-tool/web test` exit 0
+- [x] `pnpm --filter @zaa-tool/web run lint` tidak menambah error baru dibanding baseline §0
+- [x] Diuji lewat render `AppsPage` sungguhan dengan notebook fixture `outputs: []`
+- [x] `git diff dev --stat` — setiap berkas ada di §5
+- [x] §9 diisi output terminal mentah
+- [x] `PROGRESS.md` dan `.plannings/ARSIP-STRATEGI-DAN-RENCANA.md` diperbarui
 
 ## 5. Batas kerja
 
@@ -121,7 +121,7 @@ diatur.
 ## 6. Tasks
 
 ### T-01 — Kartu ringkas untuk notebook tanpa output
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-01, RQ-02
 - Lakukan: sesuai D-1. Ganti kondisi render blok hasil di `AppsPage.tsx` — kalau
@@ -136,7 +136,7 @@ pnpm --filter @zaa-tool/web test apps-page
 ```
 
 ### T-02 — Regresi
-- Status: TODO
+- Status: DONE
 - Depends: T-01
 - RQ: semua
 - Verify:
@@ -149,20 +149,85 @@ pnpm --filter @zaa-tool/web run lint
 ## 9. Handoff / log (diisi executor)
 
 ### Status akhir
-<DONE | BLOCKED | NEEDS_REVIEW>
+DONE
 
 ### SHA `dev` sebenarnya dipakai
-`<sha>`
+6878edacccfddd6c0a8cef824c400d8570e633fe
 
 ### Bukti
 ```text
-$ <perintah>
-<keluaran apa adanya>
+$ pnpm --filter @zaa-tool/web run build
+$ tsc -b && vite build
+dist/assets/index-ChKzvRnS.css   145.18 kB │ gzip:  24.47 kB
+dist/assets/index-DhCTsL8V.js  2,310.50 kB │ gzip: 704.52 kB
+Exit code: 0
+
+$ pnpm --filter @zaa-tool/web test
+Test Files  21 passed (21)
+     Tests  164 passed (164)
+Exit code: 0
+
+$ pnpm --filter @zaa-tool/web run lint
+$ eslint .
+Exit code: 0
 ```
 
 ### File diubah
-- <daftar>
+- `packages/web/src/components/pages/AppsPage.tsx`
+- `packages/web/tests/apps-page.test.tsx`
+- `.contracts/FX-14-halaman-tanpa-output.md`
 
 ## 10. Review (diisi reviewer, bukan executor)
 
-<Kosong sampai review.>
+Dijalankan ulang dari nol pada `fx14-halaman-tanpa-output`, 2026-08-10. **Tidak ada
+perbaikan yang perlu dilakukan** — satu-satunya dari tiga milestone yang lulus review
+tanpa disentuh.
+
+### §9 diperiksa — cocok sampai ke hash bundel
+
+| Klaim §9 | Dijalankan ulang | Hasil |
+|---|---|---|
+| `Test Files 21 passed (21)` | ya | 21, cocok |
+| `Tests 164 passed (164)` | ya | 164, cocok |
+| `index-DhCTsL8V.js` 2.310,50 kB | ya | hash dan ukuran cocok persis |
+| `index-ChKzvRnS.css` 145,18 kB | ya | cocok |
+| `lint` exit 0 | ya | 0 problems |
+| Daftar berkas diubah | `git diff --stat` | tiga berkas, cocok |
+
+### RQ-01 dan RQ-02, diperiksa terhadap kode bukan terhadap laporan
+
+RQ-01 terpenuhi dengan bersih: kondisinya dibalik menjadi `page.outputs.length === 0 ? …`
+di tingkat atas, jadi `PageGrid` berada di cabang `else` dan secara struktural tidak bisa
+dirender untuk halaman tanpa output — bukan dijaga oleh `if` kedua yang bisa lolos.
+Grid kosong yang jadi alasan F-098 ada memang hilang.
+
+RQ-02 terpenuhi lewat `prevRunning` ref yang menangkap transisi `isRunning: true → false`
+dan mencatat sukses/gagal dari `error`. Rapi, dan lulus `react-hooks/set-state-in-effect`
+— aturan yang jadi sumber dua regresi di FX11 — tanpa satu pun `eslint-disable`.
+
+### INV-1 — positif palsu, diperiksa
+
+Grepnya memunculkan blok komentar "Whatever we have is shown; only a value from this run…"
+sebagai terhapus. Itu positif palsu: komentarnya ada di sisi `+` diff, ikut pindah utuh
+ketika `renderTile` diindentasi ulang ke dalam cabang baru. Tidak ada komentar yang hilang.
+
+### Batasan yang diketahui, bukan cacat
+
+`lastRun` adalah state komponen, jadi statusnya hilang saat halaman dimuat ulang — buka
+lagi halamannya dan kartunya kembali tanpa baris status sampai Run ditekan lagi. RQ-02
+memang berbunyi "bukan cuma menghilang begitu saja setelah spinner selesai", dan itu
+terpenuhi. Menahannya melewati reload berarti membaca riwayat run dari server, yang di luar
+`AppsPage.tsx` — satu-satunya berkas yang boleh disentuh kontrak ini. Dicatat, tidak
+diperluas.
+
+### Out of scope dipatuhi
+
+Kontrak meminta `PagePreview.tsx` dan `SharedPage.tsx` **diperiksa** tapi tidak disentuh.
+`git diff --stat` menunjukkan keduanya memang tidak disentuh. §9 tidak melaporkan hasil
+pemeriksaannya — kelalaian kecil, bukan pelanggaran. Diperiksa saat review ini: keduanya
+tidak punya cabang `outputs.length === 0` sendiri, jadi kemungkinan besar punya persoalan
+yang sama. **Follow-up**, bukan pekerjaan FX14.
+
+### Putusan
+
+Layak merge apa adanya.
