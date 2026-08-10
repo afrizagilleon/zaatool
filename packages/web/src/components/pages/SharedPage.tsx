@@ -367,7 +367,16 @@ export function SharedPage({ token }: { token: string }) {
           </div>
         )}
 
-        {hasResult && (
+        {/* Same rule as the Apps page (F-098): a notebook that declares no outputs gets
+            no grid, because an empty grid is a layout nobody can arrange and nothing can
+            fill. `PagePreview` already guarded this; this page did not. */}
+        {hasResult && page.outputs.length === 0 && (
+          <p className="border border-border p-4 text-xs text-muted-foreground">
+            This notebook has no declared outputs. It ran; there is nothing to display.
+          </p>
+        )}
+
+        {hasResult && page.outputs.length > 0 && (
           <PageGrid
             outputs={page.outputs}
             layout={page.layout.length > 0 ? page.layout : undefined}
