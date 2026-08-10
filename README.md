@@ -73,6 +73,34 @@ store, never inlined into the notebook document.
 
 ---
 
+## What is in the box
+
+**Editor** — CodeMirror 6 with JavaScript, Python and Markdown modes. Per-cell run, fold
+per section, an outline panel with search, a live page preview, and a badge on each cell
+saying which declared output it wrote.
+
+**Pages (Apps)** — run a deployed notebook from a generated form; outputs land as tiles you
+can drag and resize. Renderers: `text`, `markdown`, `table`, `json`, `image`, `video`,
+`audio`, `file`, and charts (`bar`, `line`, `area`, `pie`) via Recharts.
+
+**Sharing** — publish a page on a link, optionally behind a password. Shared pages are
+read-only and the server strips every action that could reach another notebook.
+
+**Resources**
+
+| Tab | What it holds |
+|---|---|
+| Files | Uploads and anything notebooks wrote, with preview |
+| Secrets | Values referenced by name from notebooks — never inlined into a document |
+| Skills | Reusable code snippets you can pull into a cell |
+| Accounts | `creator` / `viewer`, managed by a creator |
+| Agent tokens | Scoped MCP tokens (`author` / `reader`), revocable |
+
+**Run history** — every run recorded with its logs, outputs, and the exact source that
+produced them, so "which code made this number?" has an answer after the code has moved on.
+
+---
+
 ## For agents (MCP)
 
 The engine speaks MCP at `/mcp` with scoped tokens (`author` / `reader`). An agent gets
@@ -181,6 +209,25 @@ Said plainly so nobody plans around a thing that is not here.
 - **Not audited.** Notebooks run code on your server. Only give `creator` to people you would give a shell to.
 - **Run-until-this-cell does not exist.** The run API takes one cell or all of them. It is on the list, honestly, and it starts in the engine.
 - **One typeface decision is still open.** Cosmetic, known, unfixed.
+
+---
+
+## A note on the previous version
+
+zaatool started as a node-based canvas — drag nodes onto a graph, wire them together, run
+the DAG. That version worked, and it is what the older README on this repo described.
+
+It was retired on purpose. The canvas made simple flows look easy and made real ones
+unreadable: the moment a pipeline had branching and error handling, answering "what happens
+after this fails?" meant tracing edges across twelve boxes. A notebook answers it by being
+read downward.
+
+What survived the pivot: the execution engine, cron and webhook triggers, secrets, files,
+skills, the Python runtime, and the run history. What did not: the canvas itself, the node
+palette, the MinIO dependency, and an AI code-generation panel that turned out to be a worse
+fit than simply letting an agent edit the notebook directly over MCP.
+
+`@xyflow/react` is still here — it draws the read-only System Map.
 
 ---
 

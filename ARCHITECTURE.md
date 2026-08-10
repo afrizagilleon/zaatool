@@ -241,11 +241,20 @@ components/
   pages/      Apps: run a deployed notebook, arrange its outputs
     render/   one renderer per output shape
   map/        System Map (@xyflow/react — the only place it is used)
+  resources/  files, secrets, skills, accounts, agent tokens
   ui/         primitives; each accepts its HTML element's props
 hooks/        every fetch lives here — components never call fetch()
 store/        Zustand, one slice per domain
 lib/          pure helpers, unit-tested without React
 ```
+
+| Concern | Library |
+|---|---|
+| Cell editing | CodeMirror 6 (`javascript`, `python`, `markdown`) |
+| Charts | Recharts |
+| Markdown output | react-markdown |
+| System Map | @xyflow/react + dagre for layout |
+| File and skill editing | Monaco |
 
 Rules that are enforced rather than suggested:
 
