@@ -288,7 +288,7 @@ pnpm --filter @zaa-tool/web test outline-panel
 ```
 
 ### T-05 — Indikator "butuh uv"
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-05
 - Lakukan: badge kecil di toolbar atau panel Setup saat `runtime: python` dan

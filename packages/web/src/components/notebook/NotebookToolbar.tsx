@@ -182,6 +182,16 @@ export function NotebookToolbar({
     </Select>
   );
 
+  const uvBadge = runtime === 'python' && packages.length > 0 && (
+    <span
+      className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-mono text-muted-foreground"
+      title="uv package manager required for declared Python packages"
+      data-testid="uv-indicator"
+    >
+      uv
+    </span>
+  );
+
   const staleWarning = staleCount > 0 && (
     <span
       className="flex items-center gap-1 text-[10px] font-semibold text-amber-500"
@@ -311,6 +321,7 @@ export function NotebookToolbar({
       {/* ── wide ── */}
       <div className="hidden min-w-0 flex-1 items-center gap-2 lg:flex">
         {runtimeSelect}
+        {uvBadge}
         {staleWarning}
         <div className="flex-1" />
         {viewMenu}
@@ -394,7 +405,10 @@ export function NotebookToolbar({
 
             <DrawerRow className="justify-between">
               <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Runtime</span>
-              {runtimeSelect}
+              <div className="flex items-center gap-1.5">
+                {runtimeSelect}
+                {uvBadge}
+              </div>
             </DrawerRow>
 
             {staleWarning && <DrawerRow>{staleWarning}</DrawerRow>}
