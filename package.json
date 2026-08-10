@@ -1,8 +1,7 @@
 {
   "name": "zaa-tool",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Self-hosted automation where the unit of work is a notebook — readable top to bottom, callable by agents over MCP.",
   "scripts": {
     "test": "pnpm -r --sequential run test",
     "dev": "pnpm --parallel -r run dev",
@@ -12,9 +11,20 @@
   "devDependencies": {
     "@types/node": "^24.13.2"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "automation",
+    "workflow",
+    "notebook",
+    "mcp",
+    "self-hosted",
+    "low-code"
+  ],
+  "author": "Afriza Gilleon Ginting",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/afrizagilleon/zaatool.git"
+  },
   "devEngines": {
     "packageManager": {
       "name": "pnpm",

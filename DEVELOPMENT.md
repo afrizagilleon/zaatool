@@ -110,3 +110,26 @@ pnpm test
 Engine and web, in that order. The web half renders real components in jsdom; it is the
 half that exists because reading source and reporting what it *should* draw is how a
 dropdown went four milestones without the one type it needed.
+
+The engine tests need a real Postgres and write to it. Fixtures are prefixed `zz-` and
+clean up after themselves — keep it that way, because that database may also be a real
+installation.
+
+## Builds and lint
+
+```bash
+pnpm --filter @zaa-tool/engine run build
+pnpm --filter @zaa-tool/web run build
+pnpm --filter @zaa-tool/web run lint
+```
+
+**Run both builds even when you only touched one package.** `tsx` and `vitest` strip types
+without checking them, so a green test suite does not prove the code compiles. `tsc` is a
+separate gate, and it has caught things the suite could not — including a test file that
+had invented two fields on a real type.
+
+## Before opening a pull request
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full checklist, the code conventions, and the
+two rules that are easy to miss: a test has to be able to fail for the right reason, and a
+new component needs a caller that is not its own test.

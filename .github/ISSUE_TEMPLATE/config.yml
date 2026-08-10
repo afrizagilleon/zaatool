@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question, or an idea that is not fully formed
+    url: https://github.com/afrizagilleon/zaatool/discussions
+    about: Ask here first. Cheaper than an issue, and much cheaper than a rejected PR.
+  - name: Security issue
+    url: https://github.com/afrizagilleon/zaatool/blob/main/CONTRIBUTING.md#reporting-bugs
+    about: Do not open an issue. Email the maintainer — see CONTRIBUTING.md.

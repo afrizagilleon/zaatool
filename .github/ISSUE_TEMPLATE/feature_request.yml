@@ -1,0 +1,48 @@
+name: Feature request
+description: Propose something the tool should be able to do
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please describe the **problem** before the solution. The most useful requests here
+        have been the ones that said "I was trying to do X and got stuck at Y", not the ones
+        that arrived as a finished design.
+
+  - type: checkboxes
+    id: absent
+    attributes:
+      label: Deliberately absent things
+      description: >
+        A queue, Redis, an object store, an integration catalogue, SSO, email, and a
+        drag-and-drop canvas are all missing on purpose — see
+        [What it is not](../../blob/main/README.md#what-it-is-not).
+      options:
+        - label: I have read that list, and this is not one of them (or I explain below why that decision should change)
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What were you trying to do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: workaround
+    attributes:
+      label: How do you do it today?
+      description: What you currently do instead, and why it is unsatisfying.
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you have in mind
+      description: Optional. A rough shape is fine; it does not need to be a design.
+
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Would you like to build it?
+      options:
+        - label: I would be willing to open a PR for this

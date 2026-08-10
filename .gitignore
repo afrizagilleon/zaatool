@@ -15,11 +15,13 @@ packages/storage
 # Agent context files
 MEMORY.md
 PROGRESS.md
-ARCHITECTURE.md
 RULES.md
 
 # Planning documents — strategy notes, milestone plans, anomaly lists
 .plannings/
+
+# Milestone contracts — internal working agreements, not part of the product
+.contracts/
 
 CLAUDE.md
 .claude/

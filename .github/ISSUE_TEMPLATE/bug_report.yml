@@ -1,0 +1,75 @@
+name: Bug report
+description: Something behaves differently from how it is documented
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: notebooks run code on the server by design, and there is no
+        integration library, no queue and no SSO. Those are documented decisions, not bugs —
+        see [What it is not](../../blob/main/README.md#what-it-is-not).
+
+        **Security issues do not belong here.** Email the maintainer instead.
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open …
+        2. Click …
+        3. …
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead
+      description: Paste the error and any engine logs. A screenshot helps if it is visual.
+    validations:
+      required: true
+
+  - type: textarea
+    id: notebook
+    attributes:
+      label: The notebook, if a run is involved
+      description: >
+        Its text form — the Export button, or `notebook_read` with `part: full`. This is
+        usually the single most useful thing you can attach. Remove any secret values first.
+      render: markdown
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: "v1.0.0, or the commit SHA"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: how
+    attributes:
+      label: How are you running it?
+      options:
+        - Docker Compose
+        - From source (pnpm dev)
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: runtime
+    attributes:
+      label: Which runtime, if it matters
+      options:
+        - Not relevant
+        - node
+        - python
