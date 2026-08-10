@@ -121,7 +121,7 @@ diatur.
 ## 6. Tasks
 
 ### T-01 — Kartu ringkas untuk notebook tanpa output
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-01, RQ-02
 - Lakukan: sesuai D-1. Ganti kondisi render blok hasil di `AppsPage.tsx` — kalau
