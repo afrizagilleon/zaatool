@@ -102,3 +102,50 @@ test("T-02: insert_before inserts cell into empty lane", () => {
   assert.equal(parallel.lanes[1].steps[0].kind, "cell");
   assert.equal((parallel.lanes[1].steps[0] as { code: string }).code, "return { b: 2 };");
 });
+
+// Review addition (FX12 §10). Two parallel groups, each with a lane labelled the same
+// way: addressing by the bare label used to match whichever the walk reached first, so a
+// `remove_lane` aimed at one group could delete the other group's lane and report
+// success. The address has to name its group.
+function twoGroupsSharingALabel(): NotebookJson {
+  return {
+    version: "1.0",
+    id: "zz-notebook-test-2",
+    name: "zz-notebook-test-2",
+    runtime: "node",
+    steps: [
+      {
+        id: "parallel-1",
+        kind: "parallel",
+        lanes: [{ id: "lane-1", label: "extract", steps: [] }],
+      },
+      {
+        id: "parallel-2",
+        kind: "parallel",
+        lanes: [{ id: "lane-2", label: "extract", steps: [] }],
+      },
+    ],
+  };
+}
+
+test("review: a bare lane label is not accepted, because it is ambiguous", () => {
+  const doc = twoGroupsSharingALabel();
+  assert.throws(
+    () => applyCellEdit(doc, { action: "remove_lane", cell: "extract" }),
+    (err: unknown) => err instanceof CellEditError
+  );
+});
+
+test("review: the same label under its own group removes exactly that lane", () => {
+  const doc = twoGroupsSharingALabel();
+  const edited = applyCellEdit(doc, {
+    action: "remove_lane",
+    cell: "parallel-2/lane:extract",
+  });
+
+  const first = edited.steps[0] as ParallelStep;
+  const second = edited.steps[1] as ParallelStep;
+  assert.equal(first.lanes.length, 1, "the untargeted group lost a lane");
+  assert.equal(first.lanes[0].id, "lane-1");
+  assert.equal(second.lanes.length, 0, "the targeted lane was not removed");
+});

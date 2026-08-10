@@ -50,7 +50,11 @@ export function isLaneMatch(
     const pos = Number(spec);
     if (Number.isInteger(pos) && pos === laneIdx + 1) return true;
   }
-  if (lane.label && ref.toLowerCase() === lane.label.toLowerCase()) return true;
+  // A bare label is deliberately not matched. Labels are words, not ids, and nothing
+  // stops two parallel groups from both having a lane called "extract" — matching one
+  // would pick whichever the walk reached first and delete the wrong lane without
+  // saying so. `findByIdOrName` already refuses rather than guesses when a reference is
+  // ambiguous; addressing a lane follows the same rule, via `<parallel-id>/lane:<label>`.
   return false;
 }
 

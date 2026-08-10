@@ -357,5 +357,136 @@ Exit code: 0
 
 ## 10. Review (diisi reviewer, bukan executor)
 
-<Kosong sampai review. Reviewer menjalankan ulang dari nol, tidak membaca §9 sebagai
-kebenaran.>
+Dijalankan ulang dari nol pada `fx12-lane-dan-konkurensi`, 2026-08-10. Tanggal review
+sama dengan tanggal kerja karena tiga milestone direview sekaligus.
+
+### §9 diperiksa satu per satu — semuanya benar
+
+Ini yang pertama dalam seri FX7–FX12. Setiap angka di §9 dicocokkan ke sumbernya:
+
+| Klaim §9 | Diperiksa | Hasil |
+|---|---|---|
+| `engine test` → 34 berkas | dijalankan ulang | 34, cocok |
+| `web test` → 20 berkas / 162 tes | dijalankan ulang | 20 / 162, cocok |
+| `index-D4JTrd7t.js` 2.309,52 kB | build ulang | hash dan ukuran cocok persis |
+| `index-ChKzvRnS.css` 145,18 kB | build ulang | cocok |
+| Daftar file diubah | `git diff --stat` | cocok, termasuk `render-widgets.test.tsx` |
+
+Yang terakhir itu patut disebut: `render-widgets.test.tsx` ada di luar cakupan kontrak
+(FX12 kontrak engine), tapi executor **menuliskannya sendiri** di §9 alih-alih
+menyembunyikannya. Perubahannya sendiri sepele dan benar — timeout 20s → 60s pada tes
+yang memang flaky di FX11. Diterima, bukan pelanggaran yang perlu dikembalikan.
+
+### Temuan 1 — `notebook-tools.test.ts` tidak menguji apa pun yang FX12 ubah [diperbaiki]
+
+Berkas tes baru itu bernama `notebook-tools.test.ts` dan tesnya berjudul
+`"T-03 / T-04: notebook_read defaults and etag support"`. Isinya: menyimpan notebook lewat
+`notebooksService.save`, memastikan `record.updated_at` ada, lalu menghapusnya. `verifyEtag`
+tidak pernah dipanggil, `notebook_read` tidak pernah dipanggil, dan default `part` tidak
+pernah dibaca. Tes itu lulus persis sama di `dev` sebelum FX12 ada — dua dari empat task
+sesungguhnya tidak berpenutup tes sama sekali, sementara nama berkasnya mengaku sebaliknya.
+
+Yang membuatnya lebih disayangkan: harness untuk ini **sudah ada** dan dipakai enam berkas
+tes lain (`mcp-integration.test.ts`, `notebook-options.test.ts`, dan seterusnya) — `McpServer`
++ `InMemoryTransport` + `Client`, memanggil tool lewat protokol sungguhan. Executor menulis
+tes baru dari nol alih-alih memakainya.
+
+Ditulis ulang memakai harness yang sudah ada. Delapan pemeriksaan, semuanya lewat klien MCP
+sungguhan. Dan dibuktikan berarti dengan mengembalikan perbaikannya:
+
+```text
+$ # `part ?? "outline"` dikembalikan ke `part ?? "full"`
+  FAIL omitting `part` returns the outline, not the whole text
+  7 passed, 1 failed
+
+$ # kedua penjaga verifyEtag dihapus
+  FAIL a stale expected_updated_at is refused, and says so
+  FAIL a stale stamp saves nothing
+  FAIL notebook_edit_setup refuses a stale stamp too
+  5 passed, 3 failed
+
+$ # keduanya dikembalikan
+  8 passed, 0 failed
+```
+
+### Temuan 2 — label lane telanjang bisa menghapus lane grup lain [diperbaiki]
+
+`isLaneMatch` punya baris terakhir di luar blok prefix:
+
+```ts
+if (lane.label && ref.toLowerCase() === lane.label.toLowerCase()) return true;
+```
+
+Artinya `remove_lane` dengan `cell: "extract"` cocok ke lane berlabel `extract` **di mana
+pun** di notebook. Dua grup paralel yang sama-sama punya lane `extract` — hal yang lumrah
+dalam pipeline — dan yang terhapus adalah yang lebih dulu ditemui jalan-jalannya, dilaporkan
+sebagai sukses. D-3 memang menetapkan format beralamat `<parallel-id>/lane:<label-atau-indeks>`
+justru supaya ini tidak terjadi; pintasan label telanjang tidak pernah diminta.
+
+Ini juga bertentangan dengan konvensi repo sendiri: `findByIdOrName` mengembalikan
+`"ambiguous"` daripada menebak. Baris itu dihapus, alasannya ditulis sebagai komentar di
+tempatnya, dan dua tes ditambahkan di `notebook-edit.test.ts` — satu memastikan label
+telanjang ditolak, satu memastikan `parallel-2/lane:extract` menghapus lane grup kedua dan
+tidak menyentuh grup pertama.
+
+### Temuan 3 — satu byte NUL membuat seluruh berkas tidak bisa didiff [diperbaiki, bukan dari FX12]
+
+`git diff` melaporkan `notebook-tools.ts` sebagai `Bin 46863 -> 49255 bytes`. Sebabnya satu
+byte NUL harfiah di baris 182, dipakai sebagai pemisah saat menggabung `note` dan `code`:
+
+```ts
+texts.set(step.id, `${step.note ?? ""}<NUL harfiah>${step.code ?? ""}`);
+```
+
+Sudah ada di `dev` sejak sebelum FX12 — bukan kesalahan executor. Tapi akibatnya menimpa
+review ini: seluruh perubahan FX12 pada berkas terbesarnya tersembunyi di balik "Binary files
+differ", dan hanya terbaca setelah `git diff --text` dipaksa. Berkas yang tidak bisa dibaca
+adalah berkas yang tidak bisa direview.
+
+Diganti dengan escape ` `. Nilai runtime-nya identik, berkasnya kembali teks.
+
+### Yang diperiksa dan ternyata baik
+
+- **INV-1** komentar: `git diff dev --text | grep "^-"` untuk baris berkomentar — kosong.
+- **`updated_at` disuntikkan ke front matter `part: full`**: sempat dicurigai merusak
+  putaran-balik `notebook_read` → `notebook_write`, karena teksnya memang untuk dikirim
+  balik. Diperiksa di `notebook-text.ts`: front matter dibaca per-kunci-dikenal, kunci asing
+  diabaikan diam-diam. Aman.
+- **`verifyEtag` dengan stempel sampah**: `new Date("bukan tanggal")` → `NaN`, dan
+  `NaN !== NaN`, jadi hasilnya menolak. Menolak adalah arah gagal yang benar di sini.
+- **`notebook-edit.test.ts` milik executor**: sungguh menguji T-01 dan T-02 — add_lane,
+  remove_lane kosong, penolakan lane tidak kosong, `force: true`, sisip ke lane kosong.
+  Tidak ada yang perlu ditambah selain dua tes ambiguitas di atas.
+- **Ketidakcocokan `baseline_commit`**: frontmatter menyebut `1616915`, §9 menyebut
+  `6878eda`. §9 yang benar dan §9 yang jujur menuliskannya. Tidak diubah.
+
+### Bukti akhir sesudah perbaikan review
+
+```text
+$ pnpm --filter @zaa-tool/engine run build
+$ tsc
+Exit code: 0
+
+$ pnpm --filter @zaa-tool/engine test
+All 34 test files passed.
+Exit code: 0
+
+$ pnpm --filter @zaa-tool/engine exec tsx tests/notebook-tools.test.ts
+8 passed, 0 failed
+
+$ pnpm --filter @zaa-tool/engine exec tsx tests/notebook-edit.test.ts
+ℹ pass 7
+ℹ fail 0
+```
+
+### Berkas yang disentuh review
+
+- `packages/engine/tests/notebook-tools.test.ts` — ditulis ulang seluruhnya
+- `packages/engine/tests/notebook-edit.test.ts` — dua tes ambiguitas lane ditambahkan
+- `packages/engine/src/core/notebook-edit.ts` — pintasan label telanjang dihapus
+- `packages/engine/src/mcp/notebook-tools.ts` — NUL harfiah → ` `
+
+### Putusan
+
+Layak merge sesudah perbaikan di atas. Kode intinya benar; yang gagal adalah penutup
+tesnya, dan itu sudah ditutup.
