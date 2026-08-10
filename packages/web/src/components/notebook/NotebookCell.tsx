@@ -30,6 +30,8 @@ interface NotebookCellProps {
   isStale?: boolean;
   isBusy?: boolean;
   collapsed?: Partial<Record<CellSection, boolean>>;
+  writes?: string[];
+  hasDuplicateWrites?: boolean;
   onToggleSection?: (section: CellSection) => void;
   onNoteChange?: (note: string) => void;
   onCodeChange?: (code: string) => void;
@@ -127,7 +129,9 @@ export function NotebookCell({
   run,
   isStale,
   isBusy,
-  collapsed,
+  collapsed = {},
+  writes,
+  hasDuplicateWrites,
   onToggleSection,
   onNoteChange,
   onCodeChange,
@@ -190,6 +194,26 @@ export function NotebookCell({
           run?.ranSource !== undefined && (
             <span className="text-[9px] font-semibold uppercase tracking-wider text-amber-500">stale</span>
           )
+        )}
+
+        {writes && writes.length > 0 && (
+          <span
+            className="text-[9px] font-mono font-medium text-emerald-600 bg-emerald-500/10 px-1 py-0.5 rounded"
+            title={`Writes output: ${writes.join(', ')}`}
+            data-testid="cell-writes-badge"
+          >
+            writes: {writes.join(', ')}
+          </span>
+        )}
+
+        {hasDuplicateWrites && (
+          <span
+            className="text-[9px] font-semibold text-amber-600 bg-amber-500/10 px-1 py-0.5 rounded"
+            title="Duplicate output write detected across cells"
+            data-testid="duplicate-write-warning"
+          >
+            Duplicate write
+          </span>
         )}
 
         <div className="flex-1" />

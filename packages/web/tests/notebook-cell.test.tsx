@@ -69,3 +69,48 @@ describe('NotebookCell run until this cell (T-06)', () => {
     expect(handleRunUntil).toHaveBeenCalledWith(3);
   });
 });
+
+describe('NotebookCell writes indicator and duplicate write warning (T-07)', () => {
+  it('renders writes badge when cell writes outputs', () => {
+    const cell = {
+      id: 'cell-zz-outputs',
+      kind: 'cell' as const,
+      code: 'return { total: 100, report: "ok" };',
+    };
+
+    const { getByTestId } = render(
+      <NotebookCell
+        cell={cell}
+        index={0}
+        runtime="node"
+        writes={['total', 'report']}
+      />
+    );
+
+    const badge = getByTestId('cell-writes-badge');
+    expect(badge).not.toBeNull();
+    expect(badge.textContent).toContain('writes: total, report');
+  });
+
+  it('renders duplicate write warning badge when hasDuplicateWrites is true', () => {
+    const cell = {
+      id: 'cell-zz-dup',
+      kind: 'cell' as const,
+      code: 'return { total: 200 };',
+    };
+
+    const { getByTestId } = render(
+      <NotebookCell
+        cell={cell}
+        index={1}
+        runtime="node"
+        writes={['total']}
+        hasDuplicateWrites={true}
+      />
+    );
+
+    const warning = getByTestId('duplicate-write-warning');
+    expect(warning).not.toBeNull();
+    expect(warning.textContent).toContain('Duplicate write');
+  });
+});

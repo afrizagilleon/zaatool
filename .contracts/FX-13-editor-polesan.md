@@ -314,7 +314,7 @@ pnpm --filter @zaa-tool/web test notebook-cell
 ```
 
 ### T-07 — Penanda cell penulis output, dan peringatan nama ganda
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-07, RQ-08
 - Lakukan: dari `outlineOf`, tandai di `NotebookCell.tsx` cell mana yang menulis nama
