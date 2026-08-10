@@ -301,7 +301,7 @@ pnpm --filter @zaa-tool/web test notebook-toolbar
 ```
 
 ### T-06 — Jalankan sampai cell ini
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-06
 - Lakukan: sesuai D-1. Tombol di `NotebookCell.tsx` yang memicu run dengan cell target
