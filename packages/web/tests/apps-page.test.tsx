@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { PageRunner } from '../src/components/pages/AppsPage';
 import type { NotebookPage } from '@zaa-tool/shared';
 import { notebooksApi } from '../src/lib/notebooks-api';
@@ -21,6 +21,7 @@ describe('AppsPage compact card for notebook without outputs (T-01, RQ-01, RQ-02
     outputs: [],
     layout: [],
     actions: [],
+    tags: [],
   };
 
   it('renders compact card without PageGrid when outputs array is empty', () => {
