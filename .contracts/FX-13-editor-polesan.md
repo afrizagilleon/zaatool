@@ -230,7 +230,7 @@ sesi terpisah, sisanya tetap DONE dan bisa direview sendiri-sendiri.
 ## 7. Tasks (kerjakan berurutan)
 
 ### T-01 — Pratinjau video dan rekam ulang
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-01
 - Lakukan: tambah `isVideo()` di `FileField.tsx` sejajar `isAudio()`/`isImage()`,
