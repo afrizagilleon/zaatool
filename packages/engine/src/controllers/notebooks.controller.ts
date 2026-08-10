@@ -372,6 +372,21 @@ export class NotebooksController {
     }
   };
 
+  duplicate = async (req: Request, res: Response) => {
+    try {
+      const id = String(req.params.id);
+      const user = (req as Request & { user?: { username?: string } }).user;
+      const duplicated = await notebooksService.duplicate(id, user?.username ?? "unknown");
+      if (!duplicated) {
+        res.status(404).json({ error: `Notebook ${id} not found` });
+        return;
+      }
+      res.json(duplicated);
+    } catch (err: unknown) {
+      respondWithError(res, err);
+    }
+  };
+
   remove = async (req: Request, res: Response) => {
     try {
       const result = await notebooksService.delete(String(req.params.id));

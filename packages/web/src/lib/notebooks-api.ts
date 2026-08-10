@@ -67,6 +67,9 @@ export const notebooksApi = {
   delete: (id: string): Promise<{ success: boolean }> =>
     request(`/api/notebooks/${id}`, { method: "DELETE" }),
 
+  duplicate: (id: string): Promise<{ id: string; name: string }> =>
+    request(`/api/notebooks/${id}/duplicate`, { method: "POST" }),
+
   /**
    * The notebook as the text form — the same one agents read and write.
    *

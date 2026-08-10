@@ -275,3 +275,20 @@ describe("selecting, which is how deleting starts now", () => {
     expect(screen.queryByRole("button", { name: /delete/i })).toBeNull();
   });
 });
+
+describe("duplicating a notebook (T-08)", () => {
+  it("duplicates notebook and opens the new copy when duplicate button is clicked", async () => {
+    const user = userEvent.setup();
+    const duplicate = vi.spyOn(notebooksApi, "duplicate").mockResolvedValue({
+      id: "dup-123",
+      name: "Copy of daily-exchange-monitor",
+    });
+    const { onOpen } = await list();
+
+    const dupBtns = screen.getAllByTitle("Duplicate notebook");
+    await user.click(dupBtns[0]);
+
+    expect(duplicate).toHaveBeenCalledWith("n1");
+    expect(onOpen).toHaveBeenCalledWith("dup-123");
+  });
+});

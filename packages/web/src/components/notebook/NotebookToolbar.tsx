@@ -10,6 +10,7 @@ import {
   CaretDown,
   AppWindow,
   List,
+  ListChecks,
 } from '@phosphor-icons/react';
 import type { NotebookRuntime } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
@@ -93,6 +94,8 @@ interface NotebookToolbarProps {
   triggerCount: number;
   /** Reuse contract editor, in a popover of its own. */
   contractPanel?: React.ReactNode;
+  /** Outline panel for viewing cells, searching and folding. */
+  outlinePanel?: React.ReactNode;
   /** Shown as "in → out" so the shape is readable without opening the panel. */
   contractShape: { inputs: number; outputs: number };
   /** Whether the body shows the page this contract makes instead of the cells. */
@@ -140,6 +143,7 @@ export function NotebookToolbar({
   triggerPanel,
   triggerCount,
   contractPanel,
+  outlinePanel,
   contractShape,
   isPreviewing,
   onTogglePreview,
@@ -176,6 +180,16 @@ export function NotebookToolbar({
         <SelectItem value="python" className="text-xs">Python</SelectItem>
       </SelectContent>
     </Select>
+  );
+
+  const uvBadge = runtime === 'python' && packages.length > 0 && (
+    <span
+      className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-mono text-muted-foreground"
+      title="uv package manager required for declared Python packages"
+      data-testid="uv-indicator"
+    >
+      uv
+    </span>
   );
 
   const staleWarning = staleCount > 0 && (
@@ -307,6 +321,7 @@ export function NotebookToolbar({
       {/* ── wide ── */}
       <div className="hidden min-w-0 flex-1 items-center gap-2 lg:flex">
         {runtimeSelect}
+        {uvBadge}
         {staleWarning}
         <div className="flex-1" />
         {viewMenu}
@@ -315,6 +330,24 @@ export function NotebookToolbar({
         {mapButton}
         {exportButton}
         <Divider />
+        {outlinePanel && (
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
+                title="Outline"
+              >
+                <ListChecks size={13} className="mr-1.5" />
+                Outline
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-[340px] p-0 max-h-[70vh] overflow-y-auto">
+              {outlinePanel}
+            </PopoverContent>
+          </Popover>
+        )}
         <Popover>
           <PopoverTrigger asChild>
             <Button
@@ -372,7 +405,10 @@ export function NotebookToolbar({
 
             <DrawerRow className="justify-between">
               <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Runtime</span>
-              {runtimeSelect}
+              <div className="flex items-center gap-1.5">
+                {runtimeSelect}
+                {uvBadge}
+              </div>
             </DrawerRow>
 
             {staleWarning && <DrawerRow>{staleWarning}</DrawerRow>}

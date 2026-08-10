@@ -10,6 +10,7 @@ import {
   Spinner,
   CaretRight,
   CaretDown,
+  Copy,
 } from '@phosphor-icons/react';
 import type { NotebookCell as NotebookCellDef, NotebookRuntime } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
@@ -28,6 +29,8 @@ interface NotebookCellProps {
   isStale: boolean;
   isBusy: boolean;
   collapsed: Partial<Record<CellSection, boolean>>;
+  writes?: string[];
+  hasDuplicateWrites?: boolean;
   onToggleSection: (section: CellSection) => void;
   onNoteChange: (note: string) => void;
   onCodeChange: (code: string) => void;
@@ -124,7 +127,9 @@ export function NotebookCell({
   run,
   isStale,
   isBusy,
-  collapsed,
+  collapsed = {},
+  writes,
+  hasDuplicateWrites,
   onToggleSection,
   onNoteChange,
   onCodeChange,
@@ -188,6 +193,26 @@ export function NotebookCell({
           )
         )}
 
+        {writes && writes.length > 0 && (
+          <span
+            className="text-[9px] font-mono font-medium text-emerald-600 bg-emerald-500/10 px-1 py-0.5 rounded"
+            title={`Writes output: ${writes.join(', ')}`}
+            data-testid="cell-writes-badge"
+          >
+            writes: {writes.join(', ')}
+          </span>
+        )}
+
+        {hasDuplicateWrites && (
+          <span
+            className="text-[9px] font-semibold text-amber-600 bg-amber-500/10 px-1 py-0.5 rounded"
+            title="Duplicate output write detected across cells"
+            data-testid="duplicate-write-warning"
+          >
+            Duplicate write
+          </span>
+        )}
+
         <div className="flex-1" />
 
         {authorLine(cell.author) && (
@@ -200,6 +225,15 @@ export function NotebookCell({
         )}
 
         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="w-5 h-5 text-muted-foreground hover:text-foreground"
+            title="Copy cell ID"
+            onClick={() => void navigator.clipboard?.writeText(cell.id)}
+          >
+            <Copy size={11} />
+          </Button>
           {!showNote && (
             <Button variant="ghost" size="icon" className="w-5 h-5" title="Add a note" onClick={startNote}>
               <TextT size={11} />

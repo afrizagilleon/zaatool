@@ -41,6 +41,7 @@ export function createNotebooksRouter(publishRunEvent: RunEventSink): Router {
   router.get("/:id/text", controller.text);
   router.get("/:id", controller.getById);
   router.delete("/:id", creator, controller.remove);
+  router.post("/:id/duplicate", creator, controller.duplicate);
   router.post("/:id/run", controller.run);
   // Not creator-only, unlike the resources library. Running a page is a viewer's whole
   // purpose, and a page that asks for a photo cannot be run without giving it one. What

@@ -39,6 +39,14 @@ function isImage(file: NotebookFile | null, accept?: string): boolean {
   return false;
 }
 
+function isVideo(file: NotebookFile | null, accept?: string): boolean {
+  if (!file) return false;
+  if (file.mime?.startsWith('video/')) return true;
+  if (file.name.match(/\.(mp4|webm|ogg|mov|avi|mkv)$/i)) return true;
+  if ((accept ?? '').toLowerCase().includes('video')) return true;
+  return false;
+}
+
 function formatDuration(totalSeconds: number): string {
   const mins = Math.floor(totalSeconds / 60);
   const secs = totalSeconds % 60;
@@ -223,10 +231,46 @@ export function FileField({
             </div>
           )}
 
+          {src && isVideo(chosen, input.accept) && (
+            <div>
+              {mediaError ? (
+                <p className="p-2 text-xs text-status-error">{mediaError}</p>
+              ) : (
+                <video
+                  src={src}
+                  controls
+                  className="w-full max-h-[200px]"
+                  onError={() =>
+                    setMediaError(
+                      "Couldn't load this file — its link may have expired. Reloading the page will fetch a new one."
+                    )
+                  }
+                />
+              )}
+            </div>
+          )}
+
           <div className="flex items-center gap-2 border border-border px-2 py-1.5">
             <Paperclip size={13} className="shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate text-xs">{chosen.name}</span>
             <span className="shrink-0 text-[10px] text-muted-foreground">{readable(chosen.size)}</span>
+            {wantsAudio(input) && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-6 gap-1 px-2 text-[11px]"
+                onClick={() => {
+                  setMediaError(null);
+                  onChange('');
+                  void startRecording();
+                }}
+                title="Record again"
+              >
+                <Microphone size={11} />
+                Record again
+              </Button>
+            )}
             <Button
               type="button"
               variant="ghost"

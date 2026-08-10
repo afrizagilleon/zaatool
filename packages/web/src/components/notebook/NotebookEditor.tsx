@@ -18,6 +18,7 @@ import { ExportButton } from './ExportButton';
 import { RunErrorBanner } from './RunErrorBanner';
 import { TriggerPanel } from './TriggerPanel';
 import { ContractPanel } from './ContractPanel';
+import { OutlinePanel } from './OutlinePanel';
 import { notebooksApi } from '../../lib/notebooks-api';
 import { cn } from '../../lib/utils';
 
@@ -138,6 +139,71 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
   );
 
   const staleCells = useMemo(() => computeStaleCells(steps, cellRuns), [steps, cellRuns]);
+
+  /**
+   * Which cell writes which declared output, and where two of them write the same one.
+   *
+   * Read off `cellRuns[].written` — what a cell actually wrote when it last ran — rather
+   * than guessed from the code, because the code cannot say what a branch will assign and
+   * a guess here would be a badge that is confidently wrong. The cost is that nothing
+   * shows until the notebook has run once, which is the honest state to be in.
+   *
+   * Two cells writing the same declared name is not an error — the later one wins, the
+   * same rule the scope follows — but it is nearly always a surprise worth pointing at.
+   */
+  const writeMarkers = useMemo(() => {
+    const declared = new Set(
+      outputs.map((output) => (typeof output === 'string' ? output : output.name))
+    );
+
+    const byCell: Record<string, string[]> = {};
+    const writerCount: Record<string, number> = {};
+
+    for (const [cellId, cellRun] of Object.entries(cellRuns)) {
+      const names = (cellRun.written ?? []).filter((name) => declared.has(name));
+      if (names.length === 0) continue;
+      byCell[cellId] = names;
+      for (const name of names) writerCount[name] = (writerCount[name] ?? 0) + 1;
+    }
+
+    const contested = new Set(
+      Object.entries(writerCount)
+        .filter(([, count]) => count > 1)
+        .map(([name]) => name)
+    );
+
+    const duplicated = new Set(
+      Object.entries(byCell)
+        .filter(([, names]) => names.some((name) => contested.has(name)))
+        .map(([cellId]) => cellId)
+    );
+
+    return { byCell, duplicated };
+  }, [cellRuns, outputs]);
+
+  /** Folds or unfolds every cell in one lane at once, for the outline panel. */
+  const foldLane = useCallback(
+    (laneId: string, fold: boolean) => {
+      const findLane = (list: NotebookStep[]): NotebookStep[] | null => {
+        for (const step of list) {
+          if (step.kind !== 'parallel') continue;
+          for (const lane of step.lanes) {
+            if (lane.id === laneId) return lane.steps;
+            const deeper = findLane(lane.steps);
+            if (deeper) return deeper;
+          }
+        }
+        return null;
+      };
+
+      const laneSteps = findLane(useNotebookStore.getState().steps);
+      if (!laneSteps) return;
+      for (const cell of tree.allCells(laneSteps)) {
+        if (Boolean(cell.collapsed?.code) !== fold) toggleSection(cell.id, 'code');
+      }
+    },
+    [toggleSection]
+  );
   // Counts every cell at every depth: a top-level-only check could never report
   // "all collapsed" once the notebook contained a parallel group.
   const allCollapsed = useMemo(() => {
@@ -181,6 +247,8 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
             isStale={Boolean(staleCells[step.id])}
             isBusy={isRunning}
             collapsed={step.collapsed ?? {}}
+            writes={writeMarkers.byCell[step.id]}
+            hasDuplicateWrites={writeMarkers.duplicated.has(step.id)}
             onToggleSection={(section) => toggleSection(step.id, section)}
             onNoteChange={(note) => updateCellNote(step.id, note)}
             onCodeChange={(code) => updateCellCode(step.id, code)}
@@ -198,6 +266,7 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
       isDarkMode,
       cellRuns,
       staleCells,
+      writeMarkers,
       isRunning,
       addCell,
       addCellToLane,
@@ -278,6 +347,20 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
             // the history showing yesterday until it was closed and reopened.
             refreshKey={`${isRunning}-${elsewhere?.status ?? ''}-${elsewhere?.runId ?? ''}`}
             onOpenRun={(id) => void openRun(id)}
+          />
+        }
+        outlinePanel={
+          <OutlinePanel
+            steps={steps}
+            onFoldLane={foldLane}
+            // `NotebookCell` already anchors itself as `step-<id>` for the run-error
+            // banner to jump to; the outline reuses that rather than adding a second
+            // way to address the same element.
+            onSelectCell={(cellId) => {
+              document
+                .getElementById(`step-${cellId}`)
+                ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }}
           />
         }
         triggerCount={triggers.length}
