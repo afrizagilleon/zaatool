@@ -209,7 +209,7 @@ alamatnya.
 ## 7. Tasks (kerjakan berurutan)
 
 ### T-01 — Tambah dan hapus lane
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-01
 - Lakukan: sesuai D-1, D-2. Tambah `action: "add_lane"` (butuh `cell` menunjuk grup
@@ -226,7 +226,7 @@ pnpm --filter @zaa-tool/engine run build
 ```
 
 ### T-02 — Sisipkan ke lane kosong
-- Status: TODO
+- Status: DONE
 - Depends: T-01
 - RQ: RQ-02
 - Lakukan: sesuai D-3. **Sebelum menulis parser alamat**, jalankan

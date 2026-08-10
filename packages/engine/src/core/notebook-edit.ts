@@ -20,7 +20,9 @@ export type CellEdit =
   | { action: "replace"; cell: string; code?: string; note?: string }
   | { action: "insert_after" | "insert_before"; cell: string; code: string; note?: string }
   | { action: "append"; code: string; note?: string }
-  | { action: "delete"; cell: string };
+  | { action: "delete"; cell: string }
+  | { action: "add_lane"; cell: string; label?: string }
+  | { action: "remove_lane"; cell: string; force?: boolean };
 
 export class CellEditError extends Error {
   constructor(message: string) {
@@ -33,12 +35,78 @@ function newCell(code: string, note?: string): NotebookCell {
   return { id: randomUUID(), kind: "cell", code, ...(note ? { note } : {}) };
 }
 
+export function isLaneMatch(
+  parallelId: string,
+  lane: { id: string; label?: string },
+  laneIdx: number,
+  ref: string
+): boolean {
+  if (lane.id === ref) return true;
+  const prefix = `${parallelId}/lane:`;
+  if (ref.startsWith(prefix)) {
+    const spec = ref.slice(prefix.length).trim();
+    if (spec === lane.id) return true;
+    if (lane.label && spec.toLowerCase() === lane.label.toLowerCase()) return true;
+    const pos = Number(spec);
+    if (Number.isInteger(pos) && pos === laneIdx + 1) return true;
+  }
+  if (lane.label && ref.toLowerCase() === lane.label.toLowerCase()) return true;
+  return false;
+}
+
 /** Applies the edit wherever the cell lives, including inside a lane. */
 function editSteps(steps: NotebookStep[], edit: CellEdit, done: { hit: boolean }): NotebookStep[] {
   const next: NotebookStep[] = [];
 
   for (const step of steps) {
     if (step.kind === "parallel") {
+      if (edit.action === "add_lane" && step.id === edit.cell) {
+        done.hit = true;
+        const newLane = {
+          id: randomUUID(),
+          ...(edit.label ? { label: edit.label } : {}),
+          steps: [],
+        };
+        next.push({
+          ...step,
+          lanes: [...(step.lanes ?? []), newLane],
+        });
+        continue;
+      }
+
+      if (edit.action === "remove_lane") {
+        const lanes = step.lanes ?? [];
+        const laneIndex = lanes.findIndex((lane, idx) => isLaneMatch(step.id, lane, idx, edit.cell));
+        if (laneIndex !== -1) {
+          done.hit = true;
+          const targetLane = lanes[laneIndex];
+          if ((targetLane.steps ?? []).length > 0 && !edit.force) {
+            throw new CellEditError("Lane is not empty. Use force: true to remove a non-empty lane.");
+          }
+          next.push({
+            ...step,
+            lanes: lanes.filter((_, idx) => idx !== laneIndex),
+          });
+          continue;
+        }
+      }
+
+      if (edit.action === "insert_before" || edit.action === "insert_after") {
+        const lanes = step.lanes ?? [];
+        const laneIndex = lanes.findIndex((lane, idx) => isLaneMatch(step.id, lane, idx, edit.cell));
+        if (laneIndex !== -1 && (lanes[laneIndex].steps ?? []).length === 0) {
+          done.hit = true;
+          const newC = newCell(edit.code, edit.note);
+          next.push({
+            ...step,
+            lanes: lanes.map((lane, idx) =>
+              idx === laneIndex ? { ...lane, steps: [newC] } : lane
+            ),
+          });
+          continue;
+        }
+      }
+
       next.push({
         ...step,
         lanes: (step.lanes ?? []).map((lane) => ({
@@ -49,7 +117,12 @@ function editSteps(steps: NotebookStep[], edit: CellEdit, done: { hit: boolean }
       continue;
     }
 
-    if (edit.action === "append" || step.id !== edit.cell) {
+    if (
+      edit.action === "append" ||
+      edit.action === "add_lane" ||
+      edit.action === "remove_lane" ||
+      step.id !== edit.cell
+    ) {
       next.push(step);
       continue;
     }

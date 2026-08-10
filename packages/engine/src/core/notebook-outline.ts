@@ -1,5 +1,6 @@
 import type { NotebookCell, NotebookJson, NotebookStep } from "@zaa-tool/shared";
 import { cellReads, cellWrites, jsSyntaxProblem } from "./cell-analysis.js";
+import { isLaneMatch } from "./notebook-edit.js";
 
 export { cellReads, cellWrites };
 
@@ -210,6 +211,20 @@ export function scopeAt(
   return { available: [...available], uncertain, neededAfter: [...neededAfter] };
 }
 
+function hasParallelOrLane(steps: NotebookStep[] | undefined, ref: string): boolean {
+  for (const step of steps ?? []) {
+    if (step.kind === "parallel") {
+      if (step.id === ref) return true;
+      const lanes = step.lanes ?? [];
+      for (let idx = 0; idx < lanes.length; idx++) {
+        if (isLaneMatch(step.id, lanes[idx], idx, ref)) return true;
+        if (hasParallelOrLane(lanes[idx].steps, ref)) return true;
+      }
+    }
+  }
+  return false;
+}
+
 /** Resolves a cell by id or by its 1-based position, the way `notebook_run_cell` does. */
 export function findCell(document: NotebookJson, reference: string): string | null {
   const cells = outlineOf(document);
@@ -220,6 +235,11 @@ export function findCell(document: NotebookJson, reference: string): string | nu
   if (Number.isInteger(position) && position >= 1 && position <= cells.length) {
     return cells[position - 1].cellId;
   }
+
+  if (hasParallelOrLane(document.steps, trimmed)) {
+    return trimmed;
+  }
+
   return null;
 }
 
