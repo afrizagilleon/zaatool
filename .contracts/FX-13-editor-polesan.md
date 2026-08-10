@@ -271,7 +271,7 @@ pnpm --filter @zaa-tool/web test notebook-cell
 ```
 
 ### T-04 — Panel outline: lihat, cari, lipat per lane
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-04
 - Lakukan: sesuai D-3. Panel baru dipicu dari toolbar, menggambar `outlineOf` (bisa lewat

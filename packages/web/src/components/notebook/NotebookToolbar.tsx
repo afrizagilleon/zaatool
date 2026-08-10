@@ -10,6 +10,7 @@ import {
   CaretDown,
   AppWindow,
   List,
+  ListChecks,
 } from '@phosphor-icons/react';
 import type { NotebookRuntime } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
@@ -93,6 +94,8 @@ interface NotebookToolbarProps {
   triggerCount: number;
   /** Reuse contract editor, in a popover of its own. */
   contractPanel?: React.ReactNode;
+  /** Outline panel for viewing cells, searching and folding. */
+  outlinePanel?: React.ReactNode;
   /** Shown as "in → out" so the shape is readable without opening the panel. */
   contractShape: { inputs: number; outputs: number };
   /** Whether the body shows the page this contract makes instead of the cells. */
@@ -140,6 +143,7 @@ export function NotebookToolbar({
   triggerPanel,
   triggerCount,
   contractPanel,
+  outlinePanel,
   contractShape,
   isPreviewing,
   onTogglePreview,
@@ -315,6 +319,24 @@ export function NotebookToolbar({
         {mapButton}
         {exportButton}
         <Divider />
+        {outlinePanel && (
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2.5 text-xs text-muted-foreground hover:text-foreground shrink-0"
+                title="Outline"
+              >
+                <ListChecks size={13} className="mr-1.5" />
+                Outline
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-[340px] p-0 max-h-[70vh] overflow-y-auto">
+              {outlinePanel}
+            </PopoverContent>
+          </Popover>
+        )}
         <Popover>
           <PopoverTrigger asChild>
             <Button
