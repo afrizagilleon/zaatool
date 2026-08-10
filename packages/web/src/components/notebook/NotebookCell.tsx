@@ -25,23 +25,23 @@ interface NotebookCellProps {
   cell: NotebookCellDef;
   index: number;
   runtime: NotebookRuntime;
-  isDarkMode?: boolean;
-  run?: CellRunState | undefined;
-  isStale?: boolean;
-  isBusy?: boolean;
-  collapsed?: Partial<Record<CellSection, boolean>>;
+  isDarkMode: boolean;
+  run: CellRunState | undefined;
+  isStale: boolean;
+  isBusy: boolean;
+  collapsed: Partial<Record<CellSection, boolean>>;
   writes?: string[];
   hasDuplicateWrites?: boolean;
-  onToggleSection?: (section: CellSection) => void;
-  onNoteChange?: (note: string) => void;
-  onCodeChange?: (code: string) => void;
-  onRemove?: () => void;
-  onMove?: (direction: -1 | 1) => void;
-  onAddBelow?: () => void;
-  onRun?: () => void;
+  onToggleSection: (section: CellSection) => void;
+  onNoteChange: (note: string) => void;
+  onCodeChange: (code: string) => void;
+  onRemove: () => void;
+  onMove: (direction: -1 | 1) => void;
+  onAddBelow: () => void;
+  onRun: () => void;
   onRunUntil?: (index: number) => void;
-  onRunAndAdvance?: () => void;
-  onSave?: () => void;
+  onRunAndAdvance: () => void;
+  onSave: () => void;
 }
 
 /**

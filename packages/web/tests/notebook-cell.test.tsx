@@ -2,6 +2,23 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, fireEvent } from '@testing-library/react';
 import { NotebookCell } from '../src/components/notebook/NotebookCell';
 
+const defaultProps = {
+  isDarkMode: false,
+  run: undefined,
+  isStale: false,
+  isBusy: false,
+  collapsed: { note: false, code: false, output: false },
+  onToggleSection: vi.fn(),
+  onNoteChange: vi.fn(),
+  onCodeChange: vi.fn(),
+  onRemove: vi.fn(),
+  onMove: vi.fn(),
+  onAddBelow: vi.fn(),
+  onRun: vi.fn(),
+  onRunAndAdvance: vi.fn(),
+  onSave: vi.fn(),
+};
+
 describe('NotebookCell copy cell id (T-03)', () => {
   it('copies cell id to clipboard when copy button is clicked', () => {
     const cell = {
@@ -19,14 +36,10 @@ describe('NotebookCell copy cell id (T-03)', () => {
 
     const { getByTitle } = render(
       <NotebookCell
+        {...defaultProps}
         cell={cell}
         index={0}
         runtime="node"
-        collapsed={{ note: false, code: false, output: false }}
-        onUpdate={() => {}}
-        onRemove={() => {}}
-        onMove={() => {}}
-        onRun={() => {}}
       />
     );
 
@@ -50,14 +63,10 @@ describe('NotebookCell run until this cell (T-06)', () => {
 
     const { getByTitle } = render(
       <NotebookCell
+        {...defaultProps}
         cell={cell}
         index={3}
         runtime="node"
-        collapsed={{ note: false, code: false, output: false }}
-        onUpdate={() => {}}
-        onRemove={() => {}}
-        onMove={() => {}}
-        onRun={() => {}}
         onRunUntil={handleRunUntil}
       />
     );
@@ -80,6 +89,7 @@ describe('NotebookCell writes indicator and duplicate write warning (T-07)', () 
 
     const { getByTestId } = render(
       <NotebookCell
+        {...defaultProps}
         cell={cell}
         index={0}
         runtime="node"
@@ -101,6 +111,7 @@ describe('NotebookCell writes indicator and duplicate write warning (T-07)', () 
 
     const { getByTestId } = render(
       <NotebookCell
+        {...defaultProps}
         cell={cell}
         index={1}
         runtime="node"

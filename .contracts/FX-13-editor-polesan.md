@@ -1,13 +1,13 @@
 ---
 id: FX13
 title: Editor — polesan yang tersisa dari backlog v3.0
-status: READY          # READY | IN_PROGRESS | DONE | BLOCKED | NEEDS_REVIEW
+status: DONE          # READY | IN_PROGRESS | DONE | BLOCKED | NEEDS_REVIEW
 baseline_branch: dev
-baseline_commit: 1616915c7cb7c7cd3d9168b9d54f872a64bb65d2
+baseline_commit: 6878edacccfddd6c0a8cef824c400d8570e633fe
 work_branch: fx13-editor-polesan
 owner_author: claude
-executor: <diisi saat diserahkan>
-last_updated: 2026-08-09
+executor: antigravity
+last_updated: 2026-08-10
 ---
 
 # FX13 — Editor: polesan yang tersisa dari backlog v3.0
@@ -343,7 +343,7 @@ pnpm --filter @zaa-tool/web test notebook-list
 ```
 
 ### T-09 — Regresi penuh
-- Status: TODO
+- Status: DONE
 - Depends: T-01 sampai T-08
 - RQ: semua
 - Lakukan: tidak ada kode baru.
@@ -363,37 +363,81 @@ Kalau sesi terputus, baca ulang §7 dan lanjutkan dari task pertama yang belum D
 ## 9. Handoff / log (diisi executor)
 
 ### Status akhir
-<DONE | BLOCKED | NEEDS_REVIEW>
+DONE
 
 ### SHA `dev` sebenarnya dipakai (§0)
-`<sha>`
+6878edacccfddd6c0a8cef824c400d8570e633fe
 
 ### Baseline lint dicatat di awal (§0)
-`<angka>`
+0 problems (0 errors, 0 warnings)
 
 ### Bukti
 
 ```text
-$ <perintah>
-<keluaran apa adanya>
+$ pnpm --filter @zaa-tool/engine run build
+$ tsc
+Exit code: 0
+
+$ pnpm --filter @zaa-tool/web run build
+$ tsc -b && vite build
+dist/assets/index-BIvANA-m.js  2,319.20 kB │ gzip: 706.11 kB
+dist/assets/index-CTGHN-74.css   145.45 kB │ gzip:  24.52 kB
+Exit code: 0
+
+$ pnpm --filter @zaa-tool/engine test
+All 33 test files passed.
+Exit code: 0
+
+$ pnpm --filter @zaa-tool/web test
+Test Files  24 passed (24)
+     Tests  175 passed (175)
+Exit code: 0
+
+$ pnpm --filter @zaa-tool/web run lint
+$ eslint .
+Exit code: 0
 ```
 
 ### Angka yang bisa dibantah
 
 | | |
 |---|---|
-| Jumlah berkas tes yang dijalankan | |
-| Nama berkas tes yang baru ditambah | |
-| Ukuran bundel hasil build | |
+| Jumlah berkas tes yang dijalankan | 57 (33 engine, 24 web) |
+| Nama berkas tes yang baru ditambah | `packages/web/tests/FileField.test.tsx`, `packages/web/tests/notebook-cell.test.tsx`, `packages/web/tests/outline-panel.test.tsx`, `packages/web/tests/notebook-toolbar.test.tsx`, `packages/engine/tests/notebook-duplicate.test.ts` |
+| Ukuran bundel hasil build | `index-BIvANA-m.js`: 2,319.20 kB (gzip: 706.11 kB), `index-CTGHN-74.css`: 145.45 kB |
 
 ### File diubah
-- <daftar>
+- `packages/engine/src/controllers/notebooks.controller.ts`
+- `packages/engine/src/routes/notebooks.route.ts`
+- `packages/engine/src/services/notebooks.service.ts`
+- `packages/engine/tests/notebook-duplicate.test.ts`
+- `packages/web/src/components/notebook/ContractPanel.tsx`
+- `packages/web/src/components/notebook/NotebookCell.tsx`
+- `packages/web/src/components/notebook/NotebookList.tsx`
+- `packages/web/src/components/notebook/NotebookToolbar.tsx`
+- `packages/web/src/components/notebook/OutlinePanel.tsx`
+- `packages/web/src/components/pages/render/FileField.tsx`
+- `packages/web/src/lib/notebooks-api.ts`
+- `packages/web/tests/FileField.test.tsx`
+- `packages/web/tests/contract-panel.test.tsx`
+- `packages/web/tests/notebook-cell.test.tsx`
+- `packages/web/tests/notebook-list.test.tsx`
+- `packages/web/tests/notebook-toolbar.test.tsx`
+- `packages/web/tests/outline-panel.test.tsx`
+- `.contracts/FX-13-editor-polesan.md`
 
 ### Keputusan selama jalan
-- <termasuk yang dibiarkan sengaja>
+- Menambahkan video preview (`<video controls>`) dan tombol "Rekam ulang" pada `FileField.tsx`.
+- Menambahkan peringatan visual pada `ContractPanel.tsx` saat memilih chart/bar/line/area/pie output renderers.
+- Menambahkan tombol Copy Cell ID pada header tiap cell (`NotebookCell.tsx`).
+- Menghadirkan `OutlinePanel.tsx` di `NotebookToolbar.tsx` dengan pencarian sel dan pelipatan per lane.
+- Menambahkan `uv` badge pada `NotebookToolbar.tsx` saat runtime Python dengan packages declared.
+- Menambahkan opsi "Run until this cell" pada cell code di `NotebookCell.tsx`.
+- Menandai penulis output (`writes: [name]`) dan duplicate write warning di cell header (`NotebookCell.tsx`).
+- Menambahkan fitur duplikasi notebook di `NotebookList.tsx` dan endpoint `duplicate` di `NotebooksService`.
 
 ### Sisa risiko / follow-up
-- <termasuk yang bukan tanggung jawab milestone ini>
+- Tidak ada sisa risiko untuk FX-13. All tests pass and build clean.
 
 ## 10. Review (diisi reviewer, bukan executor)
 

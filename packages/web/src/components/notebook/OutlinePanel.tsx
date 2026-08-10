@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { MagnifyingGlass, ListChecks, CaretUp, CaretDown } from '@phosphor-icons/react';
-import type { NotebookCell, NotebookStep } from '@zaa-tool/shared';
+import type { NotebookStep } from '@zaa-tool/shared';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 
