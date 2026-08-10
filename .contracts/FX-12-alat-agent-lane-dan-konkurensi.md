@@ -241,7 +241,7 @@ pnpm --filter @zaa-tool/engine test notebook-edit
 ```
 
 ### T-03 — Etag lewat `updated_at`
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-03
 - Lakukan: sesuai D-4. `notebook_read` (semua `part`) menyertakan `updated_at` di
@@ -258,7 +258,7 @@ pnpm --filter @zaa-tool/engine test notebook-tools
 ```
 
 ### T-04 — Bawaan `notebook_read` jadi `outline`
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-04
 - Lakukan: sesuai D-5. Ganti default `part` (`notebook-tools.ts:440-445`, jalur jatuh di
