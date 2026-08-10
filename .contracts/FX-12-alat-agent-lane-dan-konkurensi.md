@@ -116,14 +116,16 @@ bersamaan — editor manusia dan agent lewat MCP — tidak lagi saling menimpa d
   agent lama yang tidak mengirimnya berperilaku sama seperti sekarang. **Kenapa**: kolom
   ini sudah ada dan sudah diperbarui setiap `save()`; menambah nomor versi baru berarti
   migrasi skema untuk sesuatu yang punya jawaban lebih murah.
+- **D-5 (F-138, dijawab pengguna 2026-08-09)**: bawaan `part` di `notebook_read`
+  (`notebook-tools.ts:440-445`, `undefined` jatuh ke `full` di baris 471) diganti jadi
+  `outline`. Deskripsi alat (baris 436) diperbarui untuk tidak lagi bilang "the default"
+  soal `full`. **Kenapa**: model yang tidak membaca deskripsi mendapat pilihan yang murah
+  alih-alih yang mahal; agent yang benar-benar butuh kode lengkap tetap bisa minta
+  `part: full` secara eksplisit.
 
 ### Open questions
 
-- **F-138 (bawaan `notebook_read`: `outline` atau `full`?)** — ini keputusan yang sudah
-  diminta ke pengguna sejak `RENCANA PERBAIKAN TOTAL v3.0` ditulis dan belum dijawab.
-  **Di luar scope FX12** sampai dijawab; jangan diubah tanpa jawaban eksplisit. Kalau
-  executor sampai ke titik ini dan belum ada jawaban, lewati — bukan alasan untuk BLOCKED
-  seluruh milestone, karena tidak menghalangi T-01 sampai T-03.
+Tidak ada yang tersisa untuk milestone ini — F-138 sudah dijawab (D-5).
 
 ## 4. Requirements & sukses
 
@@ -136,10 +138,10 @@ bersamaan — editor manusia dan agent lewat MCP — tidak lagi saling menimpa d
 - **RQ-03**: `notebook_read` menyertakan `updated_at` di balasannya (semua `part`).
   `notebook_edit_cell`, `notebook_edit_setup`, `notebook_write` menerima
   `expected_updated_at` opsional dan menolak tulis yang basi tanpa menyimpan apa pun.
+- **RQ-04** (F-138, D-5): bawaan `notebook_read` `part` adalah `outline`, bukan `full`.
 
 ### Out of scope
 
-- F-138 (lihat Open questions) — tidak disentuh.
 - Perlindungan konkurensi di editor web (klik Save dua tab) — RQ-03 hanya jalur MCP.
   Editor web punya soal berbeda (state lokal, bukan permintaan lepas) dan bukan bagian
   milestone ini.
@@ -190,7 +192,6 @@ bersamaan — editor manusia dan agent lewat MCP — tidak lagi saling menimpa d
 - Menghapus atau menonaktifkan tes hijau
 - Dependency baru
 - Menyentuh `notebook_edit_setup`'s `name`/`notebook_delete` — sudah selesai, di luar scope
-- Menjawab F-138 sendiri
 
 ## 6. Plan singkat
 
@@ -198,7 +199,8 @@ bersamaan — editor manusia dan agent lewat MCP — tidak lagi saling menimpa d
 2. T-02 — alamat lane kosong (D-3) di `findCell`, lalu `insert_before`/`insert_after`
    memakainya
 3. T-03 — `updated_at` di balasan `notebook_read`, `expected_updated_at` di tiga alat tulis
-4. T-04 — regresi penuh
+4. T-04 — bawaan `notebook_read` jadi `outline` (D-5), kecil dan berdiri sendiri
+5. T-05 — regresi penuh
 
 Risiko utama: bentuk alamat lane (D-3) bentrok dengan format id cell yang sudah ada.
 Mitigasi: T-02 diawali dengan memverifikasi format id cell sungguhan sebelum menulis parser
@@ -255,9 +257,23 @@ pnpm --filter @zaa-tool/engine test notebook-edit
 pnpm --filter @zaa-tool/engine test notebook-tools
 ```
 
-### T-04 — Regresi penuh
+### T-04 — Bawaan `notebook_read` jadi `outline`
 - Status: TODO
-- Depends: T-01 sampai T-03
+- Depends: —
+- RQ: RQ-04
+- Lakukan: sesuai D-5. Ganti default `part` (`notebook-tools.ts:440-445`, jalur jatuh di
+  baris 471) dari `full` ke `outline`. Perbarui kalimat deskripsi di baris 436 yang
+  menyebut `full` sebagai bawaan.
+- Selesai jika: memanggil `notebook_read` tanpa `part` mengembalikan outline, bukan teks
+  penuh; `part: "full"` eksplisit tetap mengembalikan teks penuh seperti sekarang.
+- Verify:
+```bash
+pnpm --filter @zaa-tool/engine test notebook-tools
+```
+
+### T-05 — Regresi penuh
+- Status: TODO
+- Depends: T-01 sampai T-04
 - RQ: semua
 - Lakukan: tidak ada kode baru.
 - Selesai jika: DoD §4 penuh.
