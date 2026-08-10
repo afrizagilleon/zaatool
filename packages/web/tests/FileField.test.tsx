@@ -26,7 +26,7 @@ describe('FileField video preview & re-record (T-01)', () => {
     expect(videoElement?.getAttribute('src')).toContain('/storage/clip.mp4');
   });
 
-  it('renders Rekam ulang button when audio file is chosen and triggers recording reset', () => {
+  it('renders Record again button when audio file is chosen and triggers recording reset', () => {
     const fileVal = JSON.stringify({
       name: 'voice.webm',
       path: 'storage/voice.webm',
@@ -46,7 +46,7 @@ describe('FileField video preview & re-record (T-01)', () => {
       />
     );
 
-    const reRecordButton = getByText('Rekam ulang');
+    const reRecordButton = getByText('Record again');
     expect(reRecordButton).not.toBeNull();
 
     fireEvent.click(reRecordButton);

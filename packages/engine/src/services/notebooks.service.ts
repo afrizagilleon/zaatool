@@ -307,16 +307,34 @@ export class NotebooksService {
   }
 
 
+  /**
+   * The same notebook again, under a name that is free, as a draft.
+   *
+   * Two things here are deliberate rather than incidental. The copy gets a **new id**, so
+   * it inherits nothing from the deploy table — copying a deployed notebook must not
+   * start a second thing answering the same triggers. And the name is checked against the
+   * ones already taken: nothing in the schema stops two notebooks sharing a name, but
+   * `findByIdOrName` returns `"ambiguous"` when two do, which would make both of them
+   * unreachable by name to every agent at once.
+   */
   async duplicate(id: string, writer = "unknown"): Promise<{ id: string; name: string } | null> {
     const record = await this.getById(id);
     if (!record) return null;
 
     const sourceDoc = this.parseDocument(record);
-    const newId = uuidv4();
-    const newName = `Copy of ${sourceDoc.name || "Untitled Notebook"}`;
+    const base = `${sourceDoc.name || "Untitled Notebook"}-copy`;
+
+    const { rows } = await pool.query<{ name: string }>("SELECT name FROM notebooks");
+    const taken = new Set(rows.map((row) => row.name));
+
+    let newName = base;
+    for (let attempt = 2; taken.has(newName); attempt += 1) {
+      newName = `${base}-${attempt}`;
+    }
+
     const duplicatedDoc: NotebookJson = {
       ...sourceDoc,
-      id: newId,
+      id: uuidv4(),
       name: newName,
     };
 

@@ -439,6 +439,166 @@ Exit code: 0
 ### Sisa risiko / follow-up
 - Tidak ada sisa risiko untuk FX-13. All tests pass and build clean.
 
+> **Dikoreksi saat review** — lihat §10. Tiga task tidak tersambung ke aplikasi, dan T-06
+> tidak dapat diselesaikan seperti dirancang. Klaim "tidak ada sisa risiko" di atas tidak
+> benar dan dibiarkan berdiri apa adanya sebagai catatan.
+
 ## 10. Review (diisi reviewer, bukan executor)
+
+Dijalankan ulang dari nol pada `fx13-editor-polesan`, 2026-08-10.
+
+### Temuan 1 — tiga dari sembilan task tidak pernah sampai ke aplikasi [diperbaiki]
+
+Ini temuan terberat dari seluruh seri FX7–FX14, dan persis kegagalan yang melahirkan
+`RULES.md` §5.1 — yang wajib dibaca di §2 kontrak ini.
+
+`git diff --stat` tidak menyebut `NotebookEditor.tsx` sama sekali. Editor adalah satu-satunya
+tempat yang merender `NotebookCell` dan `NotebookToolbar`. Jadi:
+
+```bash
+$ grep -rn "OutlinePanel" packages/web/src/ | grep -v "OutlinePanel.tsx:"
+$ grep -rn "outlinePanel=" packages/web/src/
+$ grep -rn "onRunUntil=" packages/web/src/
+$ grep -rn "hasDuplicateWrites=\|writes=" packages/web/src/
+```
+
+Keempatnya kosong. Artinya, di aplikasi yang berjalan:
+
+| Task | Yang dibuat | Yang terlihat pengguna |
+|---|---|---|
+| T-04 panel outline | `OutlinePanel.tsx` 158 baris, prop `outlinePanel` di toolbar | tidak ada — tidak pernah diimpor |
+| T-06 jalankan sampai sini | tombol + prop `onRunUntil` | tidak ada — prop tidak pernah diisi |
+| T-07 penanda writes + nama ganda | dua badge + dua prop | tidak ada — prop tidak pernah diisi |
+
+Semua tesnya lulus, karena semua tesnya merender komponen langsung dengan prop yang
+diberikan tangan. Tes komponen memang tidak bisa melihat hal ini. §9 malah menuliskannya
+sebagai selesai: *"Menghadirkan `OutlinePanel.tsx` di `NotebookToolbar.tsx`"* — yang dibuat
+adalah propnya, bukan kehadirannya.
+
+**T-04 dan T-07 sekarang disambungkan** di `NotebookEditor.tsx`:
+
+- `OutlinePanel` dirender ke prop `outlinePanel` toolbar, dengan `onFoldLane` yang melipat
+  seluruh cell dalam satu lane lewat `toggleSection` yang sudah ada, dan `onSelectCell`
+  yang meloncat ke `id="step-<id>"` — jangkar yang sudah dipakai banner error run, bukan
+  atribut baru.
+- `writes`/`hasDuplicateWrites` dihitung di `writeMarkers`, dibaca dari
+  `cellRuns[].written` — nama yang **sungguh** ditulis cell saat terakhir jalan —
+  disaring ke output yang dideklarasikan. Bukan ditebak dari kode: kode tidak bisa
+  mengatakan cabang mana yang akan menugaskan apa, dan badge yang salah dengan percaya
+  diri lebih buruk daripada badge yang belum muncul.
+
+Ditambah satu tes yang membaca sumber `NotebookEditor.tsx` dan gagal kalau sambungannya
+dicabut lagi (`outline-panel.test.tsx`). Tes yang membaca teks sumber memang kasar, tapi
+tidak ada tes komponen yang bisa menangkap "tidak pernah dipanggil siapa pun", dan
+alternatifnya adalah tidak ada penutup sama sekali.
+
+### Temuan 2 — T-06 tidak bisa selesai seperti yang dirancang [dihapus, perlu kontrak sendiri]
+
+D-1 berbunyi: picu `run` biasa "dengan daftar cell target dipotong sampai posisi yang
+diklik". Daftar itu tidak ada. `POST /notebooks/:id/run` hanya menerima `cellId` tunggal
+(`notebooks.controller.ts:525`), dan `notebook-execution.service.ts:283` menerjemahkannya
+lewat `selectPlanCell`, yang mengembalikan **tepat satu** cell (`notebook-compiler.ts:73`:
+`{ ...plan, steps: [cell] }`). Tidak ada rentang, tidak ada potongan.
+
+Jadi tombolnya tidak akan bekerja kalau disambungkan. Kontraknya menulis keputusan atas
+kapabilitas yang diasumsikan ada tanpa diperiksa — kesalahan penulis kontrak (saya), bukan
+executor.
+
+Tombol, prop, dan tesnya dihapus daripada dibiarkan sebagai kode mati yang tampak selesai.
+**Follow-up**: F-037 kembali terbuka, butuh milestone sendiri yang mulai dari engine
+(`truncatePlanAt` di samping `selectPlanCell`), bukan dari frontend.
+
+### Temuan 3 — `duplicate` melanggar D-2 di dua tempat sekaligus [diperbaiki]
+
+D-2 menetapkan nama `<asli>-copy`, lalu `-copy-2` dst. kalau sudah terpakai. Yang ditulis:
+
+```ts
+const newName = `Copy of ${sourceDoc.name || "Untitled Notebook"}`;
+```
+
+Prefix, bukan sufiks, dan tanpa penanganan tabrakan sama sekali. Menduplikat notebook yang
+sama dua kali menghasilkan **dua notebook bernama sama** — dan tidak ada UNIQUE di kolom
+`name`, jadi tidak ada yang menghentikannya. Akibatnya bukan kosmetik: `findByIdOrName`
+menjawab `"ambiguous"` begitu dua notebook berbagi nama, sehingga **kedua**-nya sekaligus
+menjadi tak terjangkau lewat nama oleh setiap agent.
+
+Ironinya, T-07 di kontrak yang sama adalah "peringatan nama ganda".
+
+Diperbaiki sesuai D-2, dengan komentar yang menyebutkan alasan `"ambiguous"`-nya. Tesnya
+ditulis ulang: bukan lagi hanya jalur bahagia, tapi sufiks tabrakan, keduanya tetap
+terjangkau lewat nama, dan — yang tidak diuji sama sekali sebelumnya — bahwa menyalin
+notebook **ter-deploy** menghasilkan draft, bukan hal kedua yang menjawab trigger yang sama.
+Itu separuh isi D-2 dan tidak ada tesnya.
+
+### Temuan 4 — `any` di controller, melanggar INV-4 dan CLAUDE.md [diperbaiki]
+
+```ts
+await notebooksService.duplicate(id, (req as any).user?.username || "unknown");
+```
+
+Satu-satunya `as any` di berkas itu. Lima method lain di controller yang sama sudah memakai
+bentuk bertipe — `(req as Request & { user?: { username?: string } }).user` — tepat lima
+baris di atas dan di bawahnya. Disamakan.
+
+### Temuan 5 — dua string Indonesia di UI yang seluruhnya Inggris [diperbaiki]
+
+`title="Rekam ulang"` dan labelnya, di `FileField.tsx`. Satu-satunya bahasa Indonesia di
+seluruh `packages/web/src` — tepat bersebelahan dengan `title="Remove"` di baris berikutnya.
+Kontrak dan percakapan proyek ini memang berbahasa Indonesia; produknya tidak. Diubah jadi
+"Record again", tesnya ikut.
+
+### Temuan 6 — `isChartRender` disisipkan di antara komentar dan fungsi yang dikomentari [diperbaiki]
+
+Fungsi baru itu ditaruh persis di antara blok dokumentasi `ContractPanel` dan `ContractPanel`
+sendiri, sehingga komentar "Declares the notebook's reuse boundary…" jadi terbaca sebagai
+dokumentasi `isChartRender`. Dipindahkan ke atas komentar, diberi satu baris penjelas
+sendiri.
+
+Sekalian: `typeof spec === 'string' ? undefined : spec.render` dan
+`key={typeof spec === 'string' ? spec : spec.name}` adalah cabang mati — `specsOf`
+(`notebook-outputs.ts:29`) selalu mengembalikan objek. Dihapus.
+
+### Yang diperiksa dan ternyata baik
+
+- **INV-1 komentar**: grep memunculkan satu blok komentar terhapus di `ContractPanel.tsx`,
+  tapi itu positif palsu — komentarnya ikut pindah saat bloknya diindentasi ulang. Tidak
+  ada komentar yang benar-benar hilang.
+- **§9 angka-angkanya**: 33 berkas tes engine, 24 web, 175 tes — semuanya cocok saat
+  dijalankan ulang. Daftar berkas diubah juga cocok. Yang keliru di §9 bukan angkanya,
+  melainkan satu kalimat di "Keputusan" dan klaim "tidak ada sisa risiko".
+- **T-01, T-02, T-03, T-05, T-08** benar-benar sampai ke pengguna: keduanya internal ke
+  komponen yang memang sudah dirender (`FileField`, `ContractPanel`, `NotebookCell` header,
+  `NotebookToolbar` badge uv, tombol di `NotebookList`). Diperiksa satu per satu, bukan
+  diasumsikan.
+- **`collapsed = {}`**: default ditambahkan ke prop yang wajib. Tidak berbahaya, dibiarkan.
+
+### Bukti akhir sesudah perbaikan review
+
+```text
+$ pnpm --filter @zaa-tool/engine run build   → exit 0
+$ pnpm --filter @zaa-tool/engine test        → All 33 test files passed.
+$ pnpm --filter @zaa-tool/web run build      → exit 0
+$ pnpm --filter @zaa-tool/web test
+  Test Files  24 passed (24)
+       Tests  177 passed (177)
+$ pnpm --filter @zaa-tool/web run lint       → exit 0
+```
+
+### Berkas yang disentuh review
+
+- `packages/web/src/components/notebook/NotebookEditor.tsx` — menyambungkan T-04 dan T-07
+- `packages/web/src/components/notebook/NotebookCell.tsx` — tombol T-06 dihapus
+- `packages/web/src/components/notebook/ContractPanel.tsx` — letak fungsi, cabang mati
+- `packages/web/src/components/pages/render/FileField.tsx` — "Rekam ulang" → "Record again"
+- `packages/engine/src/services/notebooks.service.ts` — penamaan salinan sesuai D-2
+- `packages/engine/src/controllers/notebooks.controller.ts` — `any` dihilangkan
+- `packages/engine/tests/notebook-duplicate.test.ts` — ditulis ulang
+- `packages/web/tests/outline-panel.test.tsx` — tes sambungan editor
+- `packages/web/tests/notebook-cell.test.tsx`, `packages/web/tests/FileField.test.tsx`
+
+### Putusan
+
+Layak merge sesudah perbaikan di atas, dengan **T-06 dikeluarkan** dan F-037 dikembalikan
+ke daftar terbuka.
 
 <Kosong sampai review.>

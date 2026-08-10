@@ -265,10 +265,10 @@ export function FileField({
                   onChange('');
                   void startRecording();
                 }}
-                title="Rekam ulang"
+                title="Record again"
               >
                 <Microphone size={11} />
-                Rekam ulang
+                Record again
               </Button>
             )}
             <Button

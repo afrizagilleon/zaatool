@@ -375,7 +375,8 @@ export class NotebooksController {
   duplicate = async (req: Request, res: Response) => {
     try {
       const id = String(req.params.id);
-      const duplicated = await notebooksService.duplicate(id, (req as any).user?.username || "unknown");
+      const user = (req as Request & { user?: { username?: string } }).user;
+      const duplicated = await notebooksService.duplicate(id, user?.username ?? "unknown");
       if (!duplicated) {
         res.status(404).json({ error: `Notebook ${id} not found` });
         return;

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { OutlinePanel } from '../src/components/notebook/OutlinePanel';
@@ -73,5 +75,35 @@ describe('OutlinePanel (T-04: view, search, fold per lane)', () => {
 
     fireEvent.click(foldBtn);
     expect(handleFoldLane).toHaveBeenCalledWith('lane-a', true);
+  });
+});
+
+/**
+ * Review addition (FX13 §10).
+ *
+ * Every component test in this milestone rendered its component directly with props,
+ * which is why four features passed their tests while being unreachable in the running
+ * app: nothing ever imported `OutlinePanel`, and nothing ever passed `writes`,
+ * `hasDuplicateWrites` or `outlinePanel`. A component test cannot notice that. This one
+ * reads the editor's source instead, and fails if the wiring is removed again.
+ */
+describe('FX13 features are actually reachable from the editor', () => {
+  const editorSource = readFileSync(
+    resolve(process.cwd(), 'src/components/notebook/NotebookEditor.tsx'),
+    'utf-8'
+  );
+
+  it('renders the outline panel into the toolbar', () => {
+    expect(editorSource).toContain('<OutlinePanel');
+    expect(editorSource).toMatch(/outlinePanel=\{/);
+  });
+
+  it('passes the write markers down to each cell', () => {
+    expect(editorSource).toMatch(/writes=\{/);
+    expect(editorSource).toMatch(/hasDuplicateWrites=\{/);
+  });
+
+  it('gives the outline a way to fold a lane', () => {
+    expect(editorSource).toMatch(/onFoldLane=\{/);
   });
 });

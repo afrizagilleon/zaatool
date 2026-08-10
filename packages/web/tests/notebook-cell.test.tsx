@@ -51,33 +51,11 @@ describe('NotebookCell copy cell id (T-03)', () => {
   });
 });
 
-describe('NotebookCell run until this cell (T-06)', () => {
-  it('calls onRunUntil with cell index when Run until this cell button is clicked', () => {
-    const cell = {
-      id: 'cell-zz-6789',
-      kind: 'cell' as const,
-      code: 'console.log("hello");',
-    };
-
-    const handleRunUntil = vi.fn();
-
-    const { getByTitle } = render(
-      <NotebookCell
-        {...defaultProps}
-        cell={cell}
-        index={3}
-        runtime="node"
-        onRunUntil={handleRunUntil}
-      />
-    );
-
-    const runUntilBtn = getByTitle('Run until this cell');
-    expect(runUntilBtn).not.toBeNull();
-
-    fireEvent.click(runUntilBtn);
-    expect(handleRunUntil).toHaveBeenCalledWith(3);
-  });
-});
+// T-06 ("run until this cell") was removed in review rather than shipped. The button
+// existed and this test passed, but nothing ever passed `onRunUntil`, so the control
+// never appeared in the editor — and it could not have worked if it had: the run API
+// takes one `cellId` or nothing, with no way to ask for a range. See §10 of the
+// contract; the capability needs its own milestone, starting in the engine.
 
 describe('NotebookCell writes indicator and duplicate write warning (T-07)', () => {
   it('renders writes badge when cell writes outputs', () => {

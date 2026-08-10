@@ -11,7 +11,6 @@ import {
   CaretRight,
   CaretDown,
   Copy,
-  FastForward,
 } from '@phosphor-icons/react';
 import type { NotebookCell as NotebookCellDef, NotebookRuntime } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
@@ -39,7 +38,6 @@ interface NotebookCellProps {
   onMove: (direction: -1 | 1) => void;
   onAddBelow: () => void;
   onRun: () => void;
-  onRunUntil?: (index: number) => void;
   onRunAndAdvance: () => void;
   onSave: () => void;
 }
@@ -139,7 +137,6 @@ export function NotebookCell({
   onMove,
   onAddBelow,
   onRun,
-  onRunUntil,
   onRunAndAdvance,
   onSave,
 }: NotebookCellProps) {
@@ -260,30 +257,16 @@ export function NotebookCell({
         </div>
 
         {hasCode && (
-          <div className="flex items-center gap-0.5">
-            {onRunUntil && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="w-5 h-5 text-muted-foreground hover:text-foreground"
-                title="Run until this cell"
-                onClick={() => onRunUntil(index)}
-                disabled={isBusy}
-              >
-                <FastForward size={11} weight="fill" />
-              </Button>
-            )}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="w-5 h-5 text-primary"
-              title="Run this cell (Ctrl+Enter)"
-              onClick={onRun}
-              disabled={isBusy}
-            >
-              {isRunning ? <Spinner size={11} className="animate-spin" /> : <Play size={11} weight="fill" />}
-            </Button>
-          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="w-5 h-5 text-primary"
+            title="Run this cell (Ctrl+Enter)"
+            onClick={onRun}
+            disabled={isBusy}
+          >
+            {isRunning ? <Spinner size={11} className="animate-spin" /> : <Play size={11} weight="fill" />}
+          </Button>
         )}
       </div>
 
