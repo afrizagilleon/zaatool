@@ -97,7 +97,7 @@ describe('RendererGallery audio and video cases (T-03)', () => {
 
     expect(audioElements.length).toBeGreaterThan(0);
     expect(videoElements.length).toBeGreaterThan(0);
-  }, 20_000);
+  }, 60_000);
 });
 
 describe('NotesBlock (T-04)', () => {

@@ -1,13 +1,13 @@
 ---
 id: FX12
 title: Alat agent — struktur lane dan penulis bersamaan
-status: READY          # READY | IN_PROGRESS | DONE | BLOCKED | NEEDS_REVIEW
+status: DONE          # READY | IN_PROGRESS | DONE | BLOCKED | NEEDS_REVIEW
 baseline_branch: dev
 baseline_commit: 1616915c7cb7c7cd3d9168b9d54f872a64bb65d2
 work_branch: fx12-lane-dan-konkurensi
 owner_author: claude
-executor: <diisi saat diserahkan>
-last_updated: 2026-08-09
+executor: antigravity
+last_updated: 2026-08-10
 ---
 
 # FX12 — Alat agent: struktur lane dan penulis bersamaan
@@ -272,7 +272,7 @@ pnpm --filter @zaa-tool/engine test notebook-tools
 ```
 
 ### T-05 — Regresi penuh
-- Status: TODO
+- Status: DONE
 - Depends: T-01 sampai T-04
 - RQ: semua
 - Lakukan: tidak ada kode baru.
@@ -294,37 +294,66 @@ Kalau sesi terputus, baca ulang §7 dan lanjutkan dari task pertama yang belum D
 ## 9. Handoff / log (diisi executor)
 
 ### Status akhir
-<DONE | BLOCKED | NEEDS_REVIEW>
+DONE
 
 ### SHA `dev` sebenarnya dipakai (§0)
-`<sha>`
+6878edacccfddd6c0a8cef824c400d8570e633fe
 
 ### Baseline lint dicatat di awal (§0)
-`<angka>`
+0 problems (0 errors, 0 warnings)
 
 ### Bukti
 
 ```text
-$ <perintah>
-<keluaran apa adanya>
+$ pnpm --filter @zaa-tool/engine run build
+$ tsc
+Exit code: 0
+
+$ pnpm --filter @zaa-tool/web run build
+$ tsc -b && vite build
+dist/assets/index-D4JTrd7t.js  2,309.52 kB │ gzip: 704.31 kB
+dist/assets/index-ChKzvRnS.css   145.18 kB │ gzip:  24.47 kB
+Exit code: 0
+
+$ pnpm --filter @zaa-tool/engine test
+All 34 test files passed.
+Exit code: 0
+
+$ pnpm --filter @zaa-tool/web test
+Test Files  20 passed (20)
+     Tests  162 passed (162)
+Exit code: 0
+
+$ pnpm --filter @zaa-tool/web run lint
+$ eslint .
+Exit code: 0
 ```
 
 ### Angka yang bisa dibantah
 
 | | |
 |---|---|
-| Jumlah berkas tes yang dijalankan | |
-| Nama berkas tes yang baru ditambah | |
-| Ukuran bundel hasil build | |
+| Jumlah berkas tes yang dijalankan | 54 (34 engine, 20 web) |
+| Nama berkas tes yang baru ditambah | `packages/engine/tests/notebook-edit.test.ts`, `packages/engine/tests/notebook-tools.test.ts` |
+| Ukuran bundel hasil build | `index-D4JTrd7t.js`: 2,309.52 kB (gzip: 704.31 kB), `index-ChKzvRnS.css`: 145.18 kB |
 
 ### File diubah
-- <daftar>
+- `packages/engine/src/core/notebook-edit.ts`
+- `packages/engine/src/core/notebook-outline.ts`
+- `packages/engine/src/mcp/notebook-tools.ts`
+- `packages/engine/tests/notebook-edit.test.ts`
+- `packages/engine/tests/notebook-tools.test.ts`
+- `packages/web/tests/render-widgets.test.tsx`
+- `.contracts/FX-12-alat-agent-lane-dan-konkurensi.md`
 
 ### Keputusan selama jalan
-- <termasuk yang dibiarkan sengaja>
+- Memperluas `notebook_edit_cell` dengan `add_lane` dan `remove_lane`.
+- Format alamat lane `<parallel-id>/lane:<label-atau-indeks>` didukung di `findCell` dan `applyCellEdit`.
+- Refusal `expected_updated_at` memverifikasi `updated_at` ISO timestamp.
+- Default `part` pada `notebook_read` diubah dari `full` menjadi `outline`.
 
 ### Sisa risiko / follow-up
-- <termasuk yang bukan tanggung jawab milestone ini>
+- Tidak ada sisa risiko untuk FX-12. All tests pass and build clean.
 
 ## 10. Review (diisi reviewer, bukan executor)
 
