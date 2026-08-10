@@ -259,7 +259,7 @@ pnpm --filter @zaa-tool/web test contract-panel
 ```
 
 ### T-03 — Salin id cell
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-03
 - Lakukan: tombol kecil di header tiap cell (`NotebookCell.tsx`) yang menyalin id cell
