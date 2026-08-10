@@ -9,6 +9,7 @@ import {
   Clock,
   LinkSimple,
   WarningCircle,
+  Copy,
 } from '@phosphor-icons/react';
 import type { NotebookRuntime, NotebookSummary } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
@@ -171,6 +172,18 @@ export function NotebookList({ onOpen, onCreate }: NotebookListProps) {
       const saved = await notebooksApi.saveText(await file.text(), true);
       await refresh();
       onOpen(saved.id);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const duplicateNotebook = async (id: string) => {
+    try {
+      const duplicated = await notebooksApi.duplicate(id);
+      await refresh();
+      if (duplicated?.id) {
+        onOpen(duplicated.id);
+      }
     } catch (err) {
       setError((err as Error).message);
     }
@@ -444,6 +457,21 @@ export function NotebookList({ onOpen, onCreate }: NotebookListProps) {
                     </div>
                   </div>
 
+                  {!selecting && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+                      title="Duplicate notebook"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void duplicateNotebook(notebook.id);
+                      }}
+                    >
+                      <Copy size={12} />
+                    </Button>
+                  )}
                   <span className="shrink-0 bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
                     {notebook.runtime === 'python' ? 'py' : 'js'}
                   </span>

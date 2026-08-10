@@ -307,6 +307,22 @@ export class NotebooksService {
   }
 
 
+  async duplicate(id: string, writer = "unknown"): Promise<{ id: string; name: string } | null> {
+    const record = await this.getById(id);
+    if (!record) return null;
+
+    const sourceDoc = this.parseDocument(record);
+    const newId = uuidv4();
+    const newName = `Copy of ${sourceDoc.name || "Untitled Notebook"}`;
+    const duplicatedDoc: NotebookJson = {
+      ...sourceDoc,
+      id: newId,
+      name: newName,
+    };
+
+    return this.save(duplicatedDoc, writer);
+  }
+
   parseDocument(record: NotebookRecord): NotebookJson {
     return typeof record.document === "string"
       ? (JSON.parse(record.document) as NotebookJson)

@@ -328,7 +328,7 @@ pnpm --filter @zaa-tool/web test notebook-cell
 ```
 
 ### T-08 — Duplikat notebook
-- Status: TODO
+- Status: DONE
 - Depends: —
 - RQ: RQ-09
 - Lakukan: sesuai D-2. Tombol di `NotebookList.tsx`; kalau `notebooksService` belum punya
