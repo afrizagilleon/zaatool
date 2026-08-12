@@ -24,13 +24,14 @@ tool an AI agent can call.
 |---|---|
 | ![Notebook editor](screenshots/notebook-editor.png) | ![Running app with charts](screenshots/app-page-run.png) |
 
-**System Map** — every notebook, what calls what, which triggers fire which. This one zooms
-from the full graph into `zz-uji-paralel-3`, a fixture whose whole job is to prove that
-three levels of nested parallel lanes actually rejoin their scope at the end:
+**System Map** — every notebook, what calls what, which triggers fire which.
 
-<video src="https://github.com/afrizagilleon/zaatool/raw/main/screenshots/system-map.mp4" controls autoplay loop muted playsinline width="100%">
-  System Map: overview, then zoomed into a three-level nested-parallel notebook.
-</video>
+| Overview | Inside `zz-uji-paralel-3` |
+|---|---|
+| <video src="https://github.com/user-attachments/assets/885aaa46-2d43-4a8f-b812-729818ea7f8f" controls autoplay loop muted playsinline width="100%"></video> | <video src="https://github.com/user-attachments/assets/166ff786-8d59-42c2-af56-ad3994dbde88" controls autoplay loop muted playsinline width="100%"></video> |
+
+The right one is a fixture whose whole job is to prove that three levels of nested parallel
+lanes actually rejoin their scope at the end — F-128, if you go looking for it.
 
 | Notebooks | Apps |
 |---|---|
