@@ -20,15 +20,23 @@ tool an AI agent can call.
 
 ## Screenshots
 
-<!-- TODO: ganti dengan tangkapan layar sungguhan -->
-
-| Notebook editor | App page |
+| Notebook editor | Running app |
 |---|---|
-| _screenshot_ | _screenshot_ |
+| ![Notebook editor](screenshots/notebook-editor.png) | ![Running app with charts](screenshots/app-page-run.png) |
 
-| System map | Shared page |
+**System Map** — every notebook, what calls what, which triggers fire which. This one zooms
+from the full graph into `zz-uji-paralel-3`, a fixture whose whole job is to prove that
+three levels of nested parallel lanes actually rejoin their scope at the end:
+
+![System Map: overview, then zoomed into a three-level nested-parallel notebook](screenshots/system-map.gif)
+
+| Notebooks | Apps |
 |---|---|
-| _screenshot_ | _screenshot_ |
+| ![Notebooks list](screenshots/notebooks-list.png) | ![Apps list](screenshots/apps-list.png) |
+
+| Shared page (public, read-only) | Resources |
+|---|---|
+| ![Shared page](screenshots/shared-page.png) | ![Resources: skills, secrets, files, accounts](screenshots/resources.png) |
 
 ---
 
