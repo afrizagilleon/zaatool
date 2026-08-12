@@ -28,7 +28,9 @@ tool an AI agent can call.
 from the full graph into `zz-uji-paralel-3`, a fixture whose whole job is to prove that
 three levels of nested parallel lanes actually rejoin their scope at the end:
 
-![System Map: overview, then zoomed into a three-level nested-parallel notebook](screenshots/system-map.gif)
+<video src="https://github.com/afrizagilleon/zaatool/raw/main/screenshots/system-map.mp4" controls autoplay loop muted playsinline width="100%">
+  System Map: overview, then zoomed into a three-level nested-parallel notebook.
+</video>
 
 | Notebooks | Apps |
 |---|---|
