@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { RocketLaunch, Spinner, CheckCircle, WarningCircle, Question } from '@phosphor-icons/react';
-import type { NotebookJson, NotebookRunDetail } from '@zaa-tool/shared';
+import { isTriggerPending, type NotebookJson, type NotebookRunDetail, type NotebookTrigger } from '@zaa-tool/shared';
 import {
   Dialog,
   DialogContent,
@@ -68,6 +68,9 @@ export function DeployReviewDialog({
   const [diff, setDiff] = useState<NotebookDiff | null>(null);
   const [run, setRun] = useState<NotebookRunDetail | null>(null);
   const [firstDeploy, setFirstDeploy] = useState(false);
+  // Triggers the draft has that production is not listening to yet — the ones this deploy
+  // switches on, named so the decision to deploy includes them.
+  const [pendingTriggers, setPendingTriggers] = useState<NotebookTrigger[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isDeploying, setIsDeploying] = useState(false);
 
@@ -76,6 +79,7 @@ export function DeployReviewDialog({
     setPrevOpen(open);
     if (open) {
       setDiff(null);
+      setPendingTriggers([]);
       setError(null);
       setFirstDeploy(false);
     }
@@ -91,6 +95,9 @@ export function DeployReviewDialog({
         const deployed = await notebooksApi.deployedDocument(notebookId).catch(() => null);
 
         if (cancelled) return;
+        setPendingTriggers(
+          (draft.triggers ?? []).filter((trigger) => isTriggerPending(trigger, deployed?.triggers))
+        );
         if (!deployed) {
           setFirstDeploy(true);
           setDiff(null);
@@ -147,6 +154,30 @@ export function DeployReviewDialog({
             <div className="text-xs text-muted-foreground">
               The draft matches what is already deployed.
             </div>
+          )}
+
+          {pendingTriggers.length > 0 && (
+            <section className="space-y-2">
+              <h3 className="text-[9px] uppercase tracking-widest text-muted-foreground/70">
+                Triggers ({pendingTriggers.length})
+              </h3>
+              {pendingTriggers.map((trigger) => (
+                <div
+                  key={trigger.id}
+                  className="text-[11px] border border-amber-500/40 px-3 py-2 flex items-center gap-2"
+                >
+                  <span className="text-[9px] uppercase tracking-widest font-bold text-amber-500">
+                    {trigger.kind}
+                  </span>
+                  <span className="font-mono text-[10px] truncate flex-1">
+                    {trigger.kind === 'cron' ? trigger.cron : `/hooks/${trigger.slug}`}
+                  </span>
+                  <span className="text-[10px] text-amber-500 shrink-0">
+                    Not active yet — deploy to activate
+                  </span>
+                </div>
+              ))}
+            </section>
           )}
 
           {diff && diff.settings.length > 0 && (

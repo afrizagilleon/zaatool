@@ -138,15 +138,18 @@ export function MapNotebookNode({ data, selected }: NodeProps<Node<NotebookNodeD
 export function MapTriggerNode({ data }: NodeProps<Node<TriggerNodeData, 'mapTrigger'>>) {
   const { trigger, dimmed } = data;
   const Icon = trigger.kind === 'cron' ? Clock : Globe;
+  // Only in the draft, or changed there: nothing is listening to it until a deploy, so it
+  // is drawn like a switched-off one and says what it is, rather than looking like it runs.
+  const isDraft = trigger.draft === true;
 
   return (
     <div
-      title={`${trigger.kind} ${trigger.label}${trigger.enabled ? '' : ' — switched off'}`}
+      title={`${trigger.kind} ${trigger.label}${trigger.enabled ? '' : ' — switched off'}${isDraft ? ' — draft, not active until deployed' : ''}`}
       className={cn(
         BOX_CLASS.trigger,
         'border bg-background px-2.5 flex items-center gap-1.5 shadow-sm',
         'transition-opacity',
-        trigger.enabled ? 'border-primary/40' : 'border-border border-dashed opacity-60',
+        trigger.enabled && !isDraft ? 'border-primary/40' : 'border-border border-dashed opacity-60',
         // Dims with the notebook it fires. A bright trigger wired to a faded box is an
         // arrow whose two ends disagree about whether you are looking at them.
         dimmed && 'opacity-25'
@@ -157,6 +160,7 @@ export function MapTriggerNode({ data }: NodeProps<Node<TriggerNodeData, 'mapTri
         <div className="text-[8px] uppercase tracking-widest text-muted-foreground/70">
           {trigger.kind}
           {!trigger.enabled && ' · off'}
+          {isDraft && ' · draft'}
         </div>
         <div className="font-mono text-[10px] truncate">{trigger.label}</div>
       </div>

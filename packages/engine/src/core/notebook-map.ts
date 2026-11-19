@@ -6,8 +6,15 @@ import type {
   NotebookMapTrigger,
   NotebookParam,
   NotebookStep,
+  NotebookTrigger,
 } from "@zaa-tool/shared";
-import { MAP_ROLE_LABELS, MAP_ROLE_NOTES, MAP_ROLE_ORDER, mapRoles } from "@zaa-tool/shared";
+import {
+  MAP_ROLE_LABELS,
+  MAP_ROLE_NOTES,
+  MAP_ROLE_ORDER,
+  isTriggerDeployed,
+  mapRoles,
+} from "@zaa-tool/shared";
 import { outputNames } from "./notebook-outputs.js";
 
 /**
@@ -76,7 +83,13 @@ function resolveTarget(
 }
 
 export function buildNotebookMap(
-  documents: { document: NotebookJson; updatedAt: string; deployed?: boolean }[]
+  documents: {
+    document: NotebookJson;
+    updatedAt: string;
+    deployed?: boolean;
+    /** The version production runs, when there is one. Triggers are read from it. */
+    deployedDocument?: NotebookJson | null;
+  }[]
 ): NotebookMap {
   const byId = new Map<string, NotebookJson>();
   const byName = new Map<string, NotebookJson[]>();
@@ -91,7 +104,7 @@ export function buildNotebookMap(
   const triggers: NotebookMapTrigger[] = [];
   const calls: NotebookMapCall[] = [];
 
-  for (const { document, updatedAt, deployed } of documents) {
+  for (const { document, updatedAt, deployed, deployedDocument } of documents) {
     const cells: CellSource[] = [];
     const counts = { parallel: 0 };
     collectCells(document.steps, cells, counts);
@@ -110,13 +123,34 @@ export function buildNotebookMap(
       updatedAt,
     });
 
-    for (const trigger of document.triggers ?? []) {
+    // Triggers come from the deployed version — that is what production listens to. The
+    // draft's are drawn too, but only the ones that are not active yet, flagged `draft`
+    // so the map can show them dimmed instead of passing them off as running.
+    const labelOf = (trigger: NotebookTrigger) =>
+      trigger.kind === "cron" ? trigger.cron : `/hooks/${trigger.slug}`;
+    const live = deployedDocument?.triggers ?? [];
+    for (const trigger of live) {
       triggers.push({
         id: trigger.id,
         notebookId: document.id,
         kind: trigger.kind,
-        label: trigger.kind === "cron" ? trigger.cron : `/hooks/${trigger.slug}`,
+        label: labelOf(trigger),
         enabled: trigger.enabled !== false,
+      });
+    }
+    for (const trigger of document.triggers ?? []) {
+      if (isTriggerDeployed(trigger, live)) continue;
+      triggers.push({
+        // A changed trigger keeps its id in the draft, and two map elements may not share
+        // one, so the draft's copy is named apart from the deployed one it is replacing.
+        id: live.some((deployedTrigger) => deployedTrigger.id === trigger.id)
+          ? `${trigger.id}:draft`
+          : trigger.id,
+        notebookId: document.id,
+        kind: trigger.kind,
+        label: labelOf(trigger),
+        enabled: trigger.enabled !== false,
+        draft: true,
       });
     }
 
@@ -211,7 +245,10 @@ export function renderNotebookMap(map: NotebookMap, options: MapRenderOptions = 
       lines.push(`    packages: ${notebook.packages.join(", ")}`);
     }
     for (const trigger of triggersFor(notebook.id)) {
-      lines.push(`    ${trigger.kind} ${trigger.label}${trigger.enabled ? "" : " (disabled)"}`);
+      lines.push(
+        `    ${trigger.kind} ${trigger.label}${trigger.enabled ? "" : " (disabled)"}` +
+          (trigger.draft ? " (draft — not active until deployed)" : "")
+      );
     }
     for (const call of callsFrom(notebook.id)) {
       const target = call.resolved && call.toNotebookId ? nameOf(call.toNotebookId) : call.reference;

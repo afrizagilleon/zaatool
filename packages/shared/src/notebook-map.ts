@@ -1,4 +1,4 @@
-import type { NotebookRuntime } from "./notebook.js";
+import type { NotebookRuntime, NotebookTrigger } from "./notebook.js";
 
 /**
  * The shape of the system, derived from the notebooks themselves.
@@ -43,6 +43,52 @@ export interface NotebookMapTrigger {
   /** The cron expression, or the webhook path. */
   label: string;
   enabled: boolean;
+  /**
+   * True when this trigger exists only in the draft — or differs from the deployed one —
+   * so nothing is listening to it yet. Every other trigger on the map is read from the
+   * deployed version, which is what production actually answers to.
+   */
+  draft?: boolean;
+}
+
+/** Whether two triggers would make production listen to the same thing, the same way. */
+function sameTrigger(a: NotebookTrigger, b: NotebookTrigger): boolean {
+  if (a.id !== b.id || a.kind !== b.kind || (a.enabled !== false) !== (b.enabled !== false)) {
+    return false;
+  }
+  if (a.kind === "cron" && b.kind === "cron") return a.cron.trim() === b.cron.trim();
+  if (a.kind === "webhook" && b.kind === "webhook") {
+    return a.slug.trim() === b.slug.trim() && (a.secretKey?.trim() ?? "") === (b.secretKey?.trim() ?? "");
+  }
+  return false;
+}
+
+/**
+ * Whether production already has exactly this trigger.
+ *
+ * Production listens to the *deployed* version's triggers and to nothing in the draft, so
+ * a draft trigger that is absent from — or different in — the deployed version is not
+ * active yet. `deployed` is null when nothing is deployed.
+ */
+export function isTriggerDeployed(
+  trigger: NotebookTrigger,
+  deployed: readonly NotebookTrigger[] | null | undefined
+): boolean {
+  return (deployed ?? []).some((live) => sameTrigger(live, trigger));
+}
+
+/**
+ * Whether a draft trigger is waiting for a deploy before it does anything.
+ *
+ * Only an enabled trigger can be waiting: a switched-off one has nothing to activate. One
+ * definition, because the editor's trigger panel, the deploy review and the map all have
+ * to agree about which triggers are in that state.
+ */
+export function isTriggerPending(
+  trigger: NotebookTrigger,
+  deployed: readonly NotebookTrigger[] | null | undefined
+): boolean {
+  return trigger.enabled !== false && !isTriggerDeployed(trigger, deployed);
 }
 
 /**

@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {  Plus, Trash, Copy, Check, Clock, Globe } from '@phosphor-icons/react';
-import type { NotebookTrigger } from '@zaa-tool/shared';
+import { isTriggerPending, type NotebookTrigger } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { Switch } from '../ui/switch';
 import { cn } from '../../lib/utils';
 import { absoluteUrl } from '../../lib/api';
+import { notebooksApi } from '../../lib/notebooks-api';
+import { useCatalogRefresh } from '../../hooks/useCatalogRefresh';
+import { useNotebookStore } from '../../store/notebookStore';
 import { ScheduleEditor } from '../schedule/ScheduleEditor';
 import { SecretPicker } from '../resources/SecretPicker';
 
@@ -43,13 +46,56 @@ function CopyableUrl({ url }: { url: string }) {
 }
 
 /**
+ * What production listens to for one notebook: the triggers in its deployed version.
+ *
+ * `undefined` while that is not known yet, `[]` when nothing is deployed. Kept apart on
+ * purpose — "not loaded" must not look like "nothing is active", or every trigger would
+ * flash as not active for as long as the request takes. Refetched when the catalogue
+ * announces a change, which is how a deploy made from the Deploy button reaches this
+ * panel without the two components knowing about each other.
+ */
+function useDeployedTriggers(notebookId: string): NotebookTrigger[] | undefined {
+  const [fetched, setFetched] = useState<{ id: string; triggers: NotebookTrigger[] } | null>(null);
+  const [tick, setTick] = useState(0);
+  useCatalogRefresh(() => setTick((count) => count + 1));
+
+  useEffect(() => {
+    if (!notebookId) return;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const state = await notebooksApi.deployState(notebookId);
+        const triggers = state.isDeployed
+          ? ((await notebooksApi.deployedDocument(notebookId)).triggers ?? [])
+          : [];
+        if (!cancelled) setFetched({ id: notebookId, triggers });
+      } catch {
+        // Unknown rather than empty: a failed request says nothing about what is deployed.
+        if (!cancelled) setFetched(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [notebookId, tick]);
+
+  return fetched && fetched.id === notebookId ? fetched.triggers : undefined;
+}
+
+/**
  * Triggers are notebook-level, so they are edited here rather than as a cell.
  *
- * Nothing takes effect until the notebook is saved: the trigger index is rebuilt from
- * the document on save, so an unsaved trigger will not fire. The panel says so rather
- * than letting the reader guess.
+ * Nothing takes effect until the notebook is deployed: production listens to the triggers
+ * of the deployed version, not of the draft being edited here. A trigger that is not in
+ * that version yet — or differs from it — is marked, so nobody adds a cron, waits for it
+ * and decides it is broken.
  */
 export function TriggerPanel({ triggers, isSaved, onAdd, onUpdate, onRemove }: TriggerPanelProps) {
+  const notebookId = useNotebookStore((state) => state.id);
+  const deployedTriggers = useDeployedTriggers(notebookId);
+
   return (
     <div className="w-full p-3 space-y-3">
       <div className="flex items-center gap-2">
@@ -82,7 +128,8 @@ export function TriggerPanel({ triggers, isSaved, onAdd, onUpdate, onRemove }: T
 
       {triggers.length > 0 && !isSaved && (
         <p className="text-[10px] text-amber-500 leading-normal">
-          Save the notebook for these to take effect — triggers are read from the saved document.
+          Save and deploy the notebook for these to take effect — triggers run from the
+          deployed version.
         </p>
       )}
 
@@ -95,6 +142,12 @@ export function TriggerPanel({ triggers, isSaved, onAdd, onUpdate, onRemove }: T
               trigger.enabled === false && 'opacity-50'
             )}
           >
+            {deployedTriggers !== undefined && isTriggerPending(trigger, deployedTriggers) && (
+              <p className="text-[9px] uppercase tracking-widest text-amber-500">
+                Not active yet — deploy to activate
+              </p>
+            )}
+
             <div className="flex items-center gap-2">
               {trigger.kind === 'cron' ? (
                 <Clock size={12} className="text-muted-foreground shrink-0" />

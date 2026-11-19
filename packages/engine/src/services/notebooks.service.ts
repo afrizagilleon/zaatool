@@ -93,17 +93,38 @@ export class NotebooksService {
 
   /** Every document at once, for anything that has to look at the whole workspace. */
   async getAllDocuments(): Promise<
-    { document: NotebookJson; updatedAt: string; deployed: boolean }[]
+    {
+      document: NotebookJson;
+      updatedAt: string;
+      deployed: boolean;
+      deployedDocument: NotebookJson | null;
+    }[]
   > {
     const { rows } = await pool.query(
-      "SELECT * FROM notebooks ORDER BY updated_at DESC"
+      `SELECT n.*, v.document AS deployed_document
+       FROM notebooks n
+       LEFT JOIN notebook_versions v ON v.id = n.deployed_version_id
+       ORDER BY n.updated_at DESC`
     );
-    return (rows as (NotebookRecord & { deployed_version_id: string | null })[]).map((row) => ({
+    return (
+      rows as (NotebookRecord & {
+        deployed_version_id: string | null;
+        deployed_document: string | NotebookJson | null;
+      })[]
+    ).map((row) => ({
       document: this.parseDocument(row),
       updatedAt: new Date(row.updated_at).toISOString(),
       // The map draws it, so it has to travel with the document rather than be a second
       // query the map's caller is expected to remember.
       deployed: row.deployed_version_id !== null,
+      // What production listens to. The map draws triggers from this, and only marks the
+      // draft's as not active yet, because the draft changes nothing until a deploy.
+      deployedDocument:
+        row.deployed_document === null
+          ? null
+          : typeof row.deployed_document === "string"
+            ? (JSON.parse(row.deployed_document) as NotebookJson)
+            : row.deployed_document,
     }));
   }
 
