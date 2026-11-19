@@ -108,7 +108,11 @@ try {
   });
 
   await check("tampered signature is still 401", async () => {
-    const link = signStorageLink(`${DIR}/note.txt`).replace(/sig=./, "sig=X");
+    // Always a different first character: replacing it with a fixed "X" left the link
+    // valid whenever the real signature already started with "X" (1 run in 64).
+    const link = signStorageLink(`${DIR}/note.txt`).replace(/sig=(.)/, (_m, first: string) =>
+      `sig=${first === "A" ? "B" : "A"}`
+    );
     assert.equal((await fetch(`${base}${link}`)).status, 401);
   });
 
