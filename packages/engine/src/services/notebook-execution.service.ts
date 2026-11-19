@@ -114,6 +114,25 @@ function sourcesOf(plan: NotebookPlan): Record<string, string> {
  */
 export class NotebookExecutionService {
   /**
+   * Root runs that have started and not yet settled, by run id, so a cancel can reach the
+   * signal their cells listen to. Only roots are here: a nested run belongs to the run that
+   * started it and is stopped with it.
+   */
+  private readonly activeRuns = new Map<string, AbortController>();
+
+  /**
+   * Stops a running root run: every cell in its chain is terminated and the run ends
+   * `failed` with "Cancelled by <who>". False when no such run is active here — it already
+   * finished, or it is not a root run.
+   */
+  cancel(runId: string, who: string): boolean {
+    const controller = this.activeRuns.get(runId);
+    if (!controller || controller.signal.aborted) return false;
+    controller.abort(new Error(`Cancelled by ${who}`));
+    return true;
+  }
+
+  /**
    * Runs a notebook on behalf of a cell in another notebook.
    *
    * Deliberately does *not* take a gate slot. The caller already holds one and is
@@ -350,6 +369,7 @@ export class NotebookExecutionService {
     // One signal for the whole chain: the deadline below and a cancel both abort it, and
     // every cell, nested or not, listens to it.
     const controller = new AbortController();
+    this.activeRuns.set(runId, controller);
 
     void (async () => {
       const release = await runGate.acquire();
@@ -385,6 +405,7 @@ export class NotebookExecutionService {
         settle({ status: "failed", errors: [(err as Error).message], ms: 0, outputs: {} });
       } finally {
         clearTimeout(deadline);
+        this.activeRuns.delete(runId);
         release();
       }
     })();

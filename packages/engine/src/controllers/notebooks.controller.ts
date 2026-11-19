@@ -502,6 +502,40 @@ export class NotebooksController {
     }
   };
 
+  /**
+   * Stops a running run. Creator-only (the route says so): it ends work someone else may
+   * be waiting on.
+   *
+   * The run id must belong to the notebook in the URL, as it must for reading one. A nested
+   * run is refused rather than stopped on its own: its caller would only see an odd failure
+   * and carry on, so the run that started the chain is the one to cancel.
+   */
+  cancelRun = async (req: Request, res: Response) => {
+    try {
+      const runId = String(req.params.runId);
+      const notebookId = String(req.params.id);
+      const run = await notebookRunsService.getById(runId);
+      if (!run || run.notebook_id !== notebookId) {
+        return res.status(404).json({ error: "Run not found" });
+      }
+      if (run.status !== "running") {
+        return res.status(409).json({ error: "Run has already finished" });
+      }
+      if (run.parent_run_id) {
+        return res.status(409).json({ error: "This run was started by another run — cancel the run that started it" });
+      }
+
+      const user = (req as Request & { user?: { username?: string } }).user;
+      const stopped = notebookExecutionService.cancel(runId, user?.username ?? "unknown");
+      // Marked running in the history but not active here: it finished a moment ago, or the
+      // engine restarted under it. Either way there is nothing left to stop.
+      if (!stopped) return res.status(409).json({ error: "Run is not active" });
+      res.status(202).json({ cancelled: true });
+    } catch (err: unknown) {
+      respondWithError(res, err);
+    }
+  };
+
   /** `latest` resolves the most recent run, which is what the editor restores on open. */
   getRun = async (req: Request, res: Response) => {
     try {
