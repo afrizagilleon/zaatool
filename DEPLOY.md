@@ -225,6 +225,28 @@ docker compose exec -T postgres psql -U zaa_user -d zaa_tool -c \
 
 Same numbers before and after `update.sh` = pass.
 
+**Behaviour change: triggers now follow the deployed version.** Older versions wrote the
+trigger index from the *draft* every time a notebook was saved. The engine now rebuilds that
+index from each notebook's deployed version every time it starts (never in the migration
+itself), and a save no longer touches it. So after this update a cron or webhook that was
+added to a draft **after** that notebook's last deploy — and that was firing until now —
+stops firing until the notebook is deployed again, and a webhook whose secret was removed
+only in the draft gets its secret back. Every such change is printed once at boot, one line
+each:
+
+```bash
+docker compose logs engine | grep "Trigger index"
+```
+
+No lines means nothing changed. Notebooks that were never deployed have no triggers.
+
+Two rules apply from the same update, and both refuse at deploy time with a message that
+says why: a notebook cannot be deployed while another deployed notebook has the same name
+(`notebooks.run("name")` in production looks names up among deployed notebooks, so two of
+one name would be ambiguous), and a webhook with no `secretKey` needs a slug of at least 22
+letters, digits, `-` or `_`. A notebook that is already deployed keeps running until you
+next deploy it; it is only that deploy that can be refused.
+
 ---
 
 ## Restoring from a backup

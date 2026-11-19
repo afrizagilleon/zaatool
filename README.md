@@ -75,7 +75,13 @@ gets a compact card instead of an empty grid.
 
 **Deploy** — saving is not publishing. A draft runs when you run it; a *deployed* version
 is what triggers, callers and agents get. Editing at 2pm cannot change what the webhook did
-at 2:01.
+at 2:01. That covers *which* triggers are listening (cron schedules, webhook slugs and their
+secrets are read from the deployed version, so a trigger you add to the draft starts only
+when you deploy, and undeploying makes a webhook answer 404 and a cron stop), and *which
+notebook* `notebooks.run("name")` or a page button reaches in production: the name it was
+deployed under, not whatever the draft is called now. Because of that, a deploy is refused
+while another deployed notebook already has the same name, and for a webhook with no secret
+unless its slug is at least 22 letters, digits, `-` or `_`.
 
 **Triggers** — `cron` and `webhook`. Webhook secrets are referenced by name from the secrets
 store, never inlined into the notebook document.
