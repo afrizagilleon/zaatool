@@ -11,7 +11,7 @@ import { NotebookRunRecorder } from "./notebook-run-recorder.js";
 import { secretsService } from "./secrets.service.js";
 import type { NotebookCallRequest, NotebookCaller } from "../core/notebook-call.js";
 import type { NotebookPlan } from "../core/notebook-compiler.js";
-import type { NotebookRunTrigger } from "@zaa-tool/shared";
+import type { NotebookJson, NotebookRunTrigger } from "@zaa-tool/shared";
 
 export class NotebookNotFoundError extends Error {
   constructor(id: string) {
@@ -143,19 +143,37 @@ export class NotebookExecutionService {
     }
   ): Promise<Record<string, unknown>> {
     const reference = String(request.notebook ?? "").trim();
-    const found = await notebooksService.findByIdOrName(reference);
+    // A production run looks the callee up among the names of what is *deployed*; a draft
+    // run among the drafts. Resolving production against the draft `name` column made a
+    // rename in the editor break a deployed caller before anyone deployed anything.
+    let found: { id: string };
+    let document: NotebookJson;
 
-    if (found === null) throw new NotebookNotFoundError(reference);
-    if (found === "ambiguous") {
-      throw new Error(
-        `More than one notebook is named "${reference}" — call it by id instead`
-      );
+    if (context.useDeployed) {
+      const deployed = await notebooksService.findDeployedByIdOrName(reference);
+      if (deployed === null) throw new NotebookNotFoundError(reference);
+      if (deployed === "ambiguous") {
+        throw new Error(
+          `More than one notebook is named "${reference}" — call it by id instead`
+        );
+      }
+      if (deployed === "undeployed") {
+        const record = await notebooksService.getById(reference);
+        throw new NotebookNotDeployedError(record?.name ?? reference);
+      }
+      found = deployed;
+      document = deployed.document;
+    } else {
+      const draft = await notebooksService.findByIdOrName(reference);
+      if (draft === null) throw new NotebookNotFoundError(reference);
+      if (draft === "ambiguous") {
+        throw new Error(
+          `More than one notebook is named "${reference}" — call it by id instead`
+        );
+      }
+      found = draft;
+      document = notebooksService.parseDocument(draft);
     }
-
-    const document = context.useDeployed
-      ? await notebooksService.getDeployedDocument(found.id)
-      : notebooksService.parseDocument(found);
-    if (!document) throw new NotebookNotDeployedError(found.name);
 
     const chain = [...context.names, document.name];
 

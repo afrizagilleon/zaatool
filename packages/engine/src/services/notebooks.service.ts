@@ -28,6 +28,13 @@ export interface NotebookRecord {
   updated_at: Date;
 }
 
+/** A deployed notebook as production sees it: its id, and the name and document of the version. */
+export interface DeployedNotebook {
+  id: string;
+  name: string;
+  document: NotebookJson;
+}
+
 export class NotebooksService {
   /**
    * Every notebook as a list row, without reading a single document.
@@ -108,6 +115,41 @@ export class NotebooksService {
     if (rows.length === 0) return null;
     if (rows.length > 1) return "ambiguous";
     return rows[0];
+  }
+
+  /**
+   * How a **production** run resolves `notebooks.run("...")` and a page button's target.
+   *
+   * Same rules as `findByIdOrName` — an id wins, an ambiguous name is refused — but the
+   * names searched are the ones inside the *deployed versions*, not the `name` column,
+   * which is the draft's. Without this, renaming a draft callee at 2pm broke the deployed
+   * caller at 2:01 with "not found", and a draft that happened to share a callee's name
+   * made the call ambiguous. A notebook that is not deployed has no name here at all: a
+   * name reference to it is simply not found, and only an id reference can say
+   * `"undeployed"`, because there the notebook is known to exist.
+   */
+  async findDeployedByIdOrName(
+    reference: string
+  ): Promise<DeployedNotebook | "ambiguous" | "undeployed" | null> {
+    const { rows } = await pool.query(
+      `SELECT n.id FROM notebooks n
+       JOIN notebook_versions v ON v.id = n.deployed_version_id
+       WHERE n.id::text = $1
+       UNION ALL
+       SELECT n.id FROM notebooks n
+       JOIN notebook_versions v ON v.id = n.deployed_version_id
+       WHERE (v.document::jsonb ->> 'name') = $1 AND n.id::text <> $1`,
+      [reference]
+    );
+
+    if (rows.length > 1) return "ambiguous";
+    if (rows.length === 0) {
+      return (await this.getById(reference)) ? "undeployed" : null;
+    }
+
+    const id = String(rows[0].id);
+    const document = await this.getDeployedDocument(id);
+    return document ? { id, name: document.name, document } : null;
   }
 
   /**

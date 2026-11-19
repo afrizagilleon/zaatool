@@ -73,13 +73,15 @@ async function withQuestions(actions: NotebookAction[]): Promise<NotebookPageAct
       continue;
     }
 
-    const target = await notebooksService.findByIdOrName(action.notebook);
-    if (target === null || target === "ambiguous") {
+    // By the target's deployed name, like the press itself: a form that asked about a
+    // renamed draft would not be the form the button then runs against.
+    const target = await notebooksService.findDeployedByIdOrName(action.notebook);
+    if (target === null || target === "ambiguous" || target === "undeployed") {
       asked.push(action);
       continue;
     }
 
-    const document = await notebooksService.getDeployedDocument(target.id);
+    const document = target.document;
     const fixed = new Set(Object.keys(action.args ?? {}));
     const asks = (document?.inputs ?? []).filter((input) => !fixed.has(input.name));
 
@@ -288,7 +290,9 @@ export class NotebooksController {
         return res.status(400).json({ error: `"${action.label}" is not a run action.` });
       }
 
-      const target = await notebooksService.findByIdOrName(action.notebook);
+      // Resolved among the names of what is *deployed*, not the draft `name` column: this
+      // is a production page, and renaming a draft target must not break its button.
+      const target = await notebooksService.findDeployedByIdOrName(action.notebook);
       if (target === null) {
         return res.status(404).json({ error: `"${action.notebook}" does not exist.` });
       }
@@ -297,14 +301,14 @@ export class NotebooksController {
           .status(409)
           .json({ error: `More than one notebook is named "${action.notebook}".` });
       }
+      if (target === "undeployed") {
+        return res.status(409).json({ error: `"${action.notebook}" is not deployed.` });
+      }
 
       // Only what the target actually declares is passed on, so a page cannot smuggle
       // fields into another notebook's arguments. What the button fixes wins over what
       // the person typed — that is what "fixed arguments" means.
-      const deployedTarget = await notebooksService.getDeployedDocument(target.id);
-      if (!deployedTarget) {
-        return res.status(409).json({ error: `"${target.name}" is not deployed.` });
-      }
+      const deployedTarget = target.document;
       const declared = new Set((deployedTarget.inputs ?? []).map((input) => input.name));
       const passed = Object.fromEntries(
         Object.entries((req.body?.args ?? {}) as Record<string, unknown>).filter(([name]) =>
