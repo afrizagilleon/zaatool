@@ -4,6 +4,7 @@ import { fileURLToPath } from "url";
 import { buildSandboxEnv } from "./sandbox-env.js";
 import type { NotebookCaller } from "./notebook-call.js";
 import type { FileWriter } from "./notebook-files.js";
+import { STORAGE_DIR } from "../services/storage.service.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -43,6 +44,7 @@ export function runJsNode(
           canCall: Boolean(onCall),
           canWriteFile: Boolean(onFile),
           packages,
+          storageRoot: STORAGE_DIR,
         },
         // The worker gets its own environment rather than a copy of the
         // engine's, so user code cannot read the server's credentials.

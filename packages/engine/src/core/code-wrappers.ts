@@ -1,4 +1,14 @@
 import fs from "fs";
+import nodePath from "path";
+
+/**
+ * Storage root the engine handed this worker. FileObject derives what it reads from
+ * `path` and this root; it never trusts an `absolute_path` that arrived as data.
+ */
+let storageRoot = "";
+export function setStorageRoot(root: string): void {
+  storageRoot = typeof root === "string" ? nodePath.resolve(root) : "";
+}
 
 export class Table {
   public rows: any[];
@@ -56,7 +66,15 @@ export class FileObject {
     this.name = fileData?.name || "";
     this.path = fileData?.path || "";
     this.url = fileData?.url || "";
-    this.absolute_path = fileData?.absolute_path || "";
+    this.absolute_path = this.derive(fileData?.path);
+  }
+
+  private derive(rel: unknown): string {
+    if (!storageRoot || typeof rel !== "string" || rel.trim() === "") return "";
+    const stripped = rel.trim().replace(/^[/\\]+/, "");
+    if (!stripped || nodePath.isAbsolute(stripped)) return "";
+    const resolved = nodePath.resolve(storageRoot, stripped);
+    return resolved.startsWith(storageRoot + nodePath.sep) ? resolved : "";
   }
 
   readAsText() {

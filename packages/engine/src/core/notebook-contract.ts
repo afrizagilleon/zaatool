@@ -1,4 +1,6 @@
 import type { NotebookParam } from "@zaa-tool/shared";
+import { safeSubPath } from "./storage-paths.js";
+import { STORAGE_DIR } from "../services/storage.service.js";
 
 /**
  * Enforcement of the reuse boundary: what a caller must supply, and what it gets back.
@@ -55,17 +57,32 @@ function coerce(param: NotebookParam, value: unknown): { ok: true; value: unknow
      * type without having uploaded anything.
      */
     case "file": {
+      // Only `{ name, path, url? }` survives. A descriptor is data from the caller, so
+      // anything else on it (notably `absolute_path`) is dropped rather than trusted,
+      // and a `path` that does not stay inside storage is a refusal, not a skip.
+      let raw: { name?: unknown; path?: unknown; url?: unknown };
       if (typeof value === "string" && value.trim() !== "") {
-        return { ok: true, value: { name: value.split("/").pop() ?? value, path: value.trim() } };
-      }
-      if (value && typeof value === "object" && !Array.isArray(value)) {
-        const file = value as { path?: unknown };
-        if (typeof file.path === "string" && file.path.trim() !== "") {
-          return { ok: true, value };
+        raw = { name: value.split("/").pop() ?? value, path: value.trim() };
+      } else if (value && typeof value === "object" && !Array.isArray(value)) {
+        raw = value as typeof raw;
+        if (typeof raw.path !== "string" || raw.path.trim() === "") {
+          return { ok: false, reason: "expected a file with a `path`" };
         }
-        return { ok: false, reason: "expected a file with a `path`" };
+      } else {
+        return { ok: false, reason: `expected a file, got ${describe(value)}` };
       }
-      return { ok: false, reason: `expected a file, got ${describe(value)}` };
+
+      const relative = safeSubPath(raw.path, STORAGE_DIR);
+      if (relative === null || relative === "") {
+        return { ok: false, reason: "expected a file whose `path` is inside storage" };
+      }
+
+      const file: { name: string; path: string; url?: string } = {
+        name: typeof raw.name === "string" ? raw.name : relative.split("/").pop() ?? relative,
+        path: (raw.path as string).trim(),
+      };
+      if (typeof raw.url === "string") file.url = raw.url;
+      return { ok: true, value: file };
     }
   }
 }

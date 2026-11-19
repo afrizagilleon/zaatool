@@ -185,12 +185,16 @@ export class NotebookFilesService {
     for (const param of params) {
       if (param?.type !== "file") continue;
       const value = enriched[param.name] as { path?: string } | undefined;
-      if (!value || typeof value.path !== "string") continue;
+      if (!value || typeof value !== "object") continue;
 
-      const relative = safeSubPath(value.path, STORAGE_DIR);
-      if (relative === null || relative === "") continue;
-
-      enriched[param.name] = { ...value, absolute_path: this.absolutePathOf(relative) };
+      // A caller-supplied `absolute_path` is never kept: it is recomputed from a
+      // validated path, or the field is left without one.
+      const { absolute_path: _ignored, ...rest } = value as Record<string, unknown>;
+      const relative = typeof value.path === "string" ? safeSubPath(value.path, STORAGE_DIR) : null;
+      enriched[param.name] =
+        relative === null || relative === ""
+          ? rest
+          : { ...rest, absolute_path: this.absolutePathOf(relative) };
     }
     return enriched;
   }

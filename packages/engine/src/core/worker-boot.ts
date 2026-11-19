@@ -4,7 +4,7 @@ import { createRequire } from "module";
 const nodeRequire = createRequire(import.meta.url);
 // Secrets arrive through the worker's `env` option (see js-runner), not through
 // workerData — the worker's process.env is already scoped to this node.
-const { code, inputs, inputsSchema, canCall, canWriteFile, packages } = workerData;
+const { code, inputs, inputsSchema, canCall, canWriteFile, packages, storageRoot } = workerData;
 
 /**
  * `require`, narrowed to what the notebook declared.
@@ -156,7 +156,8 @@ const files = {
       .replace("worker-boot.ts", "code-wrappers.ts")
       .replace("worker-boot.js", "code-wrappers.js");
 
-    const { Table, FileObject, ImageObject } = await import(wrappersPath);
+    const { Table, FileObject, ImageObject, setStorageRoot } = await import(wrappersPath);
+    setStorageRoot(storageRoot);
 
     // Wrap inputs based on schema type
     const wrappedInputs = { ...inputs };

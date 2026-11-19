@@ -2,6 +2,7 @@ import { spawn } from "child_process";
 import { buildSandboxEnv } from "./sandbox-env.js";
 import { PY_RPC_PREFIX, type NotebookCaller } from "./notebook-call.js";
 import type { FileWriter } from "./notebook-files.js";
+import { STORAGE_DIR } from "../services/storage.service.js";
 
 export function resolvePythonLockedPackages(packages: string[]): Promise<string[]> {
   if (!Array.isArray(packages) || packages.length === 0) {
@@ -116,6 +117,21 @@ class Table:
     def to_json(self):
         return self.rows
 
+_STORAGE_ROOT = ""
+
+def _zaa_derive(rel):
+    # Never trust an absolute_path that arrived as data: derive from path, contained in root.
+    if not _STORAGE_ROOT or not isinstance(rel, str) or not rel.strip():
+        return ""
+    stripped = rel.strip().lstrip("/\\\\")
+    if not stripped or os.path.isabs(stripped):
+        return ""
+    root = os.path.realpath(_STORAGE_ROOT)
+    resolved = os.path.realpath(os.path.join(root, stripped))
+    if not resolved.startswith(root + os.sep):
+        return ""
+    return resolved
+
 class FileObject:
     def __init__(self, file_data):
         if not isinstance(file_data, dict):
@@ -123,7 +139,7 @@ class FileObject:
         self.name = file_data.get("name", "")
         self.path = file_data.get("path", "")
         self.url = file_data.get("url", "")
-        self.absolute_path = file_data.get("absolute_path", "")
+        self.absolute_path = _zaa_derive(self.path)
     def read_as_text(self):
         if not self.absolute_path or not os.path.exists(self.absolute_path):
             return ""
@@ -239,6 +255,7 @@ class _Files:
 files = _Files()
 
 payload = _zaa_receive()
+_STORAGE_ROOT = payload.get("storageRoot", "")
 inputs = payload.get("inputs", {})
 inputs_schema = payload.get("inputsSchema", [])
 notebooks._enabled = bool(payload.get("canCall"))
@@ -421,7 +438,7 @@ except Exception as err:
     });
 
     // The child reads this as its first line and keeps stdin open for call replies.
-    send({ inputs, inputsSchema, canCall: Boolean(onCall), canWriteFile: Boolean(onFile) });
+    send({ storageRoot: STORAGE_DIR, inputs, inputsSchema, canCall: Boolean(onCall), canWriteFile: Boolean(onFile) });
 
     proc.on("error", (err) => {
       // A missing `uv` reads as ENOENT on a word nobody typed, which is a confusing way
