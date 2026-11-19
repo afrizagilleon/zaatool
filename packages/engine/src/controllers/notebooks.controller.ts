@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { randomUUID } from "crypto";
 import { fromMarkdown, toMarkdown } from "../core/notebook-text.js";
-import { notebooksService } from "../services/notebooks.service.js";
+import { notebooksService, DeployRefusedError } from "../services/notebooks.service.js";
 import { notebookFilesService } from "../services/notebook-files.service.js";
 import { buildNotebookMap } from "../core/notebook-map.js";
 import { outputSpecs } from "../core/notebook-outputs.js";
@@ -108,6 +108,11 @@ function respondWithError(res: Response, err: unknown) {
   // Not a bad request and not a missing one: the notebook exists, but nobody has said
   // this version may run unattended.
   if (err instanceof NotebookNotDeployedError) {
+    return res.status(409).json({ error: err.message });
+  }
+  // The author can fix this one — a clashing name or an unguarded, guessable webhook —
+  // and the message says which.
+  if (err instanceof DeployRefusedError) {
     return res.status(409).json({ error: err.message });
   }
   console.error("Notebooks controller error:", err);
@@ -254,7 +259,8 @@ export class NotebooksController {
    *
    * Separate from deleting: the draft, the history and the versions all survive. What
    * stops is everything that was running unattended — the agent tool, the page, and the
-   * triggers, which start answering 409 rather than failing silently.
+   * triggers, which stop being listened to: a webhook answers 404 like any unknown slug
+   * and the cron is no longer scheduled, rather than both failing noisily.
    */
   undeploy = async (req: Request, res: Response) => {
     try {

@@ -190,8 +190,11 @@ await check("the run is recorded, and says an agent asked for it", async () => {
 console.log("\nambiguity");
 
 await check("two notebooks with one name publish neither, rather than a coin toss", async () => {
+  // FX15: deploying refuses a second notebook under the *same* name, so the twins differ
+  // in punctuation only — 'zz-cat-twin' and 'zz_cat_twin' are different names that
+  // become one tool name, which is the collision the catalogue still has to survive.
   const first = await store(adder("zz-cat-twin", "one"));
-  const second = await store(adder("zz-cat-twin", "two"));
+  const second = await store(adder("zz_cat_twin", "two"));
   await notebooksService.deploy(first, "test");
   await notebooksService.deploy(second, "test");
 

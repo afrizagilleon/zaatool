@@ -246,7 +246,7 @@ await pool.query("DELETE FROM secrets WHERE key = 'ZZ_FILES_HOOK'").catch(() => 
 await secretsService.create("ZZ_FILES_HOOK", "zz-files-hook-secret", true);
 
 const GUARDED_SLUG = "zz-files-guarded-slug";
-const OPEN_SLUG = "zz-files-open-slug";
+const OPEN_SLUG = "zz-files-open-webhook-slug";
 
 await store(
   [

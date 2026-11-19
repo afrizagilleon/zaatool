@@ -74,9 +74,9 @@ async function latestRun(notebookId: string) {
 console.log("\nthe gate");
 
 await check("a webhook on a notebook nobody deployed is an unknown slug", async () => {
-  await store(notebook("zz-dep-undeployed", "zz-dep-slug-1", "draft"));
+  await store(notebook("zz-dep-undeployed", "zz-dep-open-webhook-slug-1", "draft"));
 
-  const res = await fetch(`${base}/hooks/zz-dep-slug-1`, {
+  const res = await fetch(`${base}/hooks/zz-dep-open-webhook-slug-1`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: "{}",
@@ -93,7 +93,7 @@ await check("after deploying, the same webhook runs", async () => {
   assert.ok(found && found !== "ambiguous");
   await notebooksService.deploy(found.id, "test");
 
-  const res = await fetch(`${base}/hooks/zz-dep-slug-1`, {
+  const res = await fetch(`${base}/hooks/zz-dep-open-webhook-slug-1`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: "{}",
@@ -105,13 +105,13 @@ await check("after deploying, the same webhook runs", async () => {
 console.log("\nwhat a trigger actually runs");
 
 await check("editing after deploying does not change what the webhook does", async () => {
-  const id = await store(notebook("zz-dep-pinned", "zz-dep-slug-2", "deployed-version"));
+  const id = await store(notebook("zz-dep-pinned", "zz-dep-open-webhook-slug-2", "deployed-version"));
   await notebooksService.deploy(id, "test");
 
   // The draft moves on. This is the moment that used to change production.
-  await store({ ...notebook("zz-dep-pinned", "zz-dep-slug-2", "draft-version"), id });
+  await store({ ...notebook("zz-dep-pinned", "zz-dep-open-webhook-slug-2", "draft-version"), id });
 
-  const res = await fetch(`${base}/hooks/zz-dep-slug-2`, {
+  const res = await fetch(`${base}/hooks/zz-dep-open-webhook-slug-2`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: "{}",
@@ -120,7 +120,7 @@ await check("editing after deploying does not change what the webhook does", asy
   assert.deepEqual((await res.json()).outputs, { marker: "deployed-version" });
 
   const run = await latestRun(id);
-  const source = run?.cell_results["zz-dep-slug-2-cell"]?.source ?? "";
+  const source = run?.cell_results["zz-dep-open-webhook-slug-2-cell"]?.source ?? "";
   assert.match(source, /deployed-version/, "the webhook ran the draft");
   assert.ok(!source.includes("draft-version"), "the webhook ran the draft");
 });
@@ -143,7 +143,7 @@ await check("deploying again moves production to the current draft", async () =>
   assert.ok(found && found !== "ambiguous");
   await notebooksService.deploy(found.id, "test");
 
-  const res = await fetch(`${base}/hooks/zz-dep-slug-2`, {
+  const res = await fetch(`${base}/hooks/zz-dep-open-webhook-slug-2`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: "{}",
@@ -161,7 +161,7 @@ await check("a notebook that declares outputs hands them back to the caller", as
     runtime: "node",
     inputs: [{ name: "amount", type: "number", required: true }],
     outputs: ["marker", "doubled"],
-    triggers: [{ id: "zz-dep-ans-t", kind: "webhook", slug: "zz-dep-slug-5" }],
+    triggers: [{ id: "zz-dep-ans-t", kind: "webhook", slug: "zz-dep-open-webhook-slug-5" }],
     steps: [
       {
         id: "zz-dep-ans-cell",
@@ -172,7 +172,7 @@ await check("a notebook that declares outputs hands them back to the caller", as
   });
   await notebooksService.deploy(id, "test");
 
-  const res = await fetch(`${base}/hooks/zz-dep-slug-5`, {
+  const res = await fetch(`${base}/hooks/zz-dep-open-webhook-slug-5`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ amount: 21 }),
@@ -189,12 +189,12 @@ await check("a notebook that declares none still answers immediately", async () 
     id: "",
     name: "zz-dep-fireforget",
     runtime: "node",
-    triggers: [{ id: "zz-dep-ff-t", kind: "webhook", slug: "zz-dep-slug-6" }],
+    triggers: [{ id: "zz-dep-ff-t", kind: "webhook", slug: "zz-dep-open-webhook-slug-6" }],
     steps: [{ id: "zz-dep-ff-cell", kind: "cell", code: "return {};" }],
   });
   await notebooksService.deploy(id, "test");
 
-  const res = await fetch(`${base}/hooks/zz-dep-slug-6`, {
+  const res = await fetch(`${base}/hooks/zz-dep-open-webhook-slug-6`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: "{}",
@@ -210,12 +210,12 @@ await check("a failing notebook reports the failure rather than a cheerful run i
     name: "zz-dep-broken",
     runtime: "node",
     outputs: ["never"],
-    triggers: [{ id: "zz-dep-broken-t", kind: "webhook", slug: "zz-dep-slug-7" }],
+    triggers: [{ id: "zz-dep-broken-t", kind: "webhook", slug: "zz-dep-open-webhook-slug-7" }],
     steps: [{ id: "zz-dep-broken-cell", kind: "cell", code: "throw new Error('nope');" }],
   });
   await notebooksService.deploy(id, "test");
 
-  const res = await fetch(`${base}/hooks/zz-dep-slug-7`, {
+  const res = await fetch(`${base}/hooks/zz-dep-open-webhook-slug-7`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: "{}",
@@ -230,7 +230,7 @@ await check("a failing notebook reports the failure rather than a cheerful run i
 console.log("\nwhat the editor is told");
 
 await check("deploy state reports who, when, and whether the draft has moved on", async () => {
-  const id = await store(notebook("zz-dep-state", "zz-dep-slug-3", "one"));
+  const id = await store(notebook("zz-dep-state", "zz-dep-open-webhook-slug-3", "one"));
 
   const before = await notebooksService.getDeployState(id);
   assert.deepEqual(
@@ -244,7 +244,7 @@ await check("deploy state reports who, when, and whether the draft has moved on"
   assert.equal(justDeployed?.deployedBy, "afriza");
   assert.equal(justDeployed?.hasUndeployedChanges, false, "nothing changed, yet it says it did");
 
-  await store({ ...notebook("zz-dep-state", "zz-dep-slug-3", "two"), id });
+  await store({ ...notebook("zz-dep-state", "zz-dep-open-webhook-slug-3", "two"), id });
   const afterEdit = await notebooksService.getDeployState(id);
   assert.equal(afterEdit?.hasUndeployedChanges, true);
 });
@@ -285,7 +285,7 @@ await check("a triggered run calls the callee's deployed version, not its draft"
     name: "zz-dep-caller",
     runtime: "node",
     outputs: ["got"],
-    triggers: [{ id: "zz-dep-caller-trigger", kind: "webhook", slug: "zz-dep-slug-4" }],
+    triggers: [{ id: "zz-dep-caller-trigger", kind: "webhook", slug: "zz-dep-open-webhook-slug-4" }],
     steps: [
       {
         id: "zz-dep-caller-cell",
@@ -296,7 +296,7 @@ await check("a triggered run calls the callee's deployed version, not its draft"
   });
   await notebooksService.deploy(callerId, "test");
 
-  const res = await fetch(`${base}/hooks/zz-dep-slug-4`, {
+  const res = await fetch(`${base}/hooks/zz-dep-open-webhook-slug-4`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: "{}",

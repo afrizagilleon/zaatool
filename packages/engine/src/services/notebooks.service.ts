@@ -28,6 +28,22 @@ export interface NotebookRecord {
   updated_at: Date;
 }
 
+/** Shortest slug a webhook may have when no secret guards it. */
+export const MIN_OPEN_SLUG_LENGTH = 22;
+
+/**
+ * A deploy that was refused for a reason the author can fix.
+ *
+ * A type of its own so the controller answers 409 with the message rather than a 500, and
+ * so nothing has to recognise it by its wording.
+ */
+export class DeployRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DeployRefusedError";
+  }
+}
+
 /** A deployed notebook as production sees it: its id, and the name and document of the version. */
 export interface DeployedNotebook {
   id: string;
@@ -213,6 +229,10 @@ export class NotebooksService {
     if (!record) return null;
 
     const doc = this.parseDocument(record);
+
+    // Before anything is written: a refused deploy leaves no version and no index rows.
+    await this.assertDeployable(id, doc);
+
     let lockedPackages: string[] | null = null;
     if (record.runtime === "python" && Array.isArray(doc.packages) && doc.packages.length > 0) {
       lockedPackages = await resolvePythonLockedPackages(doc.packages);
@@ -234,6 +254,53 @@ export class NotebooksService {
 
     notifyCatalogChanged({ change: "deployed", notebookId: id });
     return { versionId };
+  }
+
+  /**
+   * What a deploy refuses, because production would otherwise be ambiguous or open.
+   *
+   * Two things, both about names that anyone on the internet or any caller will use:
+   *
+   *  - **The name must be free among deployed notebooks.** Production resolves
+   *    `notebooks.run("name")` by deployed name, so two deployed notebooks sharing one
+   *    would make every call to it ambiguous. Drafts stay free to share names; only the
+   *    moment of deploying is checked, and re-deploying the notebook that holds the name
+   *    is of course allowed.
+   *  - **A webhook without a secret needs a slug nobody can guess.** The slug is then the
+   *    only credential, so it must be at least `MIN_OPEN_SLUG_LENGTH` characters of
+   *    `[A-Za-z0-9_-]`. A webhook with a secret may use any slug, and the automatic
+   *    slug (a UUID) qualifies. Disabled triggers are not listening, so they are not held
+   *    to it.
+   */
+  private async assertDeployable(id: string, doc: NotebookJson): Promise<void> {
+    const { rows } = await pool.query(
+      `SELECT n.id, n.name FROM notebooks n
+       JOIN notebook_versions v ON v.id = n.deployed_version_id
+       WHERE n.id <> $1 AND (v.document::jsonb ->> 'name') = $2`,
+      [id, doc.name]
+    );
+    if (rows.length > 0) {
+      throw new DeployRefusedError(
+        `Cannot deploy "${doc.name}": the deployed notebook "${rows[0].name}" (${rows[0].id}) ` +
+          `already uses that name, so calls by name would be ambiguous. Rename one of them first.`
+      );
+    }
+
+    const weak: string[] = [];
+    for (const trigger of doc.triggers ?? []) {
+      if (trigger.kind !== "webhook" || trigger.enabled === false) continue;
+      const slug = trigger.slug?.trim();
+      if (!slug || trigger.secretKey?.trim()) continue;
+      if (slug.length < MIN_OPEN_SLUG_LENGTH || !/^[A-Za-z0-9_-]+$/.test(slug)) weak.push(slug);
+    }
+    if (weak.length > 0) {
+      const slugs = weak.map((slug) => `"${slug}"`).join(", ");
+      throw new DeployRefusedError(
+        `Cannot deploy "${doc.name}": the webhook ${slugs} has no secretKey and its slug is ` +
+          `too easy to guess. Add a secretKey, or use a slug of at least ${MIN_OPEN_SLUG_LENGTH} ` +
+          `letters, digits, "-" or "_" (or leave the slug out to get a random one).`
+      );
+    }
   }
 
   /**

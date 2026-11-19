@@ -323,6 +323,13 @@ await check("deploying a python notebook pins packages to locked_packages in dat
 
   await initDb();
 
+  // A failed earlier run leaves its notebook deployed, and deploying refuses a second one
+  // under the same name (FX15), so start from none.
+  const { rows: leftovers } = await pool.query(
+    "SELECT id FROM notebooks WHERE name = 'zz-python-lock-test'"
+  );
+  for (const row of leftovers) await notebooksService.delete(row.id);
+
   const nb = await notebooksService.save({
     name: "zz-python-lock-test",
     runtime: "python",
