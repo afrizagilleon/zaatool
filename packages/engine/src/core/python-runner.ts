@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
 import { buildSandboxEnv } from "./sandbox-env.js";
-import { PY_RPC_PREFIX, type NotebookCaller } from "./notebook-call.js";
+import { randomBytes } from "node:crypto";
+import { PY_RPC_PREFIX, pyRpcPrefix, type NotebookCaller } from "./notebook-call.js";
 import type { FileWriter } from "./notebook-files.js";
 import { STORAGE_DIR } from "../services/storage.service.js";
 
@@ -184,8 +185,13 @@ class CustomEncoder(json.JSONEncoder):
         return super().default(obj)
 
 # Every protocol frame carries this prefix, so an unmarked line is user output and
-# is reported as a log rather than corrupting this cell's result.
-_ZAA = ${JSON.stringify(PY_RPC_PREFIX)}
+# is reported as a log rather than corrupting this cell's result. The prefix ends in a
+# per-run secret the engine sends in the first stdin payload (never argv/env), so DATA
+# a cell prints cannot forge a frame. User code can read _ZAA; that is fine - the
+# threat is attacker-controlled data the notebook prints, not the notebook's own code.
+# It is None until the payload arrives: nothing sends a frame before then (a failure
+# while reading the payload just raises, which reaches the engine as stderr + exit code).
+_ZAA = None
 
 def _zaa_send(frame):
     sys.stdout.write(_ZAA + json.dumps(frame, cls=CustomEncoder) + "\\n")
@@ -255,6 +261,7 @@ class _Files:
 files = _Files()
 
 payload = _zaa_receive()
+_ZAA = ${JSON.stringify(PY_RPC_PREFIX)} + str(payload.get("marker", "")) + "@@"
 _STORAGE_ROOT = payload.get("storageRoot", "")
 inputs = payload.get("inputs", {})
 inputs_schema = payload.get("inputsSchema", [])
@@ -323,8 +330,14 @@ except Exception as err:
       env: { PYTHONIOENCODING: "utf-8", ...buildSandboxEnv(secrets) },
     });
 
+    // Fresh per spawn, 256 bits. Reaches the child only in the first stdin payload, so it
+    // is in no argv, env, input or log. Lines without this exact prefix are plain logs.
+    const marker = randomBytes(32).toString("hex");
+    const framePrefix = pyRpcPrefix(marker);
+
     let stderr = "";
     let settled = false;
+    let terminalSeen = false;
     let finalOutput: Record<string, unknown> | undefined;
     let finalError: string | undefined;
 
@@ -351,12 +364,19 @@ except Exception as err:
     };
 
     const handleFrame = (frame: any): void => {
+      // Only the wrapper's own epilogue sends these, and only once; a repeat is ignored.
       if (frame?.type === "done") {
-        finalOutput = frame.output ?? undefined;
+        if (!terminalSeen) {
+          terminalSeen = true;
+          finalOutput = frame.output ?? undefined;
+        }
         return;
       }
       if (frame?.type === "error") {
-        finalError = frame.error || "Python raised an error";
+        if (!terminalSeen) {
+          terminalSeen = true;
+          finalError = frame.error || "Python raised an error";
+        }
         return;
       }
       if (frame?.type === "call") {
@@ -417,9 +437,9 @@ except Exception as err:
         stdoutBuffer = stdoutBuffer.slice(newline + 1);
         newline = stdoutBuffer.indexOf("\n");
 
-        if (line.startsWith(PY_RPC_PREFIX)) {
+        if (line.startsWith(framePrefix)) {
           try {
-            handleFrame(JSON.parse(line.slice(PY_RPC_PREFIX.length)));
+            handleFrame(JSON.parse(line.slice(framePrefix.length)));
           } catch {
             finalError = `Malformed frame from Python: ${line}`;
           }
@@ -438,7 +458,14 @@ except Exception as err:
     });
 
     // The child reads this as its first line and keeps stdin open for call replies.
-    send({ storageRoot: STORAGE_DIR, inputs, inputsSchema, canCall: Boolean(onCall), canWriteFile: Boolean(onFile) });
+    send({
+      marker,
+      storageRoot: STORAGE_DIR,
+      inputs,
+      inputsSchema,
+      canCall: Boolean(onCall),
+      canWriteFile: Boolean(onFile),
+    });
 
     proc.on("error", (err) => {
       // A missing `uv` reads as ENOENT on a word nobody typed, which is a confusing way

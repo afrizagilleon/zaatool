@@ -31,7 +31,17 @@ export type NotebookCaller = (
  * Marks a protocol line on the Python child's stdout.
  *
  * Python has one stdout and user code prints to it freely, so protocol frames need to
- * be unmistakable. Anything without this prefix is treated as a log line, which also
+ * be unmistakable. Anything without the full prefix is treated as a log line, which also
  * fixes plain `print()` breaking a cell's result.
+ *
+ * This constant is only the fixed BASE. A real frame line starts with
+ * `pyRpcPrefix(marker)` = base + a per-run random secret + "@@", because a fixed prefix
+ * let any printed data (e.g. a webhook body) forge frames. The marker travels to the
+ * child in the first stdin payload only. Bare-base lines are ordinary logs.
  */
 export const PY_RPC_PREFIX = "@@zaa-rpc@@";
+
+/** The exact prefix of a protocol line for the run that owns `marker`. */
+export function pyRpcPrefix(marker: string): string {
+  return `${PY_RPC_PREFIX}${marker}@@`;
+}
