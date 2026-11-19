@@ -1,5 +1,6 @@
 import { spawn } from "child_process";
 import { buildSandboxEnv } from "./sandbox-env.js";
+import { killTree, TREE_SPAWN_OPTIONS } from "./kill-tree.js";
 import { randomBytes } from "node:crypto";
 import { PY_RPC_PREFIX, pyRpcPrefix, type NotebookCaller } from "./notebook-call.js";
 import type { FileWriter } from "./notebook-files.js";
@@ -328,6 +329,7 @@ except Exception as err:
 
     const proc = spawn(command.bin, command.args, {
       env: { PYTHONIOENCODING: "utf-8", ...buildSandboxEnv(secrets) },
+      ...TREE_SPAWN_OPTIONS,
     });
 
     // Fresh per spawn, 256 bits. Reaches the child only in the first stdin payload, so it
@@ -338,6 +340,7 @@ except Exception as err:
     let stderr = "";
     let settled = false;
     let terminalSeen = false;
+    let exited = false;
     let finalOutput: Record<string, unknown> | undefined;
     let finalError: string | undefined;
 
@@ -345,6 +348,9 @@ except Exception as err:
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      // Whenever the engine gives up on the run (timeout, spawn error, ...) and the
+      // process is still alive, take down the whole tree, not just `uv`.
+      if (!exited) killTree(proc);
       resolve({ ...result, logs, ms: Date.now() - startTime });
     };
 
@@ -352,7 +358,6 @@ except Exception as err:
     let timer: NodeJS.Timeout | undefined;
     const startTimer = (): void => {
       timer = setTimeout(() => {
-        proc.kill("SIGKILL");
         finish({ error: `Timeout after ${timeoutMs}ms` });
       }, timeoutMs);
     };
@@ -480,6 +485,7 @@ except Exception as err:
     });
 
     proc.on("close", (code) => {
+      exited = true;
       if (finalError) return finish({ error: finalError });
       if (finalOutput !== undefined) return finish({ output: finalOutput });
       if (code !== 0) return finish({ error: stderr.trim() || "Python process failed" });

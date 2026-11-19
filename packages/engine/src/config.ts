@@ -54,6 +54,24 @@ export function maxUploadBytes(): number {
   return Math.floor(megabytes * 1024 * 1024);
 }
 
+/**
+ * Bytes. The default ceiling for a JSON request body. It is small because several routes
+ * (webhooks, shared pages, MCP) are parsed before anyone has proved who they are, and a
+ * body is held in memory whole. See `notebookJsonBodyLimit` for the one place that needs more.
+ */
+export function jsonBodyLimit(): number {
+  const raw = Number(process.env.MAX_JSON_BODY_MB);
+  const megabytes = Number.isFinite(raw) && raw > 0 ? raw : 1;
+  return Math.floor(megabytes * 1024 * 1024);
+}
+
+/** Bytes. For `/api/notebooks` only: behind a session, and carries whole documents. */
+export function notebookJsonBodyLimit(): number {
+  const raw = Number(process.env.MAX_NOTEBOOK_JSON_MB);
+  const megabytes = Number.isFinite(raw) && raw > 0 ? raw : 50;
+  return Math.floor(megabytes * 1024 * 1024);
+}
+
 export function loginRateLimitWindowMs(): number {
   const raw = Number(process.env.LOGIN_RATE_LIMIT_WINDOW_MS);
   return Number.isFinite(raw) && raw > 0 ? raw : 15 * 60 * 1000;

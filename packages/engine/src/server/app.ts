@@ -15,7 +15,7 @@ import { authMiddleware } from "../middleware/auth.middleware.js";
 
 import { storageAccess } from "../middleware/storage-access.js";
 import { storageHeaders } from "../middleware/storage-headers.js";
-import { trustProxy } from "../config.js";
+import { trustProxy, jsonBodyLimit, notebookJsonBodyLimit } from "../config.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 
 /** When this process came up. Restarts are the thing you are usually checking for. */
@@ -55,21 +55,28 @@ export function createApp(publishRunEvent: RunEventSink) {
   // Behind nginx / the Vite proxy every request arrives from the proxy; see trustProxy().
   app.set("trust proxy", trustProxy());
   app.use(cors(corsPolicy()));
-  app.use(express.json({ limit: "50mb" }));
+
+  // Small by default: /hooks, /mcp and /api/shared are parsed before anyone has proved who
+  // they are. Only /api/notebooks (behind a session; whole documents, run args with
+  // tables) gets a larger limit, mounted first so it wins (a parsed body is not re-parsed).
+  const smallJson = express.json({ limit: jsonBodyLimit() });
+  const notebookJson = express.json({ limit: notebookJsonBodyLimit() });
 
   // Mounted before the auth guard: a webhook's slug is its credential, so these
   // are reachable without a session. They live outside /api for that reason.
-  app.use("/hooks", createHooksRouter(publishRunEvent));
+  app.use("/hooks", smallJson, createHooksRouter(publishRunEvent));
 
   // Agents authenticate with their own revocable token rather than a browser session,
   // so this sits outside /api and guards itself.
-  app.use("/mcp", createMcpRouter(publishRunEvent));
+  app.use("/mcp", smallJson, createMcpRouter(publishRunEvent));
 
   // A shared page's token is its credential, the same bargain as a webhook slug, so
   // these are reachable without a session and guard themselves.
-  app.use("/api/shared", createShareRouter(publishRunEvent));
+  app.use("/api/shared", smallJson, createShareRouter(publishRunEvent));
 
   app.use("/api", authMiddleware);
+  app.use("/api/notebooks", notebookJson);
+  app.use("/api", smallJson);
 
   app.use("/api/auth", authRouter);
   app.use("/api/agent-tokens", agentTokensRouter);
