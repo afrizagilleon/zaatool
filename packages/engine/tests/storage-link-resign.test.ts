@@ -129,6 +129,68 @@ await check("notebookRunsService.listByNotebook returns run summaries", async ()
   await notebookRunsService.deleteByNotebook(notebookId);
 });
 
+function parts(link: string): { exp: string | null; sig: string | null } {
+  const u = new URL(`http://localhost${link}`);
+  return { exp: u.searchParams.get("exp"), sig: u.searchParams.get("sig") };
+}
+
+await check("forged link (bogus sig) is not re-signed and stays invalid", async () => {
+  const forged = "/storage/notebooks/x/file.html?exp=1&sig=AAAA";
+  assert.equal(resignStorageLinks(forged), forged);
+  const future = `/storage/notebooks/x/file.html?exp=${Date.now() + 100000}&sig=AAAA`;
+  assert.equal((resignStorageLinks({ a: [future] }) as any).a[0], future);
+  const { exp, sig } = parts(forged);
+  assert.equal(storageLinkValid("notebooks/x/file.html", exp, sig), false);
+});
+
+await check("genuine expired link with awkward path is re-signed", async () => {
+  for (const p of ["my photos/café ☃.png", "a/b#c?d.png", "100%/x.png"]) {
+    const expired = signStorageLink(p, -10000);
+    const out = resignStorageLinks(expired) as string;
+    assert.notEqual(out, expired, p);
+    const { exp, sig } = parts(out);
+    assert.equal(storageLinkValid(p, exp, sig), true, p);
+  }
+});
+
+await check("genuine link with tampered path is not re-signed", async () => {
+  const genuine = signStorageLink("docs/mine.pdf", -10000);
+  const tampered = genuine.replace("docs/mine.pdf", "docs/secret.pdf");
+  assert.notEqual(tampered, genuine);
+  assert.equal(resignStorageLinks(tampered), tampered);
+  const encodedSlash = genuine.replace("docs/mine.pdf", "docs%2Fmine.pdf");
+  assert.equal(resignStorageLinks(encodedSlash), encodedSlash);
+});
+
+await check("forged string with malformed percent-encoding does not throw", async () => {
+  const bad = "/storage/a/%E0%A4%A/%zz.png?exp=1&sig=AAAA";
+  assert.equal(resignStorageLinks(bad), bad);
+  assert.deepEqual(resignStorageLinks([bad, { k: bad }]), [bad, { k: bad }]);
+});
+
+await check("notebookRunsService.getById leaves a forged link invalid", async () => {
+  const runId = `zz-f6-run-${Date.now()}`;
+  const notebookId = `zz-f6-nb-${Date.now()}`;
+  const forged = "/storage/notebooks/x/file.html?exp=1&sig=AAAA";
+  try {
+    await notebookRunsService.start({ runId, notebookId, triggerSource: "manual" });
+    await notebookRunsService.recordCell(runId, "cell1", {
+      status: "done",
+      output: { echoed: forged },
+      written: ["echoed"],
+    });
+    await notebookRunsService.finish(runId, "success");
+    const run = await notebookRunsService.getById(runId);
+    assert.ok(run, "run should exist");
+    const out = (run.cell_results as Record<string, any>)["cell1"]?.output?.echoed as string;
+    assert.equal(out, forged);
+    const { exp, sig } = parts(out);
+    assert.equal(storageLinkValid("notebooks/x/file.html", exp, sig), false);
+  } finally {
+    await notebookRunsService.deleteByNotebook(notebookId);
+  }
+});
+
 await pool.end();
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed === 0 ? 0 : 1);

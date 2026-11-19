@@ -56,6 +56,17 @@ export function signStorageLink(relativePath: string, ttlMs: number = LINK_TTL_M
 export function storageLinkValid(relativePath: string, exp: unknown, sig: unknown): boolean {
   const expiresAt = Number(exp);
   if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) return false;
+  return storageLinkAuthentic(relativePath, exp, sig);
+}
+
+/**
+ * Whether the engine itself signed exactly this path and expiry — expiry is NOT checked.
+ * Used to refresh old links in run history without letting anyone mint a link by
+ * writing a link-shaped string into a run's output.
+ */
+export function storageLinkAuthentic(relativePath: string, exp: unknown, sig: unknown): boolean {
+  const expiresAt = Number(exp);
+  if (!Number.isFinite(expiresAt)) return false;
   if (typeof sig !== "string" || sig.length === 0) return false;
 
   const expected = Buffer.from(signature(relativePath.replace(/^\/+/, ""), expiresAt));
@@ -64,7 +75,7 @@ export function storageLinkValid(relativePath: string, exp: unknown, sig: unknow
   return crypto.timingSafeEqual(expected, offered);
 }
 
-const STORAGE_LINK_REGEX = /^\/storage\/([^?#]+)\?exp=\d+&sig=[A-Za-z0-9_-]+$/;
+const STORAGE_LINK_REGEX = /^\/storage\/([^?#]+)\?exp=(\d+)&sig=([A-Za-z0-9_-]+)$/;
 
 /**
  * Traverses a JSON structure recursively and resigns any storage link matching
@@ -76,8 +87,18 @@ export function resignStorageLinks(value: unknown): unknown {
   if (typeof value === "string") {
     const match = value.match(STORAGE_LINK_REGEX);
     if (match) {
-      const encodedPath = match[1];
-      const relativePath = encodedPath.split("/").map(decodeURIComponent).join("/");
+      const [, encodedPath, exp, sig] = match;
+      let relativePath: string;
+      try {
+        relativePath = encodedPath.split("/").map(decodeURIComponent).join("/");
+      } catch {
+        return value; // malformed percent-encoding: not something we signed
+      }
+      // Must be exactly the form signStorageLink emits (so `%2F` etc. can't alias a path),
+      // and the original signature must be authentic for that path and expiry.
+      const canonical = relativePath.split("/").map(encodeURIComponent).join("/");
+      if (canonical !== encodedPath || relativePath.startsWith("/")) return value;
+      if (!storageLinkAuthentic(relativePath, exp, sig)) return value;
       return signStorageLink(relativePath);
     }
     return value;
