@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { maxRunMs } from "../config.js";
+import { maxNestedCalls, maxNestedConcurrency, maxRunMs } from "../config.js";
 import { abortMessage } from "../core/run-abort.js";
+import { FanOut, Slot } from "../core/nested-fanout.js";
 import { compileNotebook, selectPlanCell } from "../core/notebook-compiler.js";
 import { RunGate } from "../core/run-gate.js";
 import { runNotebook, type NotebookRunResult } from "../core/notebook-runner.js";
@@ -105,6 +106,31 @@ function sourcesOf(plan: NotebookPlan): Record<string, string> {
   return sources;
 }
 
+/** Everything a nested call needs to know about the chain above it. */
+interface CallContext {
+  stack: string[];
+  names: string[];
+  log: (level: string, msg: string) => void;
+  publish: RunEventSink;
+  /** The run that asked for this one, so the callee's history explains itself. */
+  parentRunId: string;
+  /**
+   * Whether this whole run is production.
+   *
+   * Decided once, by what started it, and carried down the chain: a run is either
+   * the deployed system or your drafts, never a mixture. Testing a caller by hand
+   * exercises the callee you are editing; the 3am cron exercises the one you
+   * deployed.
+   */
+  useDeployed: boolean;
+  /** The root run's signal: its deadline and a cancel reach every run in the chain. */
+  signal: AbortSignal;
+  /** Bounds the nested calls this whole root run makes. */
+  fan: FanOut;
+  /** The calling run's place in `fan`, lent out while it waits on this call. Absent for a root run. */
+  parentSlot?: Slot;
+}
+
 /**
  * Starts notebook runs.
  *
@@ -133,37 +159,44 @@ export class NotebookExecutionService {
   }
 
   /**
+   * The bounded entry to a nested call: counts it against the run's total, waits for one of
+   * its few places, and gives the place back (and takes the caller's back) when it is over.
+   * The gate is not involved — see `runCallee`.
+   */
+  private async callNotebook(
+    request: NotebookCallRequest,
+    context: CallContext
+  ): Promise<Record<string, unknown>> {
+    context.fan.admit();
+    const { parentSlot } = context;
+    // The caller is parked on this call, so it stops counting as executing until it returns.
+    parentSlot?.yieldSlot();
+    const slot = new Slot(context.fan);
+    try {
+      await slot.acquire(context.signal);
+      return await this.runCallee(request, context, slot);
+    } finally {
+      slot.release();
+      await parentSlot?.resume();
+    }
+  }
+
+  /**
    * Runs a notebook on behalf of a cell in another notebook.
    *
    * Deliberately does *not* take a gate slot. The caller already holds one and is
    * blocked waiting for this, so charging the callee too would let four nested runs
-   * fill the gate and wait on themselves forever. The bound stays on how many runs
-   * start from outside; depth is bounded separately.
+   * fill the gate and wait on themselves forever. The gate bounds how many runs start
+   * from outside; how many nested calls one run makes, and how many execute at once, is
+   * bounded by its `FanOut` (see `callNotebook`); depth is bounded separately.
    *
    * The callee gets its own secrets, never the caller's — reuse must not become a way
    * to borrow credentials a notebook never declared.
    */
-  private async callNotebook(
+  private async runCallee(
     request: NotebookCallRequest,
-    context: {
-      stack: string[];
-      names: string[];
-      log: (level: string, msg: string) => void;
-      publish: RunEventSink;
-      /** The run that asked for this one, so the callee's history explains itself. */
-      parentRunId: string;
-      /**
-       * Whether this whole run is production.
-       *
-       * Decided once, by what started it, and carried down the chain: a run is either
-       * the deployed system or your drafts, never a mixture. Testing a caller by hand
-       * exercises the callee you are editing; the 3am cron exercises the one you
-       * deployed.
-       */
-      useDeployed: boolean;
-      /** The root run's signal: its deadline and a cancel reach every run in the chain. */
-      signal: AbortSignal;
-    }
+    context: CallContext,
+    slot: Slot
   ): Promise<Record<string, unknown>> {
     // A stopped run starts nothing more, and leaves no history row for what never began.
     if (context.signal.aborted) throw new Error(abortMessage(context.signal));
@@ -240,6 +273,8 @@ export class NotebookExecutionService {
       parentRunId: runId,
       useDeployed: context.useDeployed,
       signal: context.signal,
+      fan: context.fan,
+      parentSlot: slot,
     };
 
     const recorder = new NotebookRunRecorder(runId, sourcesOf(plan));
@@ -283,7 +318,8 @@ export class NotebookExecutionService {
     publish: RunEventSink,
     runId: string,
     useDeployed: boolean,
-    signal: AbortSignal
+    signal: AbortSignal,
+    fan: FanOut
   ): NotebookCaller {
     return (request, log) =>
       this.callNotebook(request, {
@@ -294,6 +330,7 @@ export class NotebookExecutionService {
         parentRunId: runId,
         useDeployed,
         signal,
+        fan,
       });
   }
 
@@ -369,6 +406,7 @@ export class NotebookExecutionService {
     // One signal for the whole chain: the deadline below and a cancel both abort it, and
     // every cell, nested or not, listens to it.
     const controller = new AbortController();
+    const fan = new FanOut(maxNestedConcurrency(), maxNestedCalls());
     this.activeRuns.set(runId, controller);
 
     void (async () => {
@@ -392,7 +430,8 @@ export class NotebookExecutionService {
             publish,
             runId,
             useDeployed,
-            controller.signal
+            controller.signal,
+            fan
           ),
           file: notebookFilesService.writerFor(notebookId),
           signal: controller.signal,
