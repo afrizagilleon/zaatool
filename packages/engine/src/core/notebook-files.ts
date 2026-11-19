@@ -2,9 +2,9 @@
  * The channel a running cell uses to keep a file.
  *
  * The second hole in the same wall `notebook-call.ts` opened, and deliberately the same
- * shape: a cell asks, the engine writes, only JSON crosses. A worker thread could reach
- * `fs` directly today, but a Python child cannot, and a rule that holds for one runtime
- * and not the other is not a rule. More to the point, the *engine* is the only side that
+ * shape: a cell asks, the engine writes, only JSON crosses. A JavaScript cell cannot write
+ * to disk at all (node's permission model refuses it), and a Python child on a dev machine
+ * can: a rule that holds for one runtime and not the other is not a rule. More to the point, the *engine* is the only side that
  * knows where files may land, what a safe name is, and how to sign a link to one.
  *
  * What comes back is what a page can already render. `render: image` and `render: file`

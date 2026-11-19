@@ -16,7 +16,7 @@
  *
  * The two runtimes are not treated the same, because they are not the same risk. A Python
  * package is installed into a throwaway environment for that run. A JavaScript one is
- * loaded into a worker inside this process, which is why that side is a fixed list and
+ * loaded into a cell process that can read them, which is why that side is a fixed list and
  * `pnpm add` is not part of writing a notebook.
  *
  * The list and the requirement shape moved to `@zaa-tool/shared` so the editor can refuse

@@ -144,6 +144,18 @@ export function maxNestedCalls(): number {
   return positiveInt("MAX_NESTED_CALLS", 200);
 }
 
+/**
+ * Megabytes of JavaScript heap one cell process may use before it is stopped.
+ *
+ * A cell runs in a process of its own (see `js-runner`), so this is `--max-old-space-size`
+ * on that process: a cell that allocates without end fails with an out-of-memory error and
+ * the engine, which is a different process, carries on. It bounds the JS heap; memory held
+ * outside it (large Buffers) is not counted by this flag.
+ */
+export function maxCellMemoryMb(): number {
+  return positiveInt("MAX_CELL_MEMORY_MB", 512);
+}
+
 export function maxNotebookStorageBytes(): number {
   const raw = Number(process.env.MAX_NOTEBOOK_STORAGE_MB);
   const megabytes = Number.isFinite(raw) && raw > 0 ? raw : 500;

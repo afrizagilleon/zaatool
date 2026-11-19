@@ -19,7 +19,7 @@ import type { Node } from "acorn";
  */
 
 /**
- * Wrapped the same way `worker-boot.ts` wraps it, so what parses here is what runs there.
+ * Wrapped the same way `cell-host.mjs` wraps it, so what parses here is what runs there.
  *
  * The newline after the brace is not cosmetic: without it the cell's first line shares a
  * line with the wrapper, and every column a parse error reports on that line is offset by

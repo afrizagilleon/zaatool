@@ -1,7 +1,7 @@
 /**
  * Bounds how many notebook runs execute at once.
  *
- * Each running cell costs a worker thread or a Python process, so without a bound a
+ * Each running cell costs a process (JavaScript and Python alike), so without a bound a
  * burst of triggers — a webhook hit in a loop, several crons landing on the same
  * minute — would spawn as many as arrive until the machine gives out. Triggers are
  * what make that reachable from outside, so the bound ships with them.

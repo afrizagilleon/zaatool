@@ -1,7 +1,7 @@
 /**
  * The channel a running cell uses to call another notebook.
  *
- * Cells execute out of process — a worker thread for JavaScript, a child process for
+ * Cells execute out of process — a child process for JavaScript and for
  * Python — precisely so they cannot reach the engine. Reuse needs exactly one hole in
  * that wall, so it is this: a single request shape, answered by the engine, carrying
  * only JSON. The runners bridge it; nothing in `core/` knows how a notebook is loaded.

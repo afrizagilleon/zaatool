@@ -159,7 +159,7 @@ class FileObject:
         return bool(self.absolute_path) and os.path.exists(self.absolute_path)
     def to_json(self):
         # absolute_path is left out on purpose: it exists so this object can read the
-        # file, and it names a folder on the server. See code-wrappers.ts.
+        # file, and it names a folder on the server. See cell-host.mjs.
         return {
             "name": self.name,
             "path": self.path,

@@ -1,7 +1,7 @@
 /**
  * M5b — the reuse boundary.
  *
- * Runs against the real runners (a worker thread for JS, a Python child process) with
+ * Runs against the real runners (a child process for JS and for Python) with
  * a stub caller standing in for the engine, so the RPC bridge itself is under test and
  * not a mock of it. The service-level checks — cycles, depth, contracts — drive the
  * real notebook runner.
