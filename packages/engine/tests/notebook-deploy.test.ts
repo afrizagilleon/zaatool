@@ -73,7 +73,7 @@ async function latestRun(notebookId: string) {
 
 console.log("\nthe gate");
 
-await check("a webhook on a notebook nobody deployed refuses, and says why", async () => {
+await check("a webhook on a notebook nobody deployed is an unknown slug", async () => {
   await store(notebook("zz-dep-undeployed", "zz-dep-slug-1", "draft"));
 
   const res = await fetch(`${base}/hooks/zz-dep-slug-1`, {
@@ -82,8 +82,10 @@ await check("a webhook on a notebook nobody deployed refuses, and says why", asy
     body: "{}",
   });
 
-  assert.equal(res.status, 409);
-  assert.match((await res.json()).error, /has not been deployed/);
+  // FX15: only a deploy puts a trigger in the index, so nothing is listening here. It used
+  // to be a 409 "has not been deployed" because the draft's triggers were indexed on save.
+  assert.equal(res.status, 404);
+  assert.match((await res.json()).error, /Unknown webhook/);
 });
 
 await check("after deploying, the same webhook runs", async () => {

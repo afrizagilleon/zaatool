@@ -144,8 +144,12 @@ export class NotebooksService {
       [id, name, runtime, JSON.stringify(stored), tags]
     );
 
-    // The document is the source of truth; the trigger index follows it.
-    await notebookTriggersService.syncForNotebook(id, stored.triggers ?? []);
+    // The trigger index is deliberately **not** written here. The document is the source
+    // of truth for what a notebook declares, but the index answers "what is listening in
+    // production", and production is the deployed version: `deploy()` writes the index
+    // from the version it pins, `undeploy()` and `delete()` empty it. Syncing on save
+    // meant an edit at 2pm could add a cron, drop a webhook secret or change a slug before
+    // anyone pressed Deploy.
 
     // Announced here rather than by the caller. There are four ways into this method —
     // the editor, an import, `notebook_write`, `notebook_edit_cell` — and the old
@@ -182,6 +186,9 @@ export class NotebooksService {
       versionId,
       id,
     ]);
+    // The index follows the version just pinned, from the same document that was stored as
+    // that version, so what listens and what runs cannot come from two different reads.
+    await notebookTriggersService.syncForNotebook(id, doc.triggers ?? []);
 
     notifyCatalogChanged({ change: "deployed", notebookId: id });
     return { versionId };
@@ -203,6 +210,10 @@ export class NotebooksService {
       [id]
     );
     const wasDeployed = (rowCount ?? 0) > 0;
+    // Nobody is listening once nothing is deployed: the webhook answers 404 like any
+    // unknown slug and the scheduler stops seeing the cron, rather than both reaching a
+    // notebook that can only refuse.
+    await notebookTriggersService.deleteByNotebook(id);
     // Only when something actually moved. Announcing an undeploy of a notebook that was
     // never deployed would send every open screen to refetch a list that did not change.
     if (wasDeployed) notifyCatalogChanged({ change: "undeployed", notebookId: id });

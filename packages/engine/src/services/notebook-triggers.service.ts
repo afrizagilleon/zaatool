@@ -16,7 +16,9 @@ export class NotebookTriggersService {
    * Mirrors a notebook's declared triggers into the index.
    *
    * Replace-all inside a transaction rather than a diff: the document is the source
-   * of truth, so the table simply reflects it and cannot drift.
+   * of truth, so the table simply reflects it and cannot drift. The document passed in
+   * is the **deployed** version's, never the draft's: the index is what production
+   * listens to, and only a deploy changes production.
    */
   async syncForNotebook(notebookId: string, triggers: NotebookTrigger[] = []): Promise<void> {
     const client = await pool.connect();

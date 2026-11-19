@@ -68,14 +68,18 @@ async function main(): Promise<void> {
   await make("plain");
   const liveId = await make("live");
   const taggedId = await make("tagged", { tags: ["Finance", " finance ", "DAILY"] });
-  await make("cron", {
+  // Deployed: the trigger index holds what production listens to, which is the deployed
+  // version's triggers, so a notebook that was only saved has none (FX15).
+  const cronId = await make("cron", {
     triggers: [{ id: "t1", kind: "cron", cron: "0 6 * * *", enabled: true }],
   });
-  await make("cron-off", {
+  const cronOffId = await make("cron-off", {
     triggers: [{ id: "t2", kind: "cron", cron: "0 6 * * *", enabled: false }],
   });
 
   await notebooksService.deploy(liveId, "test");
+  await notebooksService.deploy(cronId, "test");
+  await notebooksService.deploy(cronOffId, "test");
 
   // Two runs for one notebook, so "most recent" has something to be more recent than.
   await pool.query(
