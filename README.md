@@ -116,7 +116,8 @@ produced them, so "which code made this number?" has an answer after the code ha
 
 The engine speaks MCP at `/mcp` with scoped tokens (`author` / `reader`). An agent gets
 **13 tools** plus one generated tool per deployed notebook, and a `conventions` resource
-that teaches it the house rules before it writes anything.
+that teaches it the house rules before it writes anything. A `reader` token is offered
+only the Read, Run and Other rows (9 tools); the Write row is registered for `author` alone.
 
 | | |
 |---|---|

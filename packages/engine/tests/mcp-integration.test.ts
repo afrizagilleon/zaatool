@@ -167,6 +167,47 @@ await check("a reader cannot call the write tool even knowing its name", async (
   assert.ok(result.isError, "a reader managed to write");
 });
 
+await check("a reader is offered none of the four editing tools, an author all of them", async () => {
+  const editing = ["notebook_write", "notebook_delete", "notebook_edit_cell", "notebook_edit_setup"];
+  const readerNames = (await reader.listTools()).tools.map((tool) => tool.name);
+  const authorNames = (await author.listTools()).tools.map((tool) => tool.name);
+  for (const name of editing) {
+    assert.ok(!readerNames.includes(name), `reader was offered ${name}`);
+    assert.ok(authorNames.includes(name), `author is missing ${name}`);
+  }
+});
+
+await check("a reader cannot edit a cell or the setup, and the stored notebook is untouched", async () => {
+  const made = await write(
+    ["---", "name: zz-f1-reader-edit", "runtime: node", "---", "", "Original.", "", "```js", "return { ok: 1 };", "```"].join("\n")
+  );
+  assert.ok(!made.isError, textOf(made));
+
+  const stored = async (): Promise<string> => {
+    const record = await notebooksService.findByIdOrName("zz-f1-reader-edit");
+    assert.ok(record && record !== "ambiguous", "fixture notebook missing");
+    return JSON.stringify({ document: notebooksService.parseDocument(record), updated_at: record.updated_at });
+  };
+  const before = await stored();
+
+  const cell = await call(reader, "notebook_edit_cell", {
+    notebook: "zz-f1-reader-edit",
+    action: "replace",
+    cell: "1",
+    code: "return { pwned: true };",
+  });
+  assert.ok(cell.isError, "a reader edited a cell");
+
+  const setup = await call(reader, "notebook_edit_setup", {
+    notebook: "zz-f1-reader-edit",
+    key: "name",
+    value: JSON.stringify("zz-f1-renamed"),
+  });
+  assert.ok(setup.isError, "a reader edited the setup");
+
+  assert.equal(await stored(), before, "the stored notebook changed");
+});
+
 // ── the loop the whole thing exists for ───────────────────────────────────────
 
 console.log("\nrunning");

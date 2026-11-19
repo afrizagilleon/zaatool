@@ -501,70 +501,6 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
   );
 
   server.registerTool(
-    "notebook_edit_setup",
-    {
-      title: "Change one thing a notebook declares",
-      description:
-        [
-          "Replaces one key of the front matter — `inputs`, `outputs`, `layout`, `triggers`, `secrets`, `packages`, `actions`, `name`, `runtime` — and touches no cell at all.",
-          "",
-          "USE THIS INSTEAD OF `notebook_write` FOR ANYTHING DECLARED. Adding an input, moving a tile, or changing a schedule used to mean sending the whole document back, which meant reproducing every cell from memory. Cells came back subtly different that way, and arrangements disappeared.",
-          "",
-          "`value` is JSON. A list replaces the whole list, and `[]` clears it:",
-          "",
-          '  key: "inputs", value: \'[{"name":"pair","type":"string","default":"USD_IDR"}]\'',
-          '  key: "layout", value: \'[{"i":"total","x":0,"y":0,"w":6,"h":4}]\'',
-          '  key: "actions", value: \'[]\'   ← removes every button',
-          "",
-          "Read `notebook_read part: setup` first — it draws the layout as a grid, which is the only readable form of it. The result is judged by the same parser `notebook_write` uses, so a bad declaration is refused here and **nothing is saved**.",
-        ].join("\n"),
-      inputSchema: {
-        notebook: z.string().describe("The notebook's name or id."),
-        key: z.enum(SETUP_KEYS).describe("Which declaration to replace."),
-        value: z.string().describe("The new value, as JSON. A list replaces the whole list."),
-        expected_updated_at: z
-          .string()
-          .optional()
-          .describe("If provided, edit is refused if notebook was modified since this timestamp."),
-      },
-    },
-    async ({ notebook, key, value, expected_updated_at }) => {
-      const resolved = await resolveNotebook(notebook);
-      if ("error" in resolved) return resolved.error;
-
-      const etagError = verifyEtag(resolved.record, expected_updated_at);
-      if (etagError) return etagError;
-
-      const document = notebooksService.parseDocument(resolved.record);
-      let edited: NotebookJson;
-      try {
-        const parsed = parseSetupValue(key, value);
-        if (key === "layout") {
-          const issues = layoutProblems(parsed);
-          if (issues.length > 0) return refuse(issues.map((issue) => `  - ${issue}`).join("\n"));
-        }
-        edited = applySetupEdit(document, key, parsed);
-      } catch (err: unknown) {
-        return explain(err);
-      }
-
-      const judged = judgeDocument(edited, document);
-      if ("error" in judged) return judged.error;
-
-      const saved = await notebooksService.save(judged.document, deps.writer);
-
-
-      return reply(
-        [
-          `\`${key}\` replaced on **${saved.name}** \`${saved.id}\`. No cell was touched.`,
-          "",
-          renderSetup(judged.document),
-        ].join("\n")
-      );
-    }
-  );
-
-  server.registerTool(
     "notebook_diff",
     {
       title: "What differs between the draft and production",
@@ -584,139 +520,6 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
         );
       }
       return reply(renderDiff(deployed, draft));
-    }
-  );
-
-  server.registerTool(
-    "notebook_edit_cell",
-    {
-      title: "Change one cell",
-      description:
-        [
-          "Replaces, inserts, appends or deletes a single cell, leaving every other cell exactly as it is.",
-          "",
-          "USE THIS INSTEAD OF `notebook_write` WHENEVER YOU ARE CHANGING PART OF A NOTEBOOK. Rewriting the whole document to alter one cell means reproducing every other cell from memory, and what gets lost that way is real: arrangements, buttons, and cells whose code came back subtly different from what was stored.",
-          "",
-          "Get the cell from `notebook_read` with `part: outline`, then read just that one with `part: cell` — it comes with the names in scope there, which is what you would otherwise be guessing at.",
-          "",
-          "SEND `code` AS CODE, not as a markdown block. A fence around the whole thing is unwrapped for you, but nothing else is guessed at: the code has to parse, and an edit that does not is refused with the parser's reason and **nothing is saved**. The reply shows the first lines as they were actually stored, so you can see what arrived.",
-          "",
-          "  code: \"const rate = await fetch(url).then(r => r.json());\\nreturn { rate };\"",
-          "",
-          "It refuses an edit that would leave a later cell reading a name nothing writes any more — deleting the cell that produces `rows` while a cell below still reads `inputs.rows` is refused here rather than failing halfway through a run at 3am.",
-          "",
-          "`dry_run: true` answers with what the edit would do and saves nothing. Use it when you are unsure rather than editing and undoing.",
-          "",
-          "Like `notebook_write`, this changes the draft. Nothing reaches production until a person deploys it.",
-        ].join("\n"),
-      inputSchema: {
-        notebook: z.string().describe("The notebook's name or id."),
-        action: z
-          .enum(["replace", "insert_before", "insert_after", "append", "delete", "add_lane", "remove_lane"])
-          .describe("What to do. `append` puts a new cell at the end and needs no `cell`."),
-        cell: z
-          .string()
-          .optional()
-          .describe("The cell id, or its 1-based position. Required for everything except `append`."),
-        code: z.string().optional().describe("The cell's code. Required except for `delete`, `add_lane`, `remove_lane`."),
-        note: z
-          .string()
-          .optional()
-          .describe("The prose above the code. On `replace`, leaving it out keeps what is there."),
-        label: z.string().optional().describe("Optional label for `add_lane`."),
-        force: z.boolean().optional().describe("Required to remove a non-empty lane for `remove_lane`."),
-        expected_updated_at: z
-          .string()
-          .optional()
-          .describe("If provided, edit is refused if notebook was modified since this timestamp."),
-        dry_run: z
-          .boolean()
-          .optional()
-          .describe("Report what would happen and save nothing."),
-      },
-    },
-    async ({ notebook, action, cell, code, note, dry_run, label, force, expected_updated_at }) => {
-      const resolved = await resolveNotebook(notebook);
-      if ("error" in resolved) return resolved.error;
-
-      const etagError = verifyEtag(resolved.record, expected_updated_at);
-      if (etagError) return etagError;
-
-      if (action !== "append" && !cell) {
-        return refuse(`\`${action}\` needs a \`cell\`. Read the outline to see them.`);
-      }
-      // `replace` is the one that may carry only a note: changing the prose above a cell
-      // is a real edit, and demanding the code back for it would mean resending code
-      // nobody meant to touch. Everything that creates a cell needs one.
-      if (action === "replace" && code === undefined && note === undefined) {
-        return refuse("`replace` needs `code`, `note`, or both.");
-      }
-      if ((action === "insert_before" || action === "insert_after" || action === "append") && code === undefined) {
-        return refuse(`\`${action}\` needs \`code\`.`);
-      }
-
-      const document = notebooksService.parseDocument(resolved.record);
-
-      // A position is accepted here for the same reason `notebook_run_cell` accepts one:
-      // two tools that address the same thing two different ways is a trap to be found
-      // rather than a rule to be read.
-      const targetCell = cell ? findCell(document, cell) : undefined;
-      if (cell && !targetCell) {
-        return refuse(`No cell "${cell}" in **${document.name}**. Read the outline to see the ids.`);
-      }
-
-      let edited: NotebookJson;
-      try {
-        edited = applyCellEdit(document, { action, cell: targetCell, code, note, label, force } as CellEdit);
-      } catch (err: unknown) {
-        return explain(err);
-      }
-
-      // Python's syntax needs Python, so it cannot happen inside `applyCellEdit`, which is
-      // synchronous. Same refusal, same "nothing is saved".
-      if (document.runtime === "python" && code !== undefined) {
-        const problem = await pythonSyntaxProblem(stripCodeFence(code));
-        if (problem) return refuse(problem);
-      }
-
-      // Judged before it is stored, not after. Saving first and reporting the compile
-      // afterwards is how a broken cell ended up in a notebook with "Compiles." printed
-      // underneath it — the message was about a document that had already been written.
-      const judged = judgeDocument(edited, document);
-      if ("error" in judged) return judged.error;
-      edited = judged.document;
-
-      if (dry_run) {
-        return reply(
-          [
-            `Nothing was saved. This is what \`${action}\` would do to **${document.name}**:`,
-            "",
-            renderOutline(edited),
-          ].join("\n")
-        );
-      }
-
-      const saved = await notebooksService.save(edited, deps.writer);
-
-      const lines = [
-        `${action} on **${saved.name}** \`${saved.id}\``,
-        "",
-        renderOutline(edited),
-      ];
-
-      // The code as it was actually stored, so a fence that was unwrapped is visible
-      // rather than a silent difference between what was sent and what is there.
-      if (action !== "delete" && code !== undefined) {
-        const stored = firstLines(storedCodeOf(edited, cell, action), 3);
-        lines.push("", "Stored:", ...stored.map((line) => `  ${line}`));
-      }
-
-      const deployState = await notebooksService.getDeployState(saved.id);
-      if (deployState?.isDeployed && deployState.hasUndeployedChanges) {
-        lines.push("", "This is the draft. Triggers still run the deployed version.");
-      }
-
-      return reply(lines.join("\n"));
     }
   );
 
@@ -859,6 +662,203 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
   );
 
   if (scope !== "author") return;
+
+  server.registerTool(
+    "notebook_edit_setup",
+    {
+      title: "Change one thing a notebook declares",
+      description:
+        [
+          "Replaces one key of the front matter — `inputs`, `outputs`, `layout`, `triggers`, `secrets`, `packages`, `actions`, `name`, `runtime` — and touches no cell at all.",
+          "",
+          "USE THIS INSTEAD OF `notebook_write` FOR ANYTHING DECLARED. Adding an input, moving a tile, or changing a schedule used to mean sending the whole document back, which meant reproducing every cell from memory. Cells came back subtly different that way, and arrangements disappeared.",
+          "",
+          "`value` is JSON. A list replaces the whole list, and `[]` clears it:",
+          "",
+          '  key: "inputs", value: \'[{"name":"pair","type":"string","default":"USD_IDR"}]\'',
+          '  key: "layout", value: \'[{"i":"total","x":0,"y":0,"w":6,"h":4}]\'',
+          '  key: "actions", value: \'[]\'   ← removes every button',
+          "",
+          "Read `notebook_read part: setup` first — it draws the layout as a grid, which is the only readable form of it. The result is judged by the same parser `notebook_write` uses, so a bad declaration is refused here and **nothing is saved**.",
+        ].join("\n"),
+      inputSchema: {
+        notebook: z.string().describe("The notebook's name or id."),
+        key: z.enum(SETUP_KEYS).describe("Which declaration to replace."),
+        value: z.string().describe("The new value, as JSON. A list replaces the whole list."),
+        expected_updated_at: z
+          .string()
+          .optional()
+          .describe("If provided, edit is refused if notebook was modified since this timestamp."),
+      },
+    },
+    async ({ notebook, key, value, expected_updated_at }) => {
+      const resolved = await resolveNotebook(notebook);
+      if ("error" in resolved) return resolved.error;
+
+      const etagError = verifyEtag(resolved.record, expected_updated_at);
+      if (etagError) return etagError;
+
+      const document = notebooksService.parseDocument(resolved.record);
+      let edited: NotebookJson;
+      try {
+        const parsed = parseSetupValue(key, value);
+        if (key === "layout") {
+          const issues = layoutProblems(parsed);
+          if (issues.length > 0) return refuse(issues.map((issue) => `  - ${issue}`).join("\n"));
+        }
+        edited = applySetupEdit(document, key, parsed);
+      } catch (err: unknown) {
+        return explain(err);
+      }
+
+      const judged = judgeDocument(edited, document);
+      if ("error" in judged) return judged.error;
+
+      const saved = await notebooksService.save(judged.document, deps.writer);
+
+
+      return reply(
+        [
+          `\`${key}\` replaced on **${saved.name}** \`${saved.id}\`. No cell was touched.`,
+          "",
+          renderSetup(judged.document),
+        ].join("\n")
+      );
+    }
+  );
+
+  server.registerTool(
+    "notebook_edit_cell",
+    {
+      title: "Change one cell",
+      description:
+        [
+          "Replaces, inserts, appends or deletes a single cell, leaving every other cell exactly as it is.",
+          "",
+          "USE THIS INSTEAD OF `notebook_write` WHENEVER YOU ARE CHANGING PART OF A NOTEBOOK. Rewriting the whole document to alter one cell means reproducing every other cell from memory, and what gets lost that way is real: arrangements, buttons, and cells whose code came back subtly different from what was stored.",
+          "",
+          "Get the cell from `notebook_read` with `part: outline`, then read just that one with `part: cell` — it comes with the names in scope there, which is what you would otherwise be guessing at.",
+          "",
+          "SEND `code` AS CODE, not as a markdown block. A fence around the whole thing is unwrapped for you, but nothing else is guessed at: the code has to parse, and an edit that does not is refused with the parser's reason and **nothing is saved**. The reply shows the first lines as they were actually stored, so you can see what arrived.",
+          "",
+          "  code: \"const rate = await fetch(url).then(r => r.json());\\nreturn { rate };\"",
+          "",
+          "It refuses an edit that would leave a later cell reading a name nothing writes any more — deleting the cell that produces `rows` while a cell below still reads `inputs.rows` is refused here rather than failing halfway through a run at 3am.",
+          "",
+          "`dry_run: true` answers with what the edit would do and saves nothing. Use it when you are unsure rather than editing and undoing.",
+          "",
+          "Like `notebook_write`, this changes the draft. Nothing reaches production until a person deploys it.",
+        ].join("\n"),
+      inputSchema: {
+        notebook: z.string().describe("The notebook's name or id."),
+        action: z
+          .enum(["replace", "insert_before", "insert_after", "append", "delete", "add_lane", "remove_lane"])
+          .describe("What to do. `append` puts a new cell at the end and needs no `cell`."),
+        cell: z
+          .string()
+          .optional()
+          .describe("The cell id, or its 1-based position. Required for everything except `append`."),
+        code: z.string().optional().describe("The cell's code. Required except for `delete`, `add_lane`, `remove_lane`."),
+        note: z
+          .string()
+          .optional()
+          .describe("The prose above the code. On `replace`, leaving it out keeps what is there."),
+        label: z.string().optional().describe("Optional label for `add_lane`."),
+        force: z.boolean().optional().describe("Required to remove a non-empty lane for `remove_lane`."),
+        expected_updated_at: z
+          .string()
+          .optional()
+          .describe("If provided, edit is refused if notebook was modified since this timestamp."),
+        dry_run: z
+          .boolean()
+          .optional()
+          .describe("Report what would happen and save nothing."),
+      },
+    },
+    async ({ notebook, action, cell, code, note, dry_run, label, force, expected_updated_at }) => {
+      const resolved = await resolveNotebook(notebook);
+      if ("error" in resolved) return resolved.error;
+
+      const etagError = verifyEtag(resolved.record, expected_updated_at);
+      if (etagError) return etagError;
+
+      if (action !== "append" && !cell) {
+        return refuse(`\`${action}\` needs a \`cell\`. Read the outline to see them.`);
+      }
+      // `replace` is the one that may carry only a note: changing the prose above a cell
+      // is a real edit, and demanding the code back for it would mean resending code
+      // nobody meant to touch. Everything that creates a cell needs one.
+      if (action === "replace" && code === undefined && note === undefined) {
+        return refuse("`replace` needs `code`, `note`, or both.");
+      }
+      if ((action === "insert_before" || action === "insert_after" || action === "append") && code === undefined) {
+        return refuse(`\`${action}\` needs \`code\`.`);
+      }
+
+      const document = notebooksService.parseDocument(resolved.record);
+
+      // A position is accepted here for the same reason `notebook_run_cell` accepts one:
+      // two tools that address the same thing two different ways is a trap to be found
+      // rather than a rule to be read.
+      const targetCell = cell ? findCell(document, cell) : undefined;
+      if (cell && !targetCell) {
+        return refuse(`No cell "${cell}" in **${document.name}**. Read the outline to see the ids.`);
+      }
+
+      let edited: NotebookJson;
+      try {
+        edited = applyCellEdit(document, { action, cell: targetCell, code, note, label, force } as CellEdit);
+      } catch (err: unknown) {
+        return explain(err);
+      }
+
+      // Python's syntax needs Python, so it cannot happen inside `applyCellEdit`, which is
+      // synchronous. Same refusal, same "nothing is saved".
+      if (document.runtime === "python" && code !== undefined) {
+        const problem = await pythonSyntaxProblem(stripCodeFence(code));
+        if (problem) return refuse(problem);
+      }
+
+      // Judged before it is stored, not after. Saving first and reporting the compile
+      // afterwards is how a broken cell ended up in a notebook with "Compiles." printed
+      // underneath it — the message was about a document that had already been written.
+      const judged = judgeDocument(edited, document);
+      if ("error" in judged) return judged.error;
+      edited = judged.document;
+
+      if (dry_run) {
+        return reply(
+          [
+            `Nothing was saved. This is what \`${action}\` would do to **${document.name}**:`,
+            "",
+            renderOutline(edited),
+          ].join("\n")
+        );
+      }
+
+      const saved = await notebooksService.save(edited, deps.writer);
+
+      const lines = [
+        `${action} on **${saved.name}** \`${saved.id}\``,
+        "",
+        renderOutline(edited),
+      ];
+
+      // The code as it was actually stored, so a fence that was unwrapped is visible
+      // rather than a silent difference between what was sent and what is there.
+      if (action !== "delete" && code !== undefined) {
+        const stored = firstLines(storedCodeOf(edited, cell, action), 3);
+        lines.push("", "Stored:", ...stored.map((line) => `  ${line}`));
+      }
+
+      const deployState = await notebooksService.getDeployState(saved.id);
+      if (deployState?.isDeployed && deployState.hasUndeployedChanges) {
+        lines.push("", "This is the draft. Triggers still run the deployed version.");
+      }
+
+      return reply(lines.join("\n"));
+    }
+  );
 
   // ── writing ─────────────────────────────────────────────────────────────────
 
