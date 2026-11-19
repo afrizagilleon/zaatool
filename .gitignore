@@ -23,6 +23,9 @@ RULES.md
 # Milestone contracts — internal working agreements, not part of the product
 .contracts/
 
+# Research notes — literature reviews and design analysis, not part of the product
+.research/
+
 CLAUDE.md
 .claude/
 
