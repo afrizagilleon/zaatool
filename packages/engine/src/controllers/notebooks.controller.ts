@@ -496,12 +496,15 @@ export class NotebooksController {
   getRun = async (req: Request, res: Response) => {
     try {
       const runId = String(req.params.runId);
+      const notebookId = String(req.params.id);
       const run =
         runId === "latest"
-          ? await notebookRunsService.getLatestForNotebook(String(req.params.id))
+          ? await notebookRunsService.getLatestForNotebook(notebookId)
           : await notebookRunsService.getById(runId);
 
-      if (!run) return res.status(404).json({ error: "Run not found" });
+      // A run id is only meaningful under the notebook it belongs to; otherwise the
+      // `:id` in the URL is decoration and any run can be read through any notebook.
+      if (!run || run.notebook_id !== notebookId) return res.status(404).json({ error: "Run not found" });
       res.json(run);
     } catch (err: unknown) {
       respondWithError(res, err);
@@ -514,7 +517,20 @@ export class NotebooksController {
       // a run id straight away and follow the same socket — a page that waited for the
       // whole run could not show the table its first cell had already produced while a
       // later one was still working.
-      const isPage = req.body?.mode === "deployed";
+      //
+      // A viewer only ever gets the page. The router says "asking it to work does not need
+      // a creator", and that is true of the deployed contract (named `args`, validated
+      // against the declared inputs) but not of the draft, nor of `input`/`cellId`, which
+      // seed scope verbatim and aim at any one cell. Those are refused rather than
+      // ignored: a client that sent them expected something this account cannot have.
+      const role = (req as Request & { user?: { role?: string } }).user?.role;
+      const isViewer = role !== "creator";
+      if (isViewer && (req.body?.input !== undefined || req.body?.cellId !== undefined)) {
+        return res.status(403).json({
+          error: "This needs a creator account: a viewer runs the deployed page with its declared arguments only.",
+        });
+      }
+      const isPage = isViewer || req.body?.mode === "deployed";
 
       const started = await notebookExecutionService.start(
         String(req.params.id),
