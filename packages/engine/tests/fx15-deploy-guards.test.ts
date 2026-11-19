@@ -211,6 +211,39 @@ await check("the slug made automatically for a webhook that names none passes", 
   assert.equal(await indexRowsOf(id), 1);
 });
 
+console.log("\na trigger another deployed notebook already holds");
+
+await check("a slug or trigger id held by another deployed notebook is refused before anything is written", async () => {
+  const slug = `${PREFIX}clash-slug-held-elsewhere`;
+  const holder = await store(`${PREFIX}clash-holder`, [hook(slug, { id: `${PREFIX}clash-id` })]);
+  assert.ok((await notebooksService.deploy(holder, "test"))?.versionId);
+
+  // Same slug, different trigger id — a duplicated notebook with its slug kept.
+  const sameSlug = await store(`${PREFIX}clash-slug`, [hook(slug, { id: `${PREFIX}clash-other-id` })]);
+  await assert.rejects(notebooksService.deploy(sameSlug, "test"), (err: unknown) => {
+    assert.ok(err instanceof DeployRefusedError);
+    assert.match(err.message, /slug/);
+    return true;
+  });
+  assert.equal(await versionsOf(sameSlug), 0, "a refused deploy wrote a version");
+  const { rows } = await pool.query("SELECT deployed_version_id FROM notebooks WHERE id = $1", [sameSlug]);
+  assert.equal(rows[0].deployed_version_id, null, "a refused deploy moved the production pointer");
+
+  // Same trigger id, different slug.
+  const sameId = await store(`${PREFIX}clash-id-nb`, [
+    hook(`${PREFIX}clash-slug-another-one-xx`, { id: `${PREFIX}clash-id` }),
+  ]);
+  await assert.rejects(notebooksService.deploy(sameId, "test"), DeployRefusedError);
+  assert.equal(await versionsOf(sameId), 0);
+
+  // The holder still owns its trigger, and over HTTP the refusal is a 409, not a 500.
+  assert.equal(await indexRowsOf(holder), 1);
+  assert.equal((await deployOverHttp(sameSlug)).status, 409);
+
+  // Re-deploying the holder itself is not a clash with itself.
+  assert.ok((await notebooksService.deploy(holder, "test"))?.versionId);
+});
+
 await check("the editor's deploy button gets 200 for a deployable notebook", async () => {
   const id = await store(`${PREFIX}http-ok`, [hook(slugOf(MIN_OPEN_SLUG_LENGTH + 5))]);
   const over = await deployOverHttp(id);

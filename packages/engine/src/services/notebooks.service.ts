@@ -307,6 +307,35 @@ export class NotebooksService {
       );
     }
 
+    // Trigger ids and slugs are unique across the whole index, but a document only knows its
+    // own — a duplicated notebook carries its original's. Checked here, before anything is
+    // written, because the index is synced *after* the version and pointer: a clash found
+    // there would leave production running the new code with the old triggers, and a 500.
+    const declared = (doc.triggers ?? []).filter((trigger) =>
+      trigger.kind === "cron" ? Boolean(trigger.cron?.trim()) : Boolean(trigger.slug?.trim())
+    );
+    const declaredSlugs = declared.flatMap((trigger) =>
+      trigger.kind === "webhook" && trigger.slug ? [trigger.slug.trim()] : []
+    );
+    if (declared.length > 0) {
+      const { rows: taken } = await pool.query(
+        `SELECT t.id, t.slug, t.notebook_id FROM notebook_triggers t
+         WHERE t.notebook_id <> $1 AND (t.id = ANY($2::text[]) OR t.slug = ANY($3::text[]))`,
+        [id, declared.map((trigger) => trigger.id), declaredSlugs]
+      );
+      if (taken.length > 0) {
+        const clash = taken[0];
+        throw new DeployRefusedError(
+          `Cannot deploy "${doc.name}": ` +
+            (clash.slug && declaredSlugs.includes(clash.slug)
+              ? `the webhook slug "${clash.slug}"`
+              : `the trigger id "${clash.id}"`) +
+            ` is already used by the deployed notebook ${clash.notebook_id}. ` +
+            `Give this trigger a new slug or id (a duplicated notebook keeps its original's).`
+        );
+      }
+    }
+
     const weak: string[] = [];
     for (const trigger of doc.triggers ?? []) {
       if (trigger.kind !== "webhook" || trigger.enabled === false) continue;
