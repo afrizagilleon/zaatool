@@ -25,7 +25,9 @@ import { defineConfig } from "vite";
  */
 const ENGINE_ORIGIN = process.env.ENGINE_ORIGIN ?? "http://localhost:4000";
 
-const toEngine = { target: ENGINE_ORIGIN, changeOrigin: true };
+// `xfwd` adds X-Forwarded-For, as nginx does in production. Without it every dev request
+// reaches the engine as 127.0.0.1 and the login limiter has one bucket for everyone.
+const toEngine = { target: ENGINE_ORIGIN, changeOrigin: true, xfwd: true };
 
 /**
  * Host names this dev server will answer to, besides localhost and plain IP addresses.

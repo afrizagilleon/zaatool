@@ -14,6 +14,7 @@ import { agentTokensRouter } from "../routes/agent-tokens.route.js";
 import { authMiddleware } from "../middleware/auth.middleware.js";
 
 import { storageAccess } from "../middleware/storage-access.js";
+import { trustProxy } from "../config.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 
 /** When this process came up. Restarts are the thing you are usually checking for. */
@@ -50,6 +51,8 @@ export function corsPolicy(): cors.CorsOptions {
 
 export function createApp(publishRunEvent: RunEventSink) {
   const app = express();
+  // Behind nginx / the Vite proxy every request arrives from the proxy; see trustProxy().
+  app.set("trust proxy", trustProxy());
   app.use(cors(corsPolicy()));
   app.use(express.json({ limit: "50mb" }));
 

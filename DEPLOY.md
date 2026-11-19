@@ -67,6 +67,15 @@ accepts same-origin only:
 CORS_ORIGINS=https://app.example.com,https://staging.example.com
 ```
 
+**Rate limits count clients, not the proxy.** The login limiter (10 attempts per 15
+minutes) and the webhook limiter key on the client address, which behind nginx exists only
+in `X-Forwarded-For`. The engine trusts that header from loopback and private-network
+peers (`TRUST_PROXY`, default `loopback, linklocal, uniquelocal`) and from no one else, so
+the compose nginx is believed and a stranger reaching the engine directly cannot pick
+their own address. If a load balancer sits in front of nginx on a public address, name
+it: `TRUST_PROXY=1` (hop count) or a subnet list. Without that, every user shares one
+bucket and one person typing a wrong password ten times locks everyone out.
+
 **Put TLS in front of it.** Caddy, nginx, a cloud load balancer, whatever you already run.
 Not optional: sessions and share tokens travel in headers, and the microphone in a
 notebook's page will not work at all without HTTPS.

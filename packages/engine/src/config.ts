@@ -74,6 +74,29 @@ export function hookRateLimitMax(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : 10;
 }
 
+/**
+ * Which hops Express believes when it reads `X-Forwarded-For`.
+ *
+ * Both ways in — nginx in production, the Vite proxy in development — are proxies, so
+ * without this `req.ip` is the proxy's address for every visitor and the login and
+ * webhook limiters share one bucket for the whole world: anyone can lock everyone out.
+ *
+ * The default trusts loopback and private-network peers only. That covers the compose
+ * network and a local dev server, and it does not cover the internet: an engine reached
+ * directly by a stranger ignores whatever `X-Forwarded-For` they send. `TRUST_PROXY` takes
+ * `false` or `0` (trust nothing), a hop count (`1`), `true` (trust everything — do not;
+ * it lets anyone pick their own address), or Express's own list of names and subnets.
+ */
+export function trustProxy(): boolean | number | string {
+  const raw = (process.env.TRUST_PROXY ?? "").trim();
+  if (raw === "") return "loopback, linklocal, uniquelocal";
+  const lowered = raw.toLowerCase();
+  if (lowered === "false" || lowered === "0") return false;
+  if (lowered === "true") return true;
+  if (/^\d+$/.test(raw)) return Number(raw);
+  return raw;
+}
+
 export function maxNotebookStorageBytes(): number {
   const raw = Number(process.env.MAX_NOTEBOOK_STORAGE_MB);
   const megabytes = Number.isFinite(raw) && raw > 0 ? raw : 500;

@@ -54,6 +54,8 @@ services:
       # Off unless you are letting the first person in. Turn it on, register, turn it off.
       ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-25}
+      # Read by the login and webhook limiters to tell clients apart behind nginx.
+      TRUST_PROXY: ${TRUST_PROXY:-loopback, linklocal, uniquelocal}
     volumes:
       # Everything notebooks write, and everything sent to them. Without this, every file
       # produced since the last deploy disappears on the next one.
