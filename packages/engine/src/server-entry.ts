@@ -7,6 +7,7 @@ import { RunEventHub } from "./server/run-event-hub.js";
 import { schedulerService } from "./services/scheduler.service.js";
 import { notebookTriggersService } from "./services/notebook-triggers.service.js";
 import { configProblems, isProduction, registrationOpen, usingDevSecret } from "./config.js";
+import { sandboxWarnings } from "./core/sandbox-identity.js";
 
 /**
  * Addresses on this machine another device could actually dial.
@@ -35,6 +36,7 @@ export async function startServer(port = 4000) {
   if (!isProduction() && usingDevSecret()) {
     console.warn("⚠️  JWT_SECRET is not set; using the development secret.");
   }
+  for (const warning of sandboxWarnings(process.platform, process.env)) console.warn(`⚠️  ${warning}`);
   if (registrationOpen()) {
     console.warn("⚠️  ALLOW_REGISTRATION is on: anyone who can reach this port can make an account.");
   }

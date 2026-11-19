@@ -15,6 +15,14 @@
  * script can run under different settings without reloading modules.
  */
 
+import {
+  cellSpawnIdentity,
+  readSandboxIdentity,
+  sandboxProblems,
+  type CellSpawnIdentity,
+  type SandboxIdentity,
+} from "./core/sandbox-identity.js";
+
 /** Obvious on sight, and long enough that nothing accidentally depends on its shape. */
 const DEV_JWT_SECRET = "zaatool-development-secret-do-not-deploy";
 
@@ -163,13 +171,29 @@ export function maxNotebookStorageBytes(): number {
 }
 
 /**
+ * The unprivileged user cells run as, from `SANDBOX_UID` / `SANDBOX_GID` / `SANDBOX_HOME`.
+ * Unset (or missing either id) means no drop: cells run as the engine does. See
+ * `core/sandbox-identity` for what is done with it, and why only on POSIX.
+ */
+export function sandboxIdentity(): SandboxIdentity | undefined {
+  return readSandboxIdentity(process.env);
+}
+
+/** Spawn options and environment that put a cell child under {@link sandboxIdentity}. */
+export function cellIdentity(): CellSpawnIdentity {
+  return cellSpawnIdentity(process.platform, process.env, process.getuid?.bind(process));
+}
+
+/**
  * Reasons this process should not be serving traffic.
  *
  * Returns them all rather than the first, so a deployment is fixed in one pass instead of
  * one restart per mistake.
  */
 export function configProblems(): string[] {
-  const problems: string[] = [];
+  // Not behind the production check: a half-set sandbox is wrong in development too, and
+  // the cost of finding out is every cell failing.
+  const problems: string[] = sandboxProblems(process.platform, process.env, process.getuid?.bind(process));
   if (!isProduction()) return problems;
 
   if (usingDevSecret()) {

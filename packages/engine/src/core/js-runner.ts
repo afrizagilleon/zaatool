@@ -6,7 +6,7 @@ import { killTree, TREE_SPAWN_OPTIONS } from "./kill-tree.js";
 import type { NotebookCaller } from "./notebook-call.js";
 import type { FileWriter } from "./notebook-files.js";
 import { abortMessage } from "./run-abort.js";
-import { maxCellMemoryMb } from "../config.js";
+import { cellIdentity, maxCellMemoryMb } from "../config.js";
 import { STORAGE_DIR } from "../services/storage.service.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -65,6 +65,8 @@ export function runJsNode(
     const startTime = Date.now();
     const logs: RunResult["logs"] = [];
     const memoryMb = maxCellMemoryMb();
+    // On Linux with SANDBOX_UID set the child is not root and has its own HOME and TMPDIR.
+    const identity = cellIdentity();
 
     // `process.execPath`, not `process.execArgv`: the engine may be running under `tsx`,
     // and the cell must not inherit its loader (or any other flag of the engine's).
@@ -81,10 +83,11 @@ export function runJsNode(
       {
         // The cell gets its own environment rather than a copy of the engine's, so user
         // code cannot read the server's credentials.
-        env: buildSandboxEnv(secrets),
+        env: { ...buildSandboxEnv(secrets), ...identity.env },
         stdio: ["ignore", "pipe", "pipe", "ipc"],
         windowsHide: true,
         ...TREE_SPAWN_OPTIONS,
+        ...identity.options,
       }
     );
 

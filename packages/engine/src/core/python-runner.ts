@@ -5,6 +5,7 @@ import { abortMessage } from "./run-abort.js";
 import { randomBytes } from "node:crypto";
 import { PY_RPC_PREFIX, pyRpcPrefix, type NotebookCaller } from "./notebook-call.js";
 import type { FileWriter } from "./notebook-files.js";
+import { cellIdentity } from "../config.js";
 import { STORAGE_DIR } from "../services/storage.service.js";
 
 export function resolvePythonLockedPackages(packages: string[]): Promise<string[]> {
@@ -38,7 +39,13 @@ print(json.dumps(locked))
       pyScript,
     ];
 
-    const proc = spawn(bin, args);
+    // Installing declared packages runs arbitrary package code (build scripts, setup.py),
+    // so it gets what the cell itself gets: no engine environment, and not root.
+    const identity = cellIdentity();
+    const proc = spawn(bin, args, {
+      env: { ...buildSandboxEnv({}), ...identity.env },
+      ...identity.options,
+    });
     let stdout = "";
     proc.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
@@ -330,9 +337,11 @@ except Exception as err:
             args: ["-c", wrapper],
           };
 
+    const identity = cellIdentity();
     const proc = spawn(command.bin, command.args, {
-      env: { PYTHONIOENCODING: "utf-8", ...buildSandboxEnv(secrets) },
+      env: { PYTHONIOENCODING: "utf-8", ...buildSandboxEnv(secrets), ...identity.env },
       ...TREE_SPAWN_OPTIONS,
+      ...identity.options,
     });
 
     // Fresh per spawn, 256 bits. Reaches the child only in the first stdin payload, so it
