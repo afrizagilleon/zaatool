@@ -363,5 +363,27 @@ Nothing needs installing on the host — the engine image carries `uv`.
 
 JavaScript is the other way round: node's built-in modules always work, and beyond them a
 cell may only use the short list the engine ships. Adding to that list is a change to the
-engine, reviewed like any other, because a JavaScript package loads into the engine's own
-process rather than a throwaway environment.
+engine, reviewed like any other, because a JavaScript package is read from the engine's own
+`node_modules` rather than installed into a throwaway environment.
+
+---
+
+## What a cell can reach
+
+Each cell is a process of its own. These settings shape it (all optional; the image sets the
+`SANDBOX_*` ones):
+
+- **`MAX_CELL_MEMORY_MB`** (default `512`) — heap limit of one JavaScript cell. A cell that
+  exceeds it fails; the engine does not. It does not cap Python cells or memory held outside
+  the JS heap.
+- **`SANDBOX_UID`, `SANDBOX_GID`, `SANDBOX_HOME`** — the unprivileged user cells (and the
+  `uv` run that installs packages) are spawned as. The image sets `10001`/`10001` and
+  `/home/sandbox`, and creates that user. This needs the engine to run as root, which the
+  image does; if you set `SANDBOX_UID` on an engine that is not root, it refuses to start,
+  because every cell would fail. On Windows it is ignored, with a warning.
+
+What this does not do: **the network is open** — a cell can connect to anything the server
+can, the database port included (though it cannot read the password). If that matters, put
+the engine on a network where the database is only reachable with credentials a cell does not
+have, and firewall egress. Storage files are readable by every cell, and the engine runs as
+root inside the container. See "Sandboxing, honestly" in ARCHITECTURE.md.

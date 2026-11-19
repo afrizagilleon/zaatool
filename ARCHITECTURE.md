@@ -145,7 +145,7 @@ notebook-execution.service
       │  run gate                       ── too many concurrent runs? reject, no history left behind
       │  fetch only the secrets the plan names
       ▼
-notebook-runner  ──▶ js-runner      (worker_threads)
+notebook-runner  ──▶ js-runner      (child node, --permission)
                  ──▶ python-runner  (child process, uv)
       │
       │  events: cell:start · cell:log · cell:done · cell:error · run:done
@@ -172,13 +172,44 @@ There is deliberately **no** range execution — the API takes one cell or all o
 
 ### Sandboxing, honestly
 
-JavaScript runs in a `worker_threads` worker. Python runs as a child process under `uv`,
-with `packages:` resolved against an allow-list and pinned to exact versions.
+Each cell runs in a process of its own, in layers. What each layer enforces, and what it
+does not:
 
-This is **isolation, not a security boundary.** A notebook runs code on your server with
-your server's network access. Give `creator` only to people you would give a shell to. The
-package allow-list exists to stop typo-squatting and drive-by installs, not to contain a
-determined author.
+**Enforced, every platform: JavaScript.** A JS cell is a child `node` started with
+`--permission`. It can read its host script (`core/cell-host.mjs`), the storage folder and
+the `node_modules` of the packages it declared; it cannot write any file, start a process
+or a thread, or load a native addon. The runtime refuses these, so `module._load` and every
+other route around the `require` list ends in `ERR_ACCESS_DENIED` — the list is only the
+friendly message that comes first. Its environment is a small allow-list plus the secrets
+it declared, never the engine's. Its heap is capped (`MAX_CELL_MEMORY_MB`, default 512);
+a cell that outgrows it fails and the engine, a different process, carries on. Timeout,
+deadline and cancel kill the whole tree.
+
+**Enforced on Linux/Docker: the user.** The image starts the engine as root and spawns every
+cell — JS, Python, and the `uv` run that installs a notebook's packages — as the unprivileged
+user `sandbox` (uid/gid 10001, `SANDBOX_UID`/`SANDBOX_GID`). That user cannot read the
+engine's environment, cannot read anything root-only, and cannot write to `/app`. Python
+cells, which have no equivalent of the permission model, rely on this layer alone.
+`packages:` for Python is still resolved against an allow-list and pinned to exact versions.
+
+**Not enforced:**
+
+- **The network is open.** A cell can reach any host the server can, including the
+  database port. It cannot read the database password (that is in the engine's
+  environment, not the cell's), but an unprotected service on the same network is reachable.
+  Node's permission model has no switch for the network.
+- **Python on Windows or a dev machine has no isolation.** `SANDBOX_UID` is ignored on
+  Windows and unset in development; a Python cell there runs as the user who started the engine.
+- **Storage is shared.** A cell can read any file under the storage folder, including
+  another notebook's uploads; only the path of its own inputs is derived for it.
+- **The engine itself runs as root in the container.** Switching a child to another uid
+  needs it. A flaw in the engine is a root flaw inside the container, not on the host.
+- **Memory is capped on the JS heap only**, and Python cells have no memory cap.
+
+So: much stronger than it was, still **not a hardened boundary.** A notebook runs code on
+your server with your server's network access. Give `creator` only to people you would give
+a shell to. The package allow-list exists to stop typo-squatting and drive-by installs, not
+to contain a determined author.
 
 ---
 
