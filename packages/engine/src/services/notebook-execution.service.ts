@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { maxRunMs } from "../config.js";
+import { abortMessage } from "../core/run-abort.js";
 import { compileNotebook, selectPlanCell } from "../core/notebook-compiler.js";
 import { RunGate } from "../core/run-gate.js";
 import { runNotebook, type NotebookRunResult } from "../core/notebook-runner.js";
@@ -140,8 +142,13 @@ export class NotebookExecutionService {
        * deployed.
        */
       useDeployed: boolean;
+      /** The root run's signal: its deadline and a cancel reach every run in the chain. */
+      signal: AbortSignal;
     }
   ): Promise<Record<string, unknown>> {
+    // A stopped run starts nothing more, and leaves no history row for what never began.
+    if (context.signal.aborted) throw new Error(abortMessage(context.signal));
+
     const reference = String(request.notebook ?? "").trim();
     // A production run looks the callee up among the names of what is *deployed*; a draft
     // run among the drafts. Resolving production against the draft `name` column made a
@@ -213,6 +220,7 @@ export class NotebookExecutionService {
       publish: context.publish,
       parentRunId: runId,
       useDeployed: context.useDeployed,
+      signal: context.signal,
     };
 
     const recorder = new NotebookRunRecorder(runId, sourcesOf(plan));
@@ -238,6 +246,7 @@ export class NotebookExecutionService {
       // A callee writes into its own folder, not the caller's: a file belongs to the
       // notebook that produced it, however deep in a chain that notebook sits.
       file: notebookFilesService.writerFor(found.id),
+      signal: context.signal,
     });
     await recorder.drain();
 
@@ -254,7 +263,8 @@ export class NotebookExecutionService {
     name: string,
     publish: RunEventSink,
     runId: string,
-    useDeployed: boolean
+    useDeployed: boolean,
+    signal: AbortSignal
   ): NotebookCaller {
     return (request, log) =>
       this.callNotebook(request, {
@@ -264,6 +274,7 @@ export class NotebookExecutionService {
         publish,
         parentRunId: runId,
         useDeployed,
+        signal,
       });
   }
 
@@ -336,8 +347,18 @@ export class NotebookExecutionService {
       settle = resolve;
     });
 
+    // One signal for the whole chain: the deadline below and a cancel both abort it, and
+    // every cell, nested or not, listens to it.
+    const controller = new AbortController();
+
     void (async () => {
       const release = await runGate.acquire();
+      // The clock starts when the run does, not when it joined the queue: waiting for a
+      // slot is not the run's time to spend.
+      const seconds = maxRunMs() / 1000;
+      const deadline = setTimeout(() => {
+        controller.abort(new Error(`Run exceeded its overall deadline of ${seconds} s`));
+      }, maxRunMs());
       try {
         const result = await runNotebook(plan, {
           ee,
@@ -345,8 +366,16 @@ export class NotebookExecutionService {
           // Declared arguments first, so a trigger payload seeded under `input`
           // cannot quietly shadow a value the contract promised.
           input: { ...options.input, ...boundInputs },
-          call: this.callerFor(notebookId, document.name, publish, runId, useDeployed),
+          call: this.callerFor(
+            notebookId,
+            document.name,
+            publish,
+            runId,
+            useDeployed,
+            controller.signal
+          ),
           file: notebookFilesService.writerFor(notebookId),
+          signal: controller.signal,
         });
         // Waiting for the recorder means a caller that reads the run the moment this
         // resolves sees every cell, not whichever writes happened to land first.
@@ -355,6 +384,7 @@ export class NotebookExecutionService {
       } catch (err: unknown) {
         settle({ status: "failed", errors: [(err as Error).message], ms: 0, outputs: {} });
       } finally {
+        clearTimeout(deadline);
         release();
       }
     })();

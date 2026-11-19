@@ -115,6 +115,35 @@ export function trustProxy(): boolean | number | string {
   return raw;
 }
 
+/**
+ * Milliseconds one root notebook run may take in total, nested calls included.
+ *
+ * A cell's own timeout stops counting while it waits on `notebooks.run` or `files.write`,
+ * so by itself it cannot bound a chain: `while (true) await notebooks.run(...)` never ends
+ * and holds a run slot for good. This is the clock that does. When it runs out every cell
+ * in the chain is stopped and the run fails.
+ */
+export function maxRunMs(): number {
+  const raw = Number(process.env.MAX_RUN_SECONDS);
+  const seconds = Number.isFinite(raw) && raw > 0 ? raw : 900;
+  return Math.floor(seconds * 1000);
+}
+
+function positiveInt(name: string, fallback: number): number {
+  const raw = Number(process.env[name]);
+  return Number.isInteger(raw) && raw > 0 ? raw : fallback;
+}
+
+/** How many `notebooks.run` calls one root run may have executing at the same time. */
+export function maxNestedConcurrency(): number {
+  return positiveInt("MAX_NESTED_CONCURRENCY", 4);
+}
+
+/** How many `notebooks.run` calls one root run may make in total. */
+export function maxNestedCalls(): number {
+  return positiveInt("MAX_NESTED_CALLS", 200);
+}
+
 export function maxNotebookStorageBytes(): number {
   const raw = Number(process.env.MAX_NOTEBOOK_STORAGE_MB);
   const megabytes = Number.isFinite(raw) && raw > 0 ? raw : 500;

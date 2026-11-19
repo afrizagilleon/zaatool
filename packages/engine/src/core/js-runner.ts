@@ -4,6 +4,7 @@ import { fileURLToPath } from "url";
 import { buildSandboxEnv } from "./sandbox-env.js";
 import type { NotebookCaller } from "./notebook-call.js";
 import type { FileWriter } from "./notebook-files.js";
+import { abortMessage } from "./run-abort.js";
 import { STORAGE_DIR } from "../services/storage.service.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -24,7 +25,9 @@ export function runJsNode(
   inputsSchema: any[] = [],
   onCall?: NotebookCaller,
   onFile?: FileWriter,
-  packages: string[] = []
+  packages: string[] = [],
+  /** Aborted by the run's deadline or a cancel; the cell then ends with the abort reason. */
+  signal?: AbortSignal
 ): Promise<RunResult> {
   return new Promise((resolve) => {
     const startTime = Date.now();
@@ -60,6 +63,7 @@ export function runJsNode(
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
       void worker.terminate();
       resolve(result);
     };
@@ -74,7 +78,15 @@ export function runJsNode(
     };
     const pauseTimer = (): void => clearTimeout(timer);
 
+    // Unlike the timer, this is never paused: it is the run's own deadline (or a cancel),
+    // which has to reach a cell that is parked on a nested call or a file write too.
+    const onAbort = (): void => {
+      finish({ error: abortMessage(signal!), logs, ms: Date.now() - startTime });
+    };
+
     startTimer();
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener("abort", onAbort, { once: true });
 
     worker.on("message", (msg) => {
       if (msg.type === "log") {

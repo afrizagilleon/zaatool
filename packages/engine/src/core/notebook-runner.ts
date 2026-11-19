@@ -3,6 +3,7 @@ import { NotebookScope } from "./notebook-scope.js";
 import { runJsNode } from "./js-runner.js";
 import { runPythonNode } from "./python-runner.js";
 import { selectOutputs } from "./notebook-contract.js";
+import { abortMessage } from "./run-abort.js";
 import type { NotebookCaller } from "./notebook-call.js";
 import type { FileWriter } from "./notebook-files.js";
 import type { NotebookPlan, PlanCell, PlanLane, PlanParallel, PlanStep } from "./notebook-compiler.js";
@@ -23,6 +24,11 @@ export interface RunNotebookOptions {
    * there is no notebook to attribute the file to.
    */
   file?: FileWriter;
+  /**
+   * Aborted when the run must stop now: its overall deadline ran out, or someone cancelled
+   * it. Every running cell is stopped and the run fails with the abort reason.
+   */
+  signal?: AbortSignal;
 }
 
 export interface NotebookRunResult {
@@ -59,7 +65,7 @@ export async function runNotebook(
   plan: NotebookPlan,
   options: RunNotebookOptions = {}
 ): Promise<NotebookRunResult> {
-  const { ee, secrets = {}, input, call, file } = options;
+  const { ee, secrets = {}, input, call, file, signal } = options;
   const startedAt = Date.now();
   const runCell = runnerFor(plan);
   const rootScope = new NotebookScope();
@@ -67,6 +73,10 @@ export async function runNotebook(
   if (input) rootScope.merge(input);
 
   async function executeCell(step: PlanCell, scope: NotebookScope): Promise<void> {
+    // A run that was stopped starts nothing more, so a lane that was between cells ends
+    // here rather than spawning another worker or process.
+    if (signal?.aborted) throw new CellFailure(step.cellId, abortMessage(signal));
+
     ee?.emit("cell:start", { type: "cell:start", cellId: step.cellId });
     const cellStartedAt = Date.now();
 
@@ -94,7 +104,8 @@ export async function runNotebook(
       plan.inputs ?? [],
       callFromCell,
       file,
-      plan.packages ?? []
+      plan.packages ?? [],
+      signal
     );
 
     if (result.error) {
@@ -184,7 +195,13 @@ export async function runNotebook(
   } catch (err: unknown) {
     const ms = Date.now() - startedAt;
     const failure = err instanceof CellFailure ? err : null;
-    const message = failure ? failure.message : (err as Error).message;
+    // A stopped run ends on the reason it was stopped, not on whichever lane noticed first
+    // (a parallel group would otherwise wrap it in a lane label).
+    const message = signal?.aborted
+      ? abortMessage(signal)
+      : failure
+        ? failure.message
+        : (err as Error).message;
 
     // The id travels as its own field rather than being spliced into the message,
     // so a client can link to the failing cell instead of printing a raw uuid.

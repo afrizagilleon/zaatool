@@ -1,6 +1,7 @@
 import { spawn } from "child_process";
 import { buildSandboxEnv } from "./sandbox-env.js";
 import { killTree, TREE_SPAWN_OPTIONS } from "./kill-tree.js";
+import { abortMessage } from "./run-abort.js";
 import { randomBytes } from "node:crypto";
 import { PY_RPC_PREFIX, pyRpcPrefix, type NotebookCaller } from "./notebook-call.js";
 import type { FileWriter } from "./notebook-files.js";
@@ -73,7 +74,9 @@ export function runPythonNode(
   inputsSchema: any[] = [],
   onCall?: NotebookCaller,
   onFile?: FileWriter,
-  packages: string[] = []
+  packages: string[] = [],
+  /** Aborted by the run's deadline or a cancel; the cell then ends with the abort reason. */
+  signal?: AbortSignal
 ): Promise<{ output?: Record<string, unknown>; logs: any[]; error?: string; ms: number }> {
   return new Promise((resolve) => {
     const startTime = Date.now();
@@ -348,6 +351,7 @@ except Exception as err:
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
       // Whenever the engine gives up on the run (timeout, spawn error, ...) and the
       // process is still alive, take down the whole tree, not just `uv`.
       if (!exited) killTree(proc);
@@ -363,6 +367,13 @@ except Exception as err:
     };
     const pauseTimer = (): void => clearTimeout(timer);
     startTimer();
+
+    // Never paused, unlike the timer: it is the run's own deadline (or a cancel), which has
+    // to reach a cell parked on a nested call or a file write too. `finish` takes the whole
+    // process tree down.
+    const onAbort = (): void => finish({ error: abortMessage(signal!) });
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener("abort", onAbort, { once: true });
 
     const send = (frame: unknown): void => {
       if (proc.stdin.writable) proc.stdin.write(JSON.stringify(frame) + "\n");
