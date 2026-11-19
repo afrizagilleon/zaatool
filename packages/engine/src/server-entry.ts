@@ -5,6 +5,7 @@ import { createApp } from "./server/app.js";
 import { WebSocketManager } from "./server/websocket-manager.js";
 import { RunEventHub } from "./server/run-event-hub.js";
 import { schedulerService } from "./services/scheduler.service.js";
+import { notebookTriggersService } from "./services/notebook-triggers.service.js";
 import { configProblems, isProduction, registrationOpen, usingDevSecret } from "./config.js";
 
 /**
@@ -43,6 +44,22 @@ export async function startServer(port = 4000) {
     await initDb();
   } catch (err: unknown) {
     console.error("❌ Failed to initialize database:", (err as Error).message);
+    process.exit(1);
+  }
+
+  // After the tables exist and before anything can fire: the trigger index is brought in
+  // line with what is deployed, so a table written from drafts by an older version never
+  // gets to run a cron or answer a webhook. Not in `initDb()`, which creates tables and
+  // never rows. Each change is logged because it is a visible change of behaviour — a
+  // trigger that was only ever saved stops firing until its notebook is deployed again.
+  try {
+    for (const change of await notebookTriggersService.rebuildTriggerIndex()) {
+      console.warn(
+        `⚠️  Trigger index: ${change.change} ${change.triggerId} (notebook ${change.notebookId}) — ${change.detail}`
+      );
+    }
+  } catch (err: unknown) {
+    console.error("❌ Failed to rebuild the trigger index:", (err as Error).message);
     process.exit(1);
   }
 
