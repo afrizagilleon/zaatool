@@ -15,16 +15,27 @@ export class RunGate {
 
   constructor(
     private readonly maxConcurrent: number,
-    private readonly maxQueued: number
+    private readonly maxQueued: number,
+    /**
+     * How far the queue may grow for a run that must not be lost (a scheduled one). Beyond
+     * `maxQueued` only those are let in, so a burst of webhooks cannot starve a cron, and
+     * a queue that grows without limit is still refused.
+     */
+    private readonly maxQueuedScheduled: number = maxQueued
   ) {}
 
   get stats(): { active: number; queued: number } {
     return { active: this.active, queued: this.waiting.length };
   }
 
-  /** True when the gate would refuse another run right now. */
-  isFull(): boolean {
-    return this.active >= this.maxConcurrent && this.waiting.length >= this.maxQueued;
+  /**
+   * True when the gate would refuse another run right now. A scheduled run is turned away
+   * only at the larger bound: a webhook can be retried by whoever sent it, a cron tick
+   * cannot, so it waits in line instead.
+   */
+  isFull(scheduled = false): boolean {
+    const limit = scheduled ? this.maxQueuedScheduled : this.maxQueued;
+    return this.active >= this.maxConcurrent && this.waiting.length >= limit;
   }
 
   /**

@@ -50,7 +50,9 @@ export class TooManyRunsError extends Error {
 /** Shared by every entry point — the editor, webhooks and the scheduler alike. */
 const MAX_CONCURRENT_RUNS = 4;
 const MAX_QUEUED_RUNS = 20;
-const runGate = new RunGate(MAX_CONCURRENT_RUNS, MAX_QUEUED_RUNS);
+/** Where a cron run is finally refused: past the webhook bound, but not unbounded. */
+const MAX_QUEUED_SCHEDULED_RUNS = MAX_QUEUED_RUNS * 5;
+const runGate = new RunGate(MAX_CONCURRENT_RUNS, MAX_QUEUED_RUNS, MAX_QUEUED_SCHEDULED_RUNS);
 
 /**
  * How deep `notebooks.run` may nest.
@@ -371,8 +373,10 @@ export class NotebookExecutionService {
       plan = single;
     }
 
-    // Refused before a run row exists, so a rejected burst leaves no history behind.
-    if (runGate.isFull()) throw new TooManyRunsError();
+    // Refused before a run row exists, so a rejected burst leaves no history behind. A cron
+    // run is let into the queue past the point where a webhook is turned away: the caller of
+    // a webhook can try again, but a missed tick is simply a run that never happened.
+    if (runGate.isFull(options.triggerSource === "cron")) throw new TooManyRunsError();
 
     const secrets = await secretsService.getByKeys(plan.secrets);
 

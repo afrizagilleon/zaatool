@@ -101,7 +101,9 @@ export class SchedulerService {
           });
           console.log(`⏰ Notebook ${trigger.notebook_id} started run ${runId} ('${trigger.cron}')`);
         } catch (err: unknown) {
-          // One misbehaving notebook must not stop the others from firing this minute.
+          // One misbehaving notebook must not stop the others from firing this minute. A full
+          // gate does not land here until even the scheduled-run queue is full: until then a
+          // cron run waits its turn rather than being dropped.
           console.error(
             `Failed to start notebook ${trigger.notebook_id} from cron '${trigger.cron}':`,
             (err as Error).message
