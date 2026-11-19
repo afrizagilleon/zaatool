@@ -14,6 +14,7 @@ import { agentTokensRouter } from "../routes/agent-tokens.route.js";
 import { authMiddleware } from "../middleware/auth.middleware.js";
 
 import { storageAccess } from "../middleware/storage-access.js";
+import { storageHeaders } from "../middleware/storage-headers.js";
 import { trustProxy } from "../config.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 
@@ -80,7 +81,7 @@ export function createApp(publishRunEvent: RunEventSink) {
   // Outside /api because a browser asks for these in `src` and `href`, where no header can
   // be attached — so the permission is in the link instead. `storageAccess` is what makes
   // that a permission rather than a URL anyone can type.
-  app.use("/storage", storageAccess, express.static(STORAGE_DIR));
+  app.use("/storage", storageHeaders, storageAccess, express.static(STORAGE_DIR));
 
   /**
    * Reachable without a session, like `/api/health`, and carrying the same amount of
