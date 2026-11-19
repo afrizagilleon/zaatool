@@ -1,7 +1,7 @@
 /**
  * Environment handed to user-authored code nodes.
  *
- * Scoping the secrets table is only half the job: a child process or worker that
+ * Scoping the secrets table is only half the job: a child process that
  * inherits the engine's own `process.env` can still read the database URL, the
  * JWT signing key and every other credential the server was started with. Code
  * nodes therefore get a fresh environment built from a small allow-list of

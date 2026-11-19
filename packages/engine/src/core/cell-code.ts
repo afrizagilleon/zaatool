@@ -67,7 +67,7 @@ function describeProblem(code: string, detail: string): string {
 /**
  * Whether this is syntactically code at all — JavaScript, checked in process.
  *
- * Parsed by acorn with the same wrapper the worker builds, so what passes here is what
+ * Parsed by acorn with the same wrapper the cell host builds, so what passes here is what
  * will run there. Microseconds, and it is the check that would have caught the fence.
  *
  * Python needs an interpreter, so it is {@link pythonSyntaxProblem} and asynchronous.

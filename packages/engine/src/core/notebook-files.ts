@@ -30,7 +30,7 @@ export interface FileWriteRequest {
    *
    * `base64` for anything that is not text, which is most of what is worth writing —
    * a chart, a photo, a spreadsheet. Chosen rather than a Buffer because this frame is
-   * JSON: the Python child and the JavaScript worker send the same thing.
+   * JSON: the Python child and the JavaScript child send the same thing.
    */
   data: string;
   encoding?: "utf8" | "base64";
