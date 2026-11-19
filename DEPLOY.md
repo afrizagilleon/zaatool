@@ -69,12 +69,21 @@ CORS_ORIGINS=https://app.example.com,https://staging.example.com
 
 **Rate limits count clients, not the proxy.** The login limiter (10 attempts per 15
 minutes) and the webhook limiter key on the client address, which behind nginx exists only
-in `X-Forwarded-For`. The engine trusts that header from loopback and private-network
-peers (`TRUST_PROXY`, default `loopback, linklocal, uniquelocal`) and from no one else, so
-the compose nginx is believed and a stranger reaching the engine directly cannot pick
-their own address. If a load balancer sits in front of nginx on a public address, name
-it: `TRUST_PROXY=1` (hop count) or a subnet list. Without that, every user shares one
-bucket and one person typing a wrong password ten times locks everyone out.
+in `X-Forwarded-For`. Compose sets `TRUST_PROXY=1`: the engine believes exactly one hop,
+the compose nginx, and keys each client on the address nginx saw. A client cannot pick its
+own address by sending the header, because nginx appends the real one and only that last
+entry is read. The engine publishes no port, so nothing reaches it without nginx.
+
+If another proxy sits in front of nginx (Caddy for TLS, a load balancer, Cloudflare),
+count it: `TRUST_PROXY=2`. Leave it at 1 and every user shares that proxy's bucket, so
+one person typing a wrong password ten times locks everyone out. Set it higher than the
+real number of proxies and a client can name its own address again.
+
+Do not use the engine's own default (`loopback, linklocal, uniquelocal`, meant for
+`pnpm dev`) behind nginx. It trusts every private address, and nginx sees a client on
+a private address under Docker Desktop, rootless Docker, or a proxy on the same host.
+That client then picks its own address and is never limited (K-28, tested on Docker
+Desktop).
 
 **Put TLS in front of it.** Caddy, nginx, a cloud load balancer, whatever you already run.
 Not optional: sessions and share tokens travel in headers, and the microphone in a

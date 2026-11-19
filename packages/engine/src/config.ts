@@ -107,9 +107,11 @@ export function hookRateLimitMax(): number {
  * without this `req.ip` is the proxy's address for every visitor and the login and
  * webhook limiters share one bucket for the whole world: anyone can lock everyone out.
  *
- * The default trusts loopback and private-network peers only. That covers the compose
- * network and a local dev server, and it does not cover the internet: an engine reached
- * directly by a stranger ignores whatever `X-Forwarded-For` they send. `TRUST_PROXY` takes
+ * The default trusts loopback and private-network peers only. That covers a local dev
+ * server, and it does not cover the internet: an engine reached directly by a stranger
+ * ignores whatever `X-Forwarded-For` they send. docker-compose sets `1` instead, because
+ * nginx can see a client on a private address too, and under this default that client
+ * could name its own address (K-28). `TRUST_PROXY` takes
  * `false` or `0` (trust nothing), a hop count (`1`), `true` (trust everything — do not;
  * it lets anyone pick their own address), or Express's own list of names and subnets.
  */

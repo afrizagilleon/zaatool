@@ -85,6 +85,29 @@ await check("TRUST_PROXY=false: X-Forwarded-For is ignored, everyone shares one 
   }
 });
 
+await check("TRUST_PROXY=1 (compose): a client nginx sees on a private address cannot pick its own (K-28)", async () => {
+  // Docker Desktop, rootless Docker or a host proxy in front of nginx: nginx sees the client
+  // as a private address. Under the default that address is trusted as one more proxy, so
+  // whatever the client prepends becomes `req.ip` and every guess gets a fresh bucket.
+  // Counting exactly one hop (nginx) keys the bucket on the address nginx saw instead.
+  process.env.TRUST_PROXY = "1";
+  try {
+    await withServer(async (base) => {
+      for (let i = 0; i < 3; i++) assert.notEqual(await login(base, `198.51.100.${i}, 172.18.0.77`), 429);
+      assert.equal(await login(base, "198.51.100.99, 172.18.0.77"), 429, "a spoofed hop did not reset the bucket");
+      assert.notEqual(await login(base, "172.18.0.78"), 429, "another client keeps its own bucket");
+    });
+  } finally {
+    delete process.env.TRUST_PROXY;
+  }
+});
+
+await check("docker-compose.yml defaults TRUST_PROXY to 1 (K-28)", async () => {
+  const fs = await import("node:fs");
+  const compose = fs.readFileSync(new URL("../../../docker-compose.yml", import.meta.url), "utf8");
+  assert.match(compose, /TRUST_PROXY: \$\{TRUST_PROXY:-1\}/);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 try {
   const { pool } = await import("../src/db/connection.js");
