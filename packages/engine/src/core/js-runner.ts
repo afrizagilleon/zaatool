@@ -7,7 +7,7 @@ import type { NotebookCaller } from "./notebook-call.js";
 import type { FileWriter } from "./notebook-files.js";
 import { abortMessage } from "./run-abort.js";
 import { cellIdentity, maxCellMemoryMb } from "../config.js";
-import { STORAGE_DIR } from "../services/storage.service.js";
+import { STORAGE_DIR } from "./storage-root.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 

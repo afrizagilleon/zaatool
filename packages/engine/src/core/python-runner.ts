@@ -6,14 +6,75 @@ import { randomBytes } from "node:crypto";
 import { PY_RPC_PREFIX, pyRpcPrefix, type NotebookCaller } from "./notebook-call.js";
 import type { FileWriter } from "./notebook-files.js";
 import { cellIdentity } from "../config.js";
-import { STORAGE_DIR } from "../services/storage.service.js";
+import { STORAGE_DIR } from "./storage-root.js";
+
+/**
+ * Whether the code defines its own top-level `main` (`def main(` or `async def main(` at
+ * column 0), ignoring anything inside comments and strings. A plain substring test was
+ * fooled by `# def main(` and by a string that mentions it, which left the code unwrapped
+ * and then failed with "main is not defined".
+ *
+ * A small scanner rather than a regex: it only has to know, at the start of each line,
+ * whether that line begins inside a triple-quoted string, so a `def main(` in a docstring
+ * is not mistaken for a definition. Single-quoted strings cannot span lines, and a comment
+ * cannot start at column 0 with `def`, so those need no state.
+ */
+export function definesMain(code: string): boolean {
+  const mainDef = /^(?:async[ \t]+)?def[ \t]+main[ \t]*\(/;
+  let tripleQuote: string | null = null;
+
+  for (const line of code.split(/\r?\n/)) {
+    if (tripleQuote === null && mainDef.test(line)) return true;
+
+    let i = 0;
+    while (i < line.length) {
+      if (tripleQuote !== null) {
+        if (line[i] === "\\") {
+          i += 2;
+        } else if (line.startsWith(tripleQuote, i)) {
+          tripleQuote = null;
+          i += 3;
+        } else {
+          i += 1;
+        }
+        continue;
+      }
+
+      const ch = line[i];
+      if (ch === "#") break;
+      if (ch === '"' || ch === "'") {
+        if (line.startsWith(ch.repeat(3), i)) {
+          tripleQuote = ch.repeat(3);
+          i += 3;
+          continue;
+        }
+        // An ordinary string: skip to its closing quote on this line.
+        i += 1;
+        while (i < line.length && line[i] !== ch) i += line[i] === "\\" ? 2 : 1;
+        i += 1;
+        continue;
+      }
+      i += 1;
+    }
+  }
+  return false;
+}
+
+/**
+ * How long a deploy waits for `uv` to resolve a notebook's packages. A cold install of a
+ * large package can take a while, but a hung network must not hang the deploy forever.
+ */
+function uvLockTimeoutMs(): number {
+  const seconds = Number(process.env.UV_LOCK_TIMEOUT_SECONDS);
+  return (Number.isFinite(seconds) && seconds > 0 ? seconds : 120) * 1000;
+}
 
 export function resolvePythonLockedPackages(packages: string[]): Promise<string[]> {
   if (!Array.isArray(packages) || packages.length === 0) {
     return Promise.resolve([]);
   }
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const pyScript = `import json, importlib.metadata, re
 reqs = ${JSON.stringify(packages)}
 locked = []
@@ -51,11 +112,30 @@ print(json.dumps(locked))
       stdout += chunk.toString();
     });
 
+    // Unlike every other failure here, a timeout is not swallowed: falling back to the
+    // unlocked requirements would hide that nothing was resolved, so the deploy says so.
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killTree(proc);
+    }, uvLockTimeoutMs());
+
     proc.on("error", () => {
+      clearTimeout(timer);
       resolve(packages);
     });
 
     proc.on("close", (code) => {
+      clearTimeout(timer);
+      if (timedOut) {
+        reject(
+          new Error(
+            `Resolving the Python packages timed out after ${uvLockTimeoutMs() / 1000}s ` +
+              "(set UV_LOCK_TIMEOUT_SECONDS to allow longer)."
+          )
+        );
+        return;
+      }
       if (code === 0) {
         try {
           const parsed = JSON.parse(stdout.trim());
@@ -91,7 +171,7 @@ export function runPythonNode(
 
     // wrapper: wrap user's code in def main(inputs), call it, and print output if def main is not defined
     let finalCode = code;
-    if (!code.includes("def main(")) {
+    if (!definesMain(code)) {
       const indented = code
         .split("\n")
         .map((line) => "    " + line)

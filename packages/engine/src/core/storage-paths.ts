@@ -11,6 +11,7 @@
  * Windows drive letters and separator tricks in one test, instead of asking whether some
  * blocklist of prefixes was complete.
  */
+import fs from "fs";
 import path from "path";
 
 /**
@@ -70,6 +71,10 @@ export function safeSubPath(raw: unknown, root: string): string | null {
 
   const resolved = path.resolve(root, relative);
   if (!isInside(resolved, root)) return null;
+  // Lexically inside is not enough: a symlink under the root can point anywhere.
+  const realResolved = realpathOrAncestor(resolved);
+  const realRoot = realpathOrAncestor(root);
+  if (realResolved === null || realRoot === null || !isInside(realResolved, realRoot)) return null;
 
   return path.relative(root, resolved).replace(/\\/g, "/");
 }
@@ -85,4 +90,31 @@ function isInside(candidate: string, root: string): boolean {
   const resolvedRoot = path.resolve(root);
   if (candidate === resolvedRoot) return true;
   return candidate.startsWith(resolvedRoot + path.sep);
+}
+
+/**
+ * The real path of `target`, following symlinks. A path that does not exist yet (an upload
+ * about to be written) must not throw, so the nearest existing ancestor is resolved and
+ * the missing remainder is appended unchanged. A dangling symlink exists but cannot be
+ * resolved, and writing through it would land wherever it points: `null`, refused.
+ */
+function realpathOrAncestor(target: string): string | null {
+  const missing: string[] = [];
+  let current = path.resolve(target);
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync.native(current), ...missing.reverse());
+    } catch {
+      try {
+        fs.lstatSync(current);
+        return null;
+      } catch {
+        // really absent: climb
+      }
+      const parent = path.dirname(current);
+      if (parent === current) return path.resolve(target);
+      missing.push(path.basename(current));
+      current = parent;
+    }
+  }
 }
