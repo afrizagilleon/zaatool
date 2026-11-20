@@ -19,6 +19,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { agentTokensService } from "../src/services/agent-tokens.service.js";
 import { toolNameFor } from "../src/core/notebook-tool-name.js";
+import { WebSocket } from "ws";
+import { WebSocketManager } from "../src/server/websocket-manager.js";
 import { createApp } from "../src/server/app.js";
 import { RunEventHub } from "../src/server/run-event-hub.js";
 import { notebookSharesService } from "../src/services/notebook-shares.service.js";
@@ -980,7 +982,155 @@ await check("a person lists and revokes only their own tokens", async () => {
 
 for (const client of mcpClients) await client.close().catch(() => {});
 
+// ── the WebSocket (T-07) ──────────────────────────────────────────────────────
+
+console.log("\nwho hears which run");
+
+const manager = new WebSocketManager(server, hub);
+const wsUrl = `ws://127.0.0.1:${(server.address() as AddressInfo).port}/ws`;
+
+interface Socket {
+  messages: Record<string, unknown>[];
+  send: (message: Record<string, unknown>) => void;
+  close: () => void;
+}
+
+async function wsAs(token: string, ...then: Record<string, unknown>[]): Promise<Socket> {
+  const socket = new WebSocket(wsUrl);
+  const messages: Record<string, unknown>[] = [];
+  await new Promise<void>((resolve) => socket.on("open", () => resolve()));
+  socket.on("message", (raw) => messages.push(JSON.parse(raw.toString())));
+  socket.send(JSON.stringify({ action: "auth", token }));
+  for (const message of then) socket.send(JSON.stringify(message));
+  return { messages, send: (message) => socket.send(JSON.stringify(message)), close: () => socket.close() };
+}
+
+const settle = () => sleep(250);
+const activityFor = (socket: Socket, runId: string) =>
+  socket.messages.filter((message) => message.type === "run:activity" && message.runId === runId);
+
+/** Starts a run through the API and waits for it to end, so its whole buffer is there to replay. */
+async function startRun(who: Person, id: string): Promise<string> {
+  const res = await call(who, "POST", `/api/notebooks/${id}/run`, {});
+  assert.equal(res.status, 200);
+  return ((await res.json()) as { runId: string }).runId;
+}
+
+await check("watching with '*' tells a session only about runs it could read over REST", async () => {
+  const watchers = {
+    owner: await wsAs(owner.token, { action: "watch" }),
+    editor: await wsAs(editor.token, { action: "watch" }),
+    other: await wsAs(other.token, { action: "watch" }),
+    viewer: await wsAs(viewer.token, { action: "watch" }),
+    chosen: await wsAs(chosen.token, { action: "watch" }),
+  };
+  await settle();
+
+  const ownersRun = await startRun(owner, picked);
+  const chosensRun = await startRun(chosen, picked);
+  const othersOwn = await seed("watch-others", { owner: other, deployed: true });
+  const othersRun = await startRun(other, othersOwn);
+  await finished(picked, ownersRun);
+  await finished(picked, chosensRun);
+  await finished(othersOwn, othersRun);
+  await settle();
+
+  for (const label of ["owner", "editor"] as const) {
+    assert.ok(activityFor(watchers[label], ownersRun).length > 0, `${label} missed the owner's run`);
+    assert.ok(activityFor(watchers[label], chosensRun).length > 0, `${label} missed the page user's run`);
+    assert.equal(activityFor(watchers[label], othersRun).length, 0, `${label} heard about somebody else's notebook`);
+  }
+  assert.ok(activityFor(watchers.chosen, chosensRun).length > 0, "a page user missed their own run");
+  assert.equal(activityFor(watchers.chosen, ownersRun).length, 0, "a page user heard the team's run");
+  assert.ok(activityFor(watchers.other, othersRun).length > 0, "the owner of the other notebook missed their own run");
+  for (const label of ["other", "viewer"] as const) {
+    assert.equal(activityFor(watchers[label], ownersRun).length, 0, `${label} heard about a notebook they cannot see`);
+    assert.equal(activityFor(watchers[label], chosensRun).length, 0, `${label} heard about a run on a notebook they cannot see`);
+  }
+  assert.equal(activityFor(watchers.viewer, othersRun).length, 0);
+  for (const socket of Object.values(watchers)) socket.close();
+});
+
+await check("subscribing to a run by id needs the right to read that run", async () => {
+  const ownersRun = await startRun(owner, everyone);
+  const chosensRun = await startRun(chosen, everyone);
+  await finished(everyone, ownersRun);
+  await finished(everyone, chosensRun);
+
+  const sockets = {
+    owner: await wsAs(owner.token, { action: "subscribe", runId: ownersRun }, { action: "subscribe", runId: chosensRun }),
+    chosen: await wsAs(chosen.token, { action: "subscribe", runId: ownersRun }, { action: "subscribe", runId: chosensRun }),
+    other: await wsAs(other.token, { action: "subscribe", runId: ownersRun }, { action: "subscribe", runId: chosensRun }),
+  };
+  await settle();
+
+  const events = (socket: Socket, runId: string) => socket.messages.filter((message) => message.runId === runId);
+  assert.ok(events(sockets.owner, ownersRun).length > 0 && events(sockets.owner, chosensRun).length > 0, "the owner follows both");
+  assert.equal(events(sockets.chosen, ownersRun).length, 0, "a page user followed the team's run by its id");
+  assert.ok(events(sockets.chosen, chosensRun).length > 0, "a page user cannot follow their own run");
+  assert.equal(events(sockets.other, ownersRun).length, 0, "a stranger followed a run by its id");
+  assert.equal(events(sockets.other, chosensRun).length, 0);
+  assert.ok(sockets.other.messages.some((message) => message.type === "run:denied"), "a refusal says so");
+  for (const socket of Object.values(sockets)) socket.close();
+});
+
+await check("K-16: a share link follows runs of its own notebook only", async () => {
+  const share = (await (await call(owner, "POST", `/api/notebooks/${everyone}/shares`)).json()) as { token: string };
+  const own = await startRun(owner, everyone);
+  const foreign = await startRun(owner, picked);
+  await finished(everyone, own);
+  await finished(picked, foreign);
+
+  const socket = await wsAs(share.token, { action: "subscribe", runId: own }, { action: "subscribe", runId: foreign });
+  await settle();
+  assert.ok(socket.messages.some((message) => message.runId === own), "the link cannot follow its own notebook's run");
+  assert.ok(!socket.messages.some((message) => message.runId === foreign), "a share link followed a run of another notebook");
+  assert.ok(socket.messages.some((message) => message.type === "run:denied"));
+  socket.close();
+});
+
+await check("a share link still cannot watch", async () => {
+  const share = (await (await call(owner, "POST", `/api/notebooks/${everyone}/shares`)).json()) as { token: string };
+  const socket = await wsAs(share.token, { action: "watch" });
+  await settle();
+  assert.ok(socket.messages.some((message) => message.type === "run:denied"));
+  socket.close();
+});
+
+await check("catalog changes reach only the people who could see that notebook — and a save only the team", async () => {
+  const watchers = {
+    owner: await wsAs(owner.token, { action: "watch" }),
+    other: await wsAs(other.token, { action: "watch" }),
+    chosen: await wsAs(chosen.token, { action: "watch" }),
+  };
+  await settle();
+  const notices = (socket: Socket, id: string) => socket.messages.filter((message) => message.type === "catalog:changed" && message.notebookId === id);
+
+  await notebooksService.save({ ...(JSON.parse((await pool.query("SELECT document FROM notebooks WHERE id = $1", [picked])).rows[0].document) as NotebookJson), tags: ["zz-fx17-tag-2"] }, "test");
+  await settle();
+  assert.ok(notices(watchers.owner, picked).length > 0, "the owner missed a save");
+  assert.equal(notices(watchers.chosen, picked).length, 0, "a page user was told the author saved");
+  assert.equal(notices(watchers.other, picked).length, 0, "a stranger was told a notebook they cannot see was saved");
+
+  await notebooksService.deploy(picked, "test");
+  await settle();
+  assert.ok(notices(watchers.chosen, picked).some((message) => message.change === "deployed"), "a page user missed the deploy");
+  assert.equal(notices(watchers.other, picked).length, 0);
+
+  const doomed = await seed("doomed", { owner, deployed: true, visibility: "selected", appUsers: [chosen] });
+  await notebooksService.delete(doomed);
+  await settle();
+  assert.ok(notices(watchers.owner, doomed).some((message) => message.change === "deleted"));
+  assert.ok(notices(watchers.chosen, doomed).some((message) => message.change === "deleted"), "the people who used it were not told it is gone");
+  assert.equal(notices(watchers.other, doomed).length, 0, "a stranger was told about a delete");
+  for (const message of watchers.owner.messages.filter((entry) => entry.type === "catalog:changed")) {
+    assert.deepEqual(Object.keys(message).sort(), ["change", "notebookId", "type"], "the audience list leaked to the client");
+  }
+  for (const socket of Object.values(watchers)) socket.close();
+});
+
 // ── next ──
+manager.close();
 server.close();
 
 // ── finish ──

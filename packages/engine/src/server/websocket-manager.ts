@@ -11,6 +11,7 @@ import type { RunEventHub } from "./run-event-hub.js";
 import { onCatalogChanged } from "../core/catalog-events.js";
 import { authService } from "../services/auth.service.js";
 import { notebookSharesService } from "../services/notebook-shares.service.js";
+import { notebookAccessService } from "../services/notebook-access.service.js";
 
 /** Guards against a single socket holding open an unbounded number of channels. */
 const MAX_SUBSCRIPTIONS_PER_SOCKET = 20;
@@ -51,12 +52,13 @@ function parseMessage(raw: unknown): RunClientMessage | null {
  * somebody who is not — it can follow a run, because a shared page runs its notebook and
  * has to show the result, but it cannot ask what else is happening here.
  */
-type Caller = "session" | "share";
+type Caller = { kind: "session"; userId: string } | { kind: "share"; notebookId: string };
 
 async function identify(token: string): Promise<Caller | null> {
-  if (authService.verifyToken(token)) return "session";
+  const session = authService.verifyToken(token);
+  if (session) return { kind: "session", userId: session.id };
   const share = await notebookSharesService.resolve(token);
-  return share ? "share" : null;
+  return share ? { kind: "share", notebookId: share.notebook_id } : null;
 }
 
 /**
@@ -85,10 +87,13 @@ function toActivity(event: RunEvent): RunActivityEvent | null {
  * differ:
  *
  *  - `subscribe` still needs the run id, which a client only gets from the response that
- *    started that run. Authentication is a second lock on that door, not a replacement.
- *  - `watch` needs a session. It names every notebook that runs anywhere in this
- *    installation, including ones the caller has never been shown, so a share token — which
- *    was issued for exactly one page — does not reach it.
+ *    started that run. Authentication is a second lock on that door, not a replacement —
+ *    and the run id is not a credential on its own either: a session follows a run only if
+ *    it could read that run over REST, and a share link only the runs of its own notebook.
+ *  - `watch` needs a session. It used to name every notebook that runs anywhere in this
+ *    installation; it now names only the runs the session could read over REST, and the
+ *    catalog changes it could see. A share token, which was issued for exactly one page,
+ *    does not reach it at all.
  */
 export class WebSocketManager {
   private wss: WebSocketServer;
@@ -127,23 +132,46 @@ export class WebSocketManager {
        */
       let checking: Promise<void> | null = null;
 
+      /**
+       * Whether an event is for this socket is a question for the database, and answering
+       * out of order would send a run's `done` before its `start`. Everything that has to
+       * be decided goes through one chain per socket, in the order it arrived.
+       */
+      let decisions: Promise<void> = Promise.resolve();
+      const decide = (task: () => Promise<void>) => {
+        decisions = decisions.then(task).catch((err: unknown) => {
+          console.error("WebSocket delivery error:", (err as Error).message);
+        });
+      };
+
       const handle = (message: Exclude<RunClientMessage, { action: "auth" }>) => {
         if (!caller) {
           return deny("Send `auth` before subscribing.");
         }
 
         if (message.action === "watch") {
-          if (caller !== "session") {
+          if (caller.kind !== "session") {
             return deny("Watching the workspace needs an account here.");
           }
           if (unsubscribes.has("*")) return;
+          const { userId } = caller;
+          // Remembered per run: whether a run is somebody's to see does not change while it
+          // runs, and asking again for every cell of a long one would be a query per event.
+          const verdicts = new Map<string, boolean>();
           unsubscribes.set(
             "*",
             this.hub.watch((event) => {
               const activity = toActivity(event);
-              if (activity && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify(activity));
-              }
+              if (!activity) return;
+              decide(async () => {
+                let allowed = verdicts.get(event.runId);
+                if (allowed === undefined) {
+                  allowed = await notebookAccessService.canSeeRunId(userId, event.runId);
+                  verdicts.set(event.runId, allowed);
+                  if (verdicts.size > 500) verdicts.delete(verdicts.keys().next().value as string);
+                }
+                if (allowed && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(activity));
+              });
             })
           );
 
@@ -152,12 +180,24 @@ export class WebSocketManager {
           // I am looking at still true.* It is on the session-only channel for the same
           // reason run activity is — it names notebooks by id across the whole
           // installation, including ones a share link's reader has never been shown.
+          //
+          // And only the part of it this session could see: the notice names a notebook by
+          // id, and an id the session was never shown is not something it is told about.
           unsubscribes.set(
             "catalog",
             onCatalogChanged((notice) => {
-              if (ws.readyState !== WebSocket.OPEN) return;
-              const event: CatalogChangedEvent = { type: "catalog:changed", ...notice };
-              ws.send(JSON.stringify(event));
+              decide(async () => {
+                if (ws.readyState !== WebSocket.OPEN) return;
+                if (!(await notebookAccessService.hearsCatalogChange(userId, notice))) return;
+                // Built field by field: the notice carries who may hear it, and that list is
+                // not the client's to receive.
+                const event: CatalogChangedEvent = {
+                  type: "catalog:changed",
+                  change: notice.change,
+                  notebookId: notice.notebookId,
+                };
+                ws.send(JSON.stringify(event));
+              });
             })
           );
           return;
@@ -166,14 +206,33 @@ export class WebSocketManager {
         if (unsubscribes.has(message.runId)) return;
         if (unsubscribes.size >= MAX_SUBSCRIPTIONS_PER_SOCKET) return;
 
-        unsubscribes.set(
-          message.runId,
-          this.hub.subscribe(message.runId, (event) => {
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify(event));
-            }
-          })
-        );
+        const { runId } = message;
+        const who = caller;
+        // Reserved before the check answers, so two quick `subscribe`s for one run are one
+        // subscription and not two.
+        unsubscribes.set(runId, () => {});
+        decide(async () => {
+          const allowed =
+            who.kind === "session"
+              ? await notebookAccessService.canSeeRunId(who.userId, runId)
+              : await notebookAccessService.runBelongsTo(runId, who.notebookId);
+          if (!allowed) {
+            unsubscribes.delete(runId);
+            return deny("That run is not one this connection may follow.");
+          }
+          if (ws.readyState !== WebSocket.OPEN) {
+            unsubscribes.delete(runId);
+            return;
+          }
+          unsubscribes.set(
+            runId,
+            this.hub.subscribe(runId, (event) => {
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify(event));
+              }
+            })
+          );
+        });
       };
 
       ws.on("message", (raw) => {

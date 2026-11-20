@@ -187,6 +187,46 @@ export class NotebookAccessService {
     return scope === "own" && (run.started_by ?? null) === userId;
   }
 
+  /** The same rule for a run known only by its id — what a socket has. A run that is not there is not visible. */
+  async canSeeRunId(userId: string, runId: string): Promise<boolean> {
+    const { rows } = await pool.query<{ notebook_id: string; started_by: string | null }>(
+      "SELECT notebook_id, started_by FROM notebook_runs WHERE id = $1",
+      [runId]
+    );
+    return rows[0] ? this.canSeeRun(userId, rows[0]) : false;
+  }
+
+  /**
+   * Whether somebody may follow a run as a share link: only runs of the notebook the link
+   * was made for. A link is a page, not a window onto the installation.
+   */
+  async runBelongsTo(runId: string, notebookId: string): Promise<boolean> {
+    const { rows } = await pool.query(
+      "SELECT 1 FROM notebook_runs WHERE id = $1 AND notebook_id = $2",
+      [runId, notebookId]
+    );
+    return rows.length > 0;
+  }
+
+  /**
+   * Whether `userId` should be told the catalog changed at `notebookId`.
+   *
+   * A save is news only to the people who work on it — telling everybody who may *use* an
+   * app that its author is typing would publish the author's activity. A deploy, an undeploy
+   * or a delete is news to anyone who can see the thing. Where the answer cannot be looked up
+   * any more (the notebook is gone, or no longer an app for the people who used it) the
+   * notice carries who to tell, asked before the change was made.
+   */
+  async hearsCatalogChange(
+    userId: string,
+    notice: { change: string; notebookId: string; audience?: string[] | null }
+  ): Promise<boolean> {
+    if (notice.audience === null) return true;
+    if (notice.audience !== undefined) return notice.audience.includes(userId);
+    const access = await this.accessFor(userId, notice.notebookId);
+    return notice.change === "saved" ? isEditAccess(access) : access !== null;
+  }
+
   /** Whose secrets a notebook runs with. NULL when it has no owner. */
   async ownerOf(notebookId: string): Promise<string | null> {
     const { rows } = await pool.query<{ owner_id: string | null }>(
