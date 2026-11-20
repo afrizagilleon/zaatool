@@ -86,8 +86,37 @@ That client then picks its own address and is never limited (K-28, tested on Doc
 Desktop).
 
 **Put TLS in front of it.** Caddy, nginx, a cloud load balancer, whatever you already run.
-Not optional: sessions and share tokens travel in headers, and the microphone in a
-notebook's page will not work at all without HTTPS.
+Not optional: the session cookie and share tokens travel with every request, and the
+microphone in a notebook's page will not work at all without HTTPS. The session cookie is
+marked `Secure` (see below), so over plain HTTP a browser will not send it back at all.
+
+**How a browser signs in.** The web app does not keep a token anywhere a script can read.
+Signing in makes the engine set a `zaa_session` cookie (`HttpOnly`, `SameSite=Lax`, valid
+for 24 hours) and the browser attaches it itself. Three consequences:
+
+- `COOKIE_SECURE` decides whether that cookie is `Secure`. Unset, it is on whenever the
+  engine runs in production, which `docker-compose.yml` does. It is a setting and not
+  "whatever the request looks like" because behind Caddy and then nginx the engine sees
+  `X-Forwarded-Proto: http` (nginx overwrites it), so it cannot tell. To try the stack over
+  plain HTTP with no TLS in front, set `COOKIE_SECURE=false` in `.env`. Otherwise the
+  browser accepts the cookie and never sends it back, and sign-in seems to work and then
+  signs you out on the very next request.
+- Anything that changes data and is authenticated by the cookie must also carry an
+  `X-Zaatool-Request: 1` header (the web app adds it), which is what stops another website
+  from making your browser do it. Scripts that send `Authorization: Bearer <token>` do not
+  need it. Login and register need it from everyone.
+- A session can be ended. Changing a password, deactivating an account, `reset-password`
+  on the terminal, and **Log out of all devices** (the account dialog; `POST
+  /api/auth/logout-all`) each make every earlier session stop working at once, including
+  `Bearer` tokens from `curl`. **Log out** only drops the cookie in that browser.
+
+The WebSocket for run events refuses a browser whose `Origin` is not this site (or listed in
+`CORS_ORIGINS`), since the cookie would otherwise ride along on a socket opened by any page
+the visitor happens to have open.
+
+The web app is served with a Content-Security-Policy: scripts only from the site itself,
+none inline and no `eval`. If a proxy in front adds a CSP header of its own, both apply and
+the stricter wins.
 
 **Checking a fresh install actually works** — not just that it started:
 
@@ -136,6 +165,11 @@ To invite someone, sign in as a creator and either turn `ALLOW_REGISTRATION=true
 briefly, or:
 
 ```bash
+# Signing in needs the X-Zaatool-Request header too; the reply's "token" is the Bearer value.
+curl -X POST http://localhost:8080/api/auth/login \
+  -H "X-Zaatool-Request: 1" -H "Content-Type: application/json" \
+  -d '{"username":"you","password":"your password"}'
+
 curl -X POST http://localhost:8080/api/auth/users \
   -H "Authorization: Bearer <your token>" \
   -H "Content-Type: application/json" \
