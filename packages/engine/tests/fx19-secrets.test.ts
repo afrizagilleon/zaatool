@@ -326,6 +326,50 @@ await check("outside production with no key it starts, warns once, and leaves pl
 });
 
 
+// ── the webhook secret (T-03) ─────────────────────────────────────────────────
+
+console.log("\nwebhook secret");
+
+const server = http.createServer(createApp(() => {}));
+await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+await check("the stored (encrypted) secret opens a webhook; a wrong, missing or prefix-only one does not", async () => {
+  await secretsService.create(alice.id, "ZZ_FX19_HOOK", "correct-horse-battery", true);
+  const saved = await notebooksService.save(
+    {
+      version: "1.0",
+      id: "",
+      name: "zz-fx19-hook",
+      runtime: "node",
+      outputs: ["ok"],
+      triggers: [{ id: "zz-fx19-trig", kind: "webhook", slug: "zz-fx19-hook-slug", secretKey: "ZZ_FX19_HOOK" }],
+      steps: [{ id: "c1", kind: "cell", code: "return { ok: true };" }],
+    } as NotebookJson,
+    "test",
+    alice.id
+  );
+  await notebooksService.deploy(saved.id, "test");
+  assert.ok((await rawValue(alice.id, "ZZ_FX19_HOOK")).startsWith("enc:v1:"));
+
+  const post = (secret?: string) =>
+    fetch(`${base}/hooks/zz-fx19-hook-slug`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(secret === undefined ? {} : { "X-Webhook-Secret": secret }) },
+      body: "{}",
+    });
+  const good = await post("correct-horse-battery");
+  assert.equal(good.status, 200, await good.clone().text());
+  assert.equal((await post("wrong")).status, 401);
+  assert.equal((await post("correct-horse-batter")).status, 401);
+  assert.equal((await post("correct-horse-battery-and-more")).status, 401);
+  assert.equal((await post("")).status, 401);
+  assert.equal((await post()).status, 401);
+});
+
+server.close();
+
+
 await clean();
 await pool.end();
 

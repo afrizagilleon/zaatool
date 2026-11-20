@@ -1,4 +1,5 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
+import { createHash, timingSafeEqual } from "node:crypto";
 import multer from "multer";
 import rateLimit from "express-rate-limit";
 import { notebookTriggersService } from "../services/notebook-triggers.service.js";
@@ -44,7 +45,12 @@ export async function isSecretAuthenticatedWebhook(slug: string, secretHeader?: 
   }
 
 
-  return secretHeader === expected;
+  if (secretHeader === undefined) return false;
+  // Both sides are hashed first so the two buffers are the same length, which
+  // `timingSafeEqual` demands, and so the time taken does not depend on how many leading
+  // characters of the guess were right (or on how long the real secret is).
+  const sha = (value: string) => createHash("sha256").update(value, "utf8").digest();
+  return timingSafeEqual(sha(secretHeader), sha(expected));
 }
 
 export const hookLimiter = rateLimit({
