@@ -20,6 +20,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import type { NotebookSummary } from '@zaa-tool/shared';
 import { NotebookList } from '../src/components/notebook/NotebookList';
 import { notebooksApi } from '../src/lib/notebooks-api';
+import { useAuthStore } from '../src/store/authStore';
 
 let sockets: FakeSocket[] = [];
 
@@ -77,9 +78,9 @@ beforeEach(() => {
   vi.restoreAllMocks();
   vi.stubGlobal('WebSocket', FakeSocket);
   window.localStorage.clear();
-  // Without a token the socket is deliberately never opened, so there would be nothing
+  // Without a signed-in user the socket is deliberately never opened, so there would be nothing
   // to test.
-  window.localStorage.setItem('zaatool_token', 'zz-token');
+  useAuthStore.setState({ user: { id: 'u1', username: 'zz', email: null, role: 'creator' } });
 });
 
 afterEach(() => {

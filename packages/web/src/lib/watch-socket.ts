@@ -1,6 +1,6 @@
 import type { CatalogChangedEvent, RunActivityEvent, RunWatchMessage } from '@zaa-tool/shared';
 import { WS_BASE_URL } from './api.js';
-import { authenticateSocket } from './run-socket.js';
+import { useAuthStore } from '../store/authStore.js';
 
 /**
  * One socket per tab, watching the workspace, shared by everything that needs it.
@@ -75,7 +75,7 @@ function connect(): void {
 
   // Nobody signed in means the engine would refuse and close, and retrying that on a
   // backoff is a loop that accomplishes nothing but noise in two logs.
-  if (!localStorage.getItem('zaatool_token')) {
+  if (!useAuthStore.getState().user) {
     announce('offline');
     return;
   }
@@ -85,7 +85,7 @@ function connect(): void {
   socket = opening;
 
   opening.onopen = () => {
-    authenticateSocket(opening);
+    // No `auth` message: the session is the cookie that came with the upgrade.
     const message: RunWatchMessage = { action: 'watch' };
     opening.send(JSON.stringify(message));
     // Only after the connection is actually up. Resetting on the *attempt* would turn

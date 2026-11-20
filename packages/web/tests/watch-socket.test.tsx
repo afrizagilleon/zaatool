@@ -64,14 +64,19 @@ class FakeSocket {
 // per tab — which means its state would otherwise leak from one check into the next.
 async function load() {
   vi.resetModules();
+  // Same module graph as the socket, so the signed-in user it checks is the one set here.
+  const { useAuthStore } = await import('../src/store/authStore');
+  if (signedIn) useAuthStore.setState({ user: { id: 'u1', username: 'zz', email: null, role: 'creator' } });
   return import('../src/lib/watch-socket');
 }
+
+let signedIn = true;
 
 beforeEach(() => {
   sockets = [];
   vi.useFakeTimers();
   vi.stubGlobal('WebSocket', FakeSocket);
-  window.localStorage.setItem('zaatool_token', 'zz-token');
+  signedIn = true;
 });
 
 afterEach(() => {
@@ -96,19 +101,19 @@ describe('one connection, however many screens', () => {
     expect(sockets[0].readyState).toBe(3);
   });
 
-  it('says who it is before it asks for anything', async () => {
+  it('asks for the stream without an auth message: the session is the cookie', async () => {
     const watch = await load();
     watch.watchCatalog(vi.fn());
     sockets[0].accept();
 
     const actions = sockets[0].sent.map((raw) => JSON.parse(raw).action);
-    expect(actions).toEqual(['auth', 'watch']);
+    expect(actions).toEqual(['watch']);
   });
 
   it('does not connect at all when nobody is signed in', async () => {
     // The engine would refuse and close, and retrying that on a backoff is a loop whose
     // only product is noise in two logs.
-    window.localStorage.removeItem('zaatool_token');
+    signedIn = false;
     const watch = await load();
     watch.watchCatalog(vi.fn());
 

@@ -17,16 +17,16 @@ function App() {
   // The URL owns which section is showing and which notebook is open.
   const { notebookId, openNotebook, closeNotebook } = useAppLocation();
 
-  const token = useAuthStore((s) => s.token);
+  const user = useAuthStore((s) => s.user);
+  const checked = useAuthStore((s) => s.checked);
   const checkAuth = useAuthStore((s) => s.checkAuth);
   const isCreator = useAuthStore((s) => s.user?.role) === 'creator';
 
-  // Auto verify session on mount
+  // Ask the engine who this browser is. The session is an HttpOnly cookie this script
+  // cannot see, so `/api/auth/me` is the only way to know whether there is one.
   useEffect(() => {
-    if (token) {
-      checkAuth();
-    }
-  }, [token, checkAuth]);
+    void checkAuth();
+  }, [checkAuth]);
 
   // A shared notebook page, opened by someone with no account. Checked before the login
   // gate, because the token in the URL *is* the account.
@@ -34,8 +34,12 @@ function App() {
   const sharedToken = path.startsWith('/a/') ? path.slice(3) : null;
   if (sharedToken) return <SharedPage token={sharedToken} />;
 
+  // Nothing is known yet: neither the login form nor the app would be the right thing
+  // to flash for the length of one request.
+  if (!user && !checked) return null;
+
   // Enforce authentication for the manager app
-  if (!token) {
+  if (!user) {
     return <Login />;
   }
 

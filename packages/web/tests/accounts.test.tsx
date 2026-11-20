@@ -36,7 +36,6 @@ describe('AccountsTab component', () => {
   beforeEach(() => {
     useAuthStore.setState({
       user: { id: 'u1', username: 'creator-user', email: 'creator@example.com', role: 'creator' },
-      token: 'mock-token',
     });
   });
 
@@ -100,7 +99,6 @@ describe('Navbar profile dialog (T-09 & T-10)', () => {
     // 1. Viewer role
     useAuthStore.setState({
       user: { id: 'u2', username: 'viewer-user', email: null, role: 'viewer' },
-      token: 'mock-token',
     });
 
     const { unmount } = render(<Navbar />);
@@ -115,7 +113,6 @@ describe('Navbar profile dialog (T-09 & T-10)', () => {
     // 2. Creator role
     useAuthStore.setState({
       user: { id: 'u1', username: 'creator-user', email: 'creator@example.com', role: 'creator' },
-      token: 'mock-token',
     });
 
     render(<Navbar />);
@@ -132,7 +129,6 @@ describe('Navbar profile dialog (T-09 & T-10)', () => {
     const changePasswordMock = vi.fn().mockResolvedValue(true);
     useAuthStore.setState({
       user: { id: 'u1', username: 'creator-user', email: 'creator@example.com', role: 'creator' },
-      token: 'mock-token',
       changePassword: changePasswordMock,
     });
 
