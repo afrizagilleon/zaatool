@@ -11,12 +11,13 @@ WORKDIR /app
 # Installed rather than activated through corepack. `devEngines.packageManager` in the root
 # manifest carries a *range* (^11.6.0), and corepack refuses to run against anything that is
 # not an exact version — so the shim fails before pnpm is ever reached.
-RUN corepack disable && npm install --global --no-fund --no-audit pnpm@11.6.0
+RUN corepack disable && npm install --global --no-fund --no-audit --ignore-scripts pnpm@11.6.0
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/web/package.json packages/web/
 COPY packages/shared/package.json packages/shared/
-RUN pnpm install --frozen-lockfile --filter @zaa-tool/web...
+# Scripts off for the install; esbuild (used by vite) needs its own, so only that one runs.
+RUN pnpm install --frozen-lockfile --ignore-scripts --filter @zaa-tool/web... && pnpm rebuild esbuild
 
 COPY packages/shared packages/shared
 COPY packages/web packages/web
