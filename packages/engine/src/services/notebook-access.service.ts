@@ -180,11 +180,11 @@ export class NotebookAccessService {
   /** The same rule for one run already in hand. A run nobody started is only the team's. */
   async canSeeRun(
     userId: string,
-    run: { notebook_id: string; started_by: string | null }
+    run: { notebook_id: string; started_by?: string | null }
   ): Promise<boolean> {
     const scope = await this.runScope(userId, run.notebook_id);
     if (scope === "all") return true;
-    return scope === "own" && run.started_by === userId;
+    return scope === "own" && (run.started_by ?? null) === userId;
   }
 
   /** Whose secrets a notebook runs with. NULL when it has no owner. */

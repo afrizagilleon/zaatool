@@ -75,6 +75,12 @@ export interface StartRunOptions {
   cellId?: string;
   /** Recorded on the run so a failure can be traced to what set it off. */
   triggerSource?: NotebookRunTrigger;
+  /**
+   * The account on whose behalf this runs, when there is one. Recorded on the run — it is
+   * what lets somebody who only uses a page read their own runs and no one else's — and
+   * inherited by every notebook the run calls.
+   */
+  startedBy?: string;
 }
 
 export interface StartedRun {
@@ -116,6 +122,8 @@ interface CallContext {
   publish: RunEventSink;
   /** The run that asked for this one, so the callee's history explains itself. */
   parentRunId: string;
+  /** Who the root run is for, so a callee's history is as readable to them as the caller's. */
+  startedBy?: string;
   /**
    * Whether this whole run is production.
    *
@@ -265,6 +273,7 @@ export class NotebookExecutionService {
       notebookId: found.id,
       triggerSource: "call",
       parentRunId: context.parentRunId,
+      startedBy: context.startedBy,
     });
 
     const nested = {
@@ -273,6 +282,7 @@ export class NotebookExecutionService {
       log: context.log,
       publish: context.publish,
       parentRunId: runId,
+      startedBy: context.startedBy,
       useDeployed: context.useDeployed,
       signal: context.signal,
       fan: context.fan,
@@ -321,7 +331,8 @@ export class NotebookExecutionService {
     runId: string,
     useDeployed: boolean,
     signal: AbortSignal,
-    fan: FanOut
+    fan: FanOut,
+    startedBy?: string
   ): NotebookCaller {
     return (request, log) =>
       this.callNotebook(request, {
@@ -330,6 +341,7 @@ export class NotebookExecutionService {
         log: log ?? (() => {}),
         publish,
         parentRunId: runId,
+        startedBy,
         useDeployed,
         signal,
         fan,
@@ -386,6 +398,7 @@ export class NotebookExecutionService {
       notebookId,
       triggerSource: options.triggerSource ?? (options.cellId ? "cell" : "manual"),
       cellId: options.cellId,
+      startedBy: options.startedBy,
     });
 
     // Recording is composed into the sink, so every event that reaches a client
@@ -435,7 +448,8 @@ export class NotebookExecutionService {
             runId,
             useDeployed,
             controller.signal,
-            fan
+            fan,
+            options.startedBy
           ),
           file: notebookFilesService.writerFor(notebookId),
           signal: controller.signal,

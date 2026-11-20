@@ -80,11 +80,16 @@ export class NotebookSharesService {
     return rows.map(toShare);
   }
 
-  /** Revoking is a timestamp: the link stops working, the record of it does not vanish. */
-  async revoke(id: string): Promise<{ revoked: boolean }> {
+  /**
+   * Revoking is a timestamp: the link stops working, the record of it does not vanish.
+   *
+   * Under the notebook it belongs to: the id alone named a link on *any* notebook, so
+   * somebody who could edit one could have ended another's.
+   */
+  async revoke(id: string, notebookId: string): Promise<{ revoked: boolean }> {
     const { rowCount } = await pool.query(
-      "UPDATE notebook_shares SET revoked_at = NOW() WHERE id = $1 AND revoked_at IS NULL",
-      [id]
+      "UPDATE notebook_shares SET revoked_at = NOW() WHERE id = $1 AND notebook_id = $2 AND revoked_at IS NULL",
+      [id, notebookId]
     );
     return { revoked: (rowCount ?? 0) > 0 };
   }

@@ -10,6 +10,7 @@ import { toolNameFor } from "../core/notebook-tool-name.js";
 import { notifyCatalogChanged } from "../core/catalog-events.js";
 import { resolvePythonLockedPackages } from "../core/python-runner.js";
 import { normaliseTags } from "@zaa-tool/shared";
+import { notebookAccessService } from "./notebook-access.service.js";
 
 
 import type {
@@ -66,8 +67,12 @@ export class NotebooksService {
    * notebook however long the history gets. Both are covered by indexes that already
    * exist for other reasons (`notebook_runs_notebook_started_idx`,
    * `notebook_triggers_notebook_idx`).
+   *
+   * `only` narrows it to the notebooks a caller may see. It is the list the access module
+   * hands out, not a rule written here: leave it out and this answers for the whole
+   * installation, which only code that is not acting for a person may do.
    */
-  async getSummary(): Promise<NotebookSummary[]> {
+  async getSummary(only?: string[]): Promise<NotebookSummary[]> {
     const { rows } = await pool.query(
       `SELECT n.id, n.name, n.runtime, n.created_at, n.updated_at,
               (n.deployed_version_id IS NOT NULL) AS deployed,
@@ -86,13 +91,18 @@ export class NotebooksService {
          SELECT array_agg(DISTINCT kind) AS list FROM notebook_triggers
          WHERE notebook_id = n.id AND enabled
        ) kinds ON TRUE
-       ORDER BY n.updated_at DESC`
+       WHERE ($1::text[] IS NULL OR n.id = ANY($1))
+       ORDER BY n.updated_at DESC`,
+      [only ?? null]
     );
     return rows;
   }
 
-  /** Every document at once, for anything that has to look at the whole workspace. */
-  async getAllDocuments(): Promise<
+  /**
+   * Every document at once, for anything that has to look at the whole workspace — or, with
+   * `only`, at the part of it a caller may see.
+   */
+  async getAllDocuments(only?: string[]): Promise<
     {
       document: NotebookJson;
       updatedAt: string;
@@ -104,7 +114,9 @@ export class NotebooksService {
       `SELECT n.*, v.document AS deployed_document
        FROM notebooks n
        LEFT JOIN notebook_versions v ON v.id = n.deployed_version_id
-       ORDER BY n.updated_at DESC`
+       WHERE ($1::text[] IS NULL OR n.id = ANY($1))
+       ORDER BY n.updated_at DESC`,
+      [only ?? null]
     );
     return (
       rows as (NotebookRecord & {
@@ -140,13 +152,20 @@ export class NotebooksService {
    * are accepted and the id wins. An ambiguous name is refused rather than resolved
    * by recency: silently calling whichever copy was edited last is the kind of bug
    * that only shows up in production.
+   *
+   * `among` is the notebooks the caller may reach. A name is only ambiguous among those: a
+   * notebook somebody else owns, called the same, is not a second candidate — it is not
+   * there at all.
    */
-  async findByIdOrName(reference: string): Promise<NotebookRecord | "ambiguous" | null> {
+  async findByIdOrName(
+    reference: string,
+    among?: string[]
+  ): Promise<NotebookRecord | "ambiguous" | null> {
     const { rows } = await pool.query(
-      `SELECT * FROM notebooks WHERE id::text = $1
+      `SELECT * FROM notebooks WHERE id::text = $1 AND ($2::text[] IS NULL OR id = ANY($2))
        UNION ALL
-       SELECT * FROM notebooks WHERE name = $1 AND id::text <> $1`,
-      [reference]
+       SELECT * FROM notebooks WHERE name = $1 AND id::text <> $1 AND ($2::text[] IS NULL OR id = ANY($2))`,
+      [reference, among ?? null]
     );
 
     if (rows.length === 0) return null;
@@ -164,23 +183,29 @@ export class NotebooksService {
    * made the call ambiguous. A notebook that is not deployed has no name here at all: a
    * name reference to it is simply not found, and only an id reference can say
    * `"undeployed"`, because there the notebook is known to exist.
+   *
+   * `among` narrows both searches, and the `"undeployed"` answer too: a notebook outside it
+   * is not known to exist as far as this caller is concerned.
    */
   async findDeployedByIdOrName(
-    reference: string
+    reference: string,
+    among?: string[]
   ): Promise<DeployedNotebook | "ambiguous" | "undeployed" | null> {
     const { rows } = await pool.query(
       `SELECT n.id FROM notebooks n
        JOIN notebook_versions v ON v.id = n.deployed_version_id
-       WHERE n.id::text = $1
+       WHERE n.id::text = $1 AND ($2::text[] IS NULL OR n.id = ANY($2))
        UNION ALL
        SELECT n.id FROM notebooks n
        JOIN notebook_versions v ON v.id = n.deployed_version_id
-       WHERE (v.document::jsonb ->> 'name') = $1 AND n.id::text <> $1`,
-      [reference]
+       WHERE (v.document::jsonb ->> 'name') = $1 AND n.id::text <> $1
+         AND ($2::text[] IS NULL OR n.id = ANY($2))`,
+      [reference, among ?? null]
     );
 
     if (rows.length > 1) return "ambiguous";
     if (rows.length === 0) {
+      if (among !== undefined && !among.includes(reference)) return null;
       return (await this.getById(reference)) ? "undeployed" : null;
     }
 
@@ -193,8 +218,16 @@ export class NotebooksService {
    * `writer` is who the engine authenticated, not who the request claims to be — it is
    * stamped onto the cells that actually changed, so authorship cannot be forged by
    * sending an `author` field.
+   *
+   * `ownerId` is who a *new* notebook belongs to, and is read only when this save creates
+   * one: saving over an existing notebook never changes its owner, whoever is saving. Who
+   * may save over which notebook is decided before this is called.
    */
-  async save(document: NotebookJson, writer = "unknown"): Promise<{ id: string; name: string }> {
+  async save(
+    document: NotebookJson,
+    writer = "unknown",
+    ownerId: string | null = null
+  ): Promise<{ id: string; name: string }> {
     const id = document.id || uuidv4();
     const name = document.name || "Untitled Notebook";
     const runtime: NotebookRuntime = document.runtime === "python" ? "python" : "node";
@@ -212,15 +245,15 @@ export class NotebooksService {
     const tags = normaliseTags(stored.tags ?? []);
 
     await pool.query(
-      `INSERT INTO notebooks (id, name, runtime, document, tags)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO notebooks (id, name, runtime, document, tags, owner_id)
+       VALUES ($1, $2, $3, $4, $5, $6)
        ON CONFLICT (id) DO UPDATE
        SET name = EXCLUDED.name,
            runtime = EXCLUDED.runtime,
            document = EXCLUDED.document,
            tags = EXCLUDED.tags,
            updated_at = CURRENT_TIMESTAMP`,
-      [id, name, runtime, JSON.stringify(stored), tags]
+      [id, name, runtime, JSON.stringify(stored), tags, ownerId]
     );
 
     // The trigger index is deliberately **not** written here. The document is the source
@@ -364,6 +397,10 @@ export class NotebooksService {
     const record = await this.getById(id);
     if (!record) return null;
 
+    // Asked while the page still exists: afterwards nobody who used it is one any more, and
+    // they are exactly the ones whose list has to be told it went.
+    const audience = await notebookAccessService.audienceOf(id);
+
     const { rowCount } = await pool.query(
       "UPDATE notebooks SET deployed_version_id = NULL WHERE id = $1 AND deployed_version_id IS NOT NULL",
       [id]
@@ -375,7 +412,7 @@ export class NotebooksService {
     await notebookTriggersService.deleteByNotebook(id);
     // Only when something actually moved. Announcing an undeploy of a notebook that was
     // never deployed would send every open screen to refetch a list that did not change.
-    if (wasDeployed) notifyCatalogChanged({ change: "undeployed", notebookId: id });
+    if (wasDeployed) notifyCatalogChanged({ change: "undeployed", notebookId: id, audience });
     return { wasDeployed };
   }
 
@@ -460,6 +497,8 @@ export class NotebooksService {
    * be deleted and no error anyone reads.
    */
   async delete(id: string): Promise<{ success: boolean }> {
+    // Before the row goes: once it has, there is nothing left to ask who could see it.
+    const audience = await notebookAccessService.audienceOf(id);
     await pool.query("UPDATE notebooks SET deployed_version_id = NULL WHERE id = $1", [id]);
     await pool.query("DELETE FROM notebook_runs WHERE notebook_id = $1", [id]);
     await pool.query("DELETE FROM notebook_versions WHERE notebook_id = $1", [id]);
@@ -472,7 +511,7 @@ export class NotebooksService {
     if (fs.existsSync(uploadsFolder)) fs.rmSync(uploadsFolder, { recursive: true, force: true });
     if (fs.existsSync(notebooksFolder)) fs.rmSync(notebooksFolder, { recursive: true, force: true });
 
-    notifyCatalogChanged({ change: "deleted", notebookId: id });
+    notifyCatalogChanged({ change: "deleted", notebookId: id, audience });
     return { success: true };
   }
 
@@ -486,15 +525,27 @@ export class NotebooksService {
    * ones already taken: nothing in the schema stops two notebooks sharing a name, but
    * `findByIdOrName` returns `"ambiguous"` when two do, which would make both of them
    * unreachable by name to every agent at once.
+   *
+   * The copy belongs to whoever copied it, and "taken" means taken among *their* notebooks:
+   * a name is only ambiguous among the ones a person can reach, so another owner's notebook
+   * called the same does not make theirs unreachable — and must not show up in the answer.
    */
-  async duplicate(id: string, writer = "unknown"): Promise<{ id: string; name: string } | null> {
+  async duplicate(
+    id: string,
+    writer = "unknown",
+    ownerId: string | null = null
+  ): Promise<{ id: string; name: string } | null> {
     const record = await this.getById(id);
     if (!record) return null;
 
     const sourceDoc = this.parseDocument(record);
     const base = `${sourceDoc.name || "Untitled Notebook"}-copy`;
 
-    const { rows } = await pool.query<{ name: string }>("SELECT name FROM notebooks");
+    const among = ownerId === null ? null : await notebookAccessService.editableIds(ownerId);
+    const { rows } = await pool.query<{ name: string }>(
+      "SELECT name FROM notebooks WHERE $1::text[] IS NULL OR id = ANY($1)",
+      [among]
+    );
     const taken = new Set(rows.map((row) => row.name));
 
     let newName = base;
@@ -508,7 +559,7 @@ export class NotebooksService {
       name: newName,
     };
 
-    return this.save(duplicatedDoc, writer);
+    return this.save(duplicatedDoc, writer, ownerId);
   }
 
   parseDocument(record: NotebookRecord): NotebookJson {
