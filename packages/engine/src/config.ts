@@ -23,6 +23,7 @@ import {
   type SandboxIdentity,
 } from "./core/sandbox-identity.js";
 import { isValidTimeZone } from "./core/cron.js";
+import { parseSecretsKey } from "./core/secrets-crypto.js";
 
 /** Obvious on sight, and long enough that nothing accidentally depends on its shape. */
 const DEV_JWT_SECRET = "zaatool-development-secret-do-not-deploy";
@@ -51,6 +52,15 @@ export function jwtSecret(): string {
 
 export function usingDevSecret(): boolean {
   return jwtSecret() === DEV_JWT_SECRET;
+}
+
+/**
+ * The key that encrypts the `secrets` table (`SECRETS_KEY`: 32 bytes as 64 hex characters).
+ * Null when unset or malformed; `configProblems` says which, and refuses in production.
+ * Lose it and every stored secret is gone, so it is kept apart from the database backup.
+ */
+export function secretsKey(): Buffer | null {
+  return parseSecretsKey(process.env.SECRETS_KEY);
 }
 
 /** `CORS_ORIGINS` as a list: the origins a browser may call this engine from, and open its socket from. */
@@ -233,6 +243,19 @@ export function configProblems(): string[] {
         "Asia/Jakarta or UTC, or leave it unset for UTC."
     );
   }
+  const rawSecretsKey = process.env.SECRETS_KEY?.trim() ?? "";
+  if (rawSecretsKey !== "" && secretsKey() === null) {
+    problems.push(
+      "SECRETS_KEY is not 64 hex characters (32 bytes). Generate one with: openssl rand -hex 32"
+    );
+  } else if (rawSecretsKey === "" && isProduction()) {
+    problems.push(
+      "SECRETS_KEY is not set. In production, secrets are stored encrypted and the engine " +
+        "will not keep them in plaintext. Generate one with: openssl rand -hex 32 — and keep " +
+        "a copy apart from your database backups: without it every stored secret is lost."
+    );
+  }
+
   if (!isProduction()) return problems;
 
   if (usingDevSecret()) {
