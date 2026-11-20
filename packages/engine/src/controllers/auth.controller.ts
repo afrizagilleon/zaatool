@@ -134,6 +134,23 @@ export class AuthController {
     }
   }
 
+  /**
+   * "Sign out everywhere": outdates every token this account holds, including the one
+   * that made the request. The caller is expected to be signed out afterwards.
+   */
+  async logoutAll(req: Request, res: Response) {
+    const user = (req as Request & { user?: { id: string } }).user;
+    if (!user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    try {
+      await authService.revokeSessions(user.id);
+      res.json({ success: true });
+    } catch (err) {
+      refuse(res, err, "Logout all error");
+    }
+  }
+
   async changePassword(req: Request, res: Response) {
     try {
       const user = (req as Request & { user?: { id: string } }).user;
@@ -145,7 +162,11 @@ export class AuthController {
         return res.status(400).json({ error: "Current password and new password are required" });
       }
       await authService.changePassword(user.id, currentPassword, newPassword);
-      res.json({ success: true });
+      // Changing the password ended every session, this one included. The person who just
+      // did it is handed a fresh token so they are not signed out of the screen they are
+      // looking at; everyone else, on every other device, is.
+      const token = await authService.reissueSession(user.id);
+      res.json({ success: true, token });
     } catch (err) {
       refuse(res, err, "Change password error");
     }

@@ -32,32 +32,29 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
   }
 
   const token = authHeader.split(" ")[1];
-  const decoded = authService.verifyToken(token);
-
-  if (!decoded) {
-    return res.status(401).json({ error: "Unauthorized: Invalid or expired token" });
-  }
 
   try {
-    const current = await authService.currentUser(decoded.id);
-    if (!current) {
+    const session = await authService.authenticate(token);
+    if (session.status === "invalid") {
+      return res.status(401).json({ error: "Unauthorized: Invalid or expired token" });
+    }
+    if (session.status === "gone") {
       return res.status(401).json({ error: "Unauthorized: account no longer exists" });
     }
-
-    if (current.active === false) {
+    if (session.status === "inactive") {
       return res.status(403).json({ error: "This account has been deactivated." });
+    }
+    if (session.status === "revoked") {
+      return res.status(401).json({ error: "Unauthorized: this session was ended" });
     }
 
     (req as Request & { user?: unknown }).user = {
-      id: current.id,
-      username: current.username,
-      role: current.role,
+      id: session.user.id,
+      username: session.user.username,
+      role: session.user.role,
     };
     next();
   } catch (err) {
     next(err);
   }
 }
-
-
-

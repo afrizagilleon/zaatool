@@ -20,6 +20,7 @@ authRouter.post("/register", authController.register);
 authRouter.post("/login", loginLimiter, authController.login);
 authRouter.get("/me", authMiddleware, authController.getMe);
 authRouter.post("/me/password", authMiddleware, authController.changePassword);
+authRouter.post("/logout-all", authMiddleware, authController.logoutAll);
 
 
 

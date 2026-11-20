@@ -12,13 +12,15 @@ import { STORAGE_DIR } from "../services/storage.service.js";
  *  - **A signed link**, which is what a page puts in `src` and what a shared page hands to
  *    someone with no account. It names one file and stops working on its own.
  *  - **A bearer token**, for code that can set a header — the file browser fetching a text
- *    file to preview it, a script pulling something down.
+ *    file to preview it, a script pulling something down. It is checked against the account
+ *    as `/api` checks it: a switched-off account or an ended session is not let in just
+ *    because the signature on the token is still good.
  *
  * There is deliberately no third way, and in particular no session in the query string: a
  * link that carries a whole session is a link that grants everything if it is forwarded,
  * which is the opposite of what a shared page needs.
  */
-export function storageAccess(req: Request, res: Response, next: NextFunction) {
+export async function storageAccess(req: Request, res: Response, next: NextFunction) {
   let decoded: string;
   try {
     decoded = decodeURIComponent(req.path);
@@ -37,8 +39,12 @@ export function storageAccess(req: Request, res: Response, next: NextFunction) {
   }
 
   const header = req.headers.authorization;
-  if (header?.startsWith("Bearer ") && authService.verifyToken(header.slice(7))) {
-    return next();
+  if (header?.startsWith("Bearer ")) {
+    try {
+      if ((await authService.authenticate(header.slice(7))).status === "ok") return next();
+    } catch (err) {
+      return next(err);
+    }
   }
 
   res.status(401).json({

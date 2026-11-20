@@ -243,6 +243,17 @@ export async function initDb() {
       END $$;
     `);
 
+    // Add token_version to users: every session token carries the number it was minted
+    // under, and raising it here is how all of a person's older sessions are ended at once.
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0;
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
+
     // Test fixtures do not belong here, and two of them were briefly written into this
     // function during FX8. `initDb()` runs on every start of every installation: seeding
     // `zz-uji-rekam` and `zz-uji-prosa` from a schema migration put somebody else's test
