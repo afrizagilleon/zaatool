@@ -107,21 +107,21 @@ await check("login rate limiter returns 429 after exceeding LOGIN_RATE_LIMIT_MAX
   try {
     const res1 = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Zaatool-Request": "1" },
       body: JSON.stringify({ username: "nobody", password: "wrong-password-123" }),
     });
     assert.equal(res1.status, 401);
 
     const res2 = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Zaatool-Request": "1" },
       body: JSON.stringify({ username: "nobody", password: "wrong-password-123" }),
     });
     assert.equal(res2.status, 401);
 
     const res3 = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Zaatool-Request": "1" },
       body: JSON.stringify({ username: "nobody", password: "wrong-password-123" }),
     });
     assert.equal(res3.status, 429);

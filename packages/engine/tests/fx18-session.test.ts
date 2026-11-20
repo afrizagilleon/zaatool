@@ -33,6 +33,9 @@ async function check(name: string, run: () => Promise<void> | void): Promise<voi
   }
 }
 
+// This file signs in a dozen times; the login limiter is tested elsewhere.
+process.env.LOGIN_RATE_LIMIT_MAX = "1000";
+
 await initDb();
 
 const server = http.createServer(createApp(() => {}));
@@ -40,7 +43,7 @@ await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
 const PASSWORD = "zz-fx18-password-1";
-const USERS = ["zz-fx18-revoke", "zz-fx18-all", "zz-fx18-pw", "zz-fx18-off", "zz-fx18-cli", "zz-fx18-cookie"];
+const USERS = ["zz-fx18-revoke", "zz-fx18-all", "zz-fx18-pw", "zz-fx18-off", "zz-fx18-cli", "zz-fx18-cookie", "zz-fx18-csrf"];
 
 async function clean(): Promise<void> {
   await pool.query("DELETE FROM users WHERE username LIKE 'zz-fx18-%'");
@@ -56,6 +59,9 @@ async function newUser(username: string, role: "creator" | "viewer" = "creator")
   const { token } = await authService.login(username, PASSWORD);
   return { id: created.id, token };
 }
+
+/** What a page sends with anything that changes data; see `csrf.middleware.ts`. */
+const XHR = { "X-Zaatool-Request": "1" };
 
 const get = (url: string, headers: Record<string, string> = {}) => fetch(`${base}${url}`, { headers });
 const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
@@ -132,7 +138,7 @@ function sessionSetCookie(res: Response): string | null {
 async function loginRaw(username: string, password = PASSWORD): Promise<Response> {
   return fetch(`${base}/api/auth/login`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...XHR },
     body: JSON.stringify({ username, password }),
   });
 }
@@ -192,7 +198,7 @@ await check("logout clears the cookie with the same attributes, and leaves other
   const cookie = (sessionSetCookie(first) ?? "").split(";")[0];
   const other = ((await (await loginRaw(USERS[5])).json()) as { token: string }).token;
 
-  const out = await fetch(`${base}/api/auth/logout`, { method: "POST", headers: { Cookie: cookie } });
+  const out = await fetch(`${base}/api/auth/logout`, { method: "POST", headers: { Cookie: cookie, ...XHR } });
   assert.equal(out.status, 200);
   const line = sessionSetCookie(out);
   assert.ok(line);
@@ -208,7 +214,7 @@ await check("logout-all and a password change clear/replace the cookie in the re
   const cookie = (sessionSetCookie(await loginRaw(USERS[5])) ?? "").split(";")[0];
   const changed = await fetch(`${base}/api/auth/me/password`, {
     method: "POST",
-    headers: { Cookie: cookie, "Content-Type": "application/json" },
+    headers: { Cookie: cookie, "Content-Type": "application/json", ...XHR },
     body: JSON.stringify({ currentPassword: PASSWORD, newPassword: "zz-fx18-password-4" }),
   });
   assert.equal(changed.status, 200);
@@ -217,10 +223,94 @@ await check("logout-all and a password change clear/replace the cookie in the re
   assert.equal((await get("/api/auth/me", { Cookie: cookie })).status, 401, "old cookie dead");
   assert.equal((await get("/api/auth/me", { Cookie: renewed })).status, 200, "new cookie works");
 
-  const all = await fetch(`${base}/api/auth/logout-all`, { method: "POST", headers: { Cookie: renewed } });
+  const all = await fetch(`${base}/api/auth/logout-all`, { method: "POST", headers: { Cookie: renewed, ...XHR } });
   assert.equal(all.status, 200);
   assert.match(sessionSetCookie(all) ?? "", /^zaa_session=;/);
   assert.equal((await get("/api/auth/me", { Cookie: renewed })).status, 401);
+});
+
+console.log("\nCSRF (X-Zaatool-Request)");
+
+const invite = (headers: Record<string, string>, name: string) =>
+  fetch(`${base}/api/auth/users`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...headers },
+    body: JSON.stringify({ username: name, password: PASSWORD, role: "viewer" }),
+  });
+
+await check("cookie-authenticated writes need the header; reads, and writes carrying it, do not", async () => {
+  await authService.createUser(USERS[6], PASSWORD, "creator");
+  const cookie = (sessionSetCookie(await loginRaw(USERS[6])) ?? "").split(";")[0];
+
+  assert.equal((await get("/api/auth/me", { Cookie: cookie })).status, 200, "GET without header");
+
+  const refused = await invite({ Cookie: cookie }, "zz-fx18-forged");
+  assert.equal(refused.status, 403);
+  const { rows } = await pool.query("SELECT 1 FROM users WHERE username = 'zz-fx18-forged'");
+  assert.equal(rows.length, 0, "the forged write went through anyway");
+
+  const wrongValue = await invite({ Cookie: cookie, "X-Zaatool-Request": "0" }, "zz-fx18-forged");
+  assert.equal(wrongValue.status, 403, "only the value 1 counts");
+
+  assert.equal((await invite({ Cookie: cookie, ...XHR }, "zz-fx18-invited1")).status, 201);
+
+  for (const method of ["PATCH", "DELETE", "PUT"]) {
+    const res = await fetch(`${base}/api/auth/users/anything`, { method, headers: { Cookie: cookie } });
+    assert.equal(res.status, 403, `${method} without header`);
+  }
+
+  const logout = await fetch(`${base}/api/auth/logout`, { method: "POST", headers: { Cookie: cookie } });
+  assert.equal(logout.status, 403, "a forged logout is refused too");
+  assert.equal((await get("/api/auth/me", { Cookie: cookie })).status, 200, "and the session survived it");
+});
+
+await check("Bearer callers do not need the header, and neither does a request that names no one", async () => {
+  const { token } = await authService.login(USERS[6], PASSWORD);
+  assert.equal((await invite(bearer(token), "zz-fx18-invited2")).status, 201);
+
+  const cookie = (sessionSetCookie(await loginRaw(USERS[6])) ?? "").split(";")[0];
+  assert.equal((await invite({ ...bearer(token), Cookie: cookie }, "zz-fx18-invited3")).status, 201, "Bearer wins over cookie");
+
+  assert.equal((await invite({}, "zz-fx18-invited4")).status, 401, "no credential: 401, not 403");
+});
+
+await check("login and register need the header whoever asks", async () => {
+  const bare = await fetch(`${base}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: USERS[6], password: PASSWORD }),
+  });
+  assert.equal(bare.status, 403);
+  assert.equal(sessionSetCookie(bare), null, "a cookie was set for a forged login");
+
+  const register = await fetch(`${base}/api/auth/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "zz-fx18-regforged", password: PASSWORD }),
+  });
+  assert.equal(register.status, 403);
+  const { rows } = await pool.query("SELECT 1 FROM users WHERE username = 'zz-fx18-regforged'");
+  assert.equal(rows.length, 0);
+
+  assert.equal((await loginRaw(USERS[6])).status, 200, "with the header it works");
+});
+
+await check("a multipart upload with the cookie and the header gets through the guard", async () => {
+  const cookie = (sessionSetCookie(await loginRaw(USERS[6])) ?? "").split(";")[0];
+  const form = new FormData();
+  form.append("file", new Blob(["x"]), "zz-fx18-up.txt");
+
+  const refused = await fetch(`${base}/api/resources/files`, { method: "POST", headers: { Cookie: cookie }, body: form });
+  assert.equal(refused.status, 403, "multipart without header");
+
+  const sent = await fetch(`${base}/api/resources/files`, {
+    method: "POST",
+    headers: { Cookie: cookie, ...XHR },
+    body: form,
+  });
+  assert.notEqual(sent.status, 403);
+  assert.notEqual(sent.status, 401);
+  fs.rmSync(path.join(STORAGE_DIR, "zz-fx18-up.txt"), { force: true });
 });
 
 // ── end ───────────────────────────────────────────────────────────────────────

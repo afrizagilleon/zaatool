@@ -172,7 +172,7 @@ console.log("\nthe door, after the first person is through");
 
 await check("signing up is refused while ALLOW_REGISTRATION is off", async () => {
   delete process.env.ALLOW_REGISTRATION;
-  const res = await as({}, "POST", "/api/auth/register", {
+  const res = await as({ "X-Zaatool-Request": "1" }, "POST", "/api/auth/register", {
     username: "zz-access-uninvited",
     password: "zz-access-password",
   });
