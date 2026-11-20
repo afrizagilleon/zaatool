@@ -308,7 +308,10 @@ console.log("\nwhat production will not start without");
 check("a secret that lives in the repository is not a secret in production", () => {
   const previousEnv = process.env.NODE_ENV;
   const previousSecret = process.env.JWT_SECRET;
+  const previousKey = process.env.SECRETS_KEY;
 
+  // The key is checked in production too (FX-19); with a valid one it is not what fails here.
+  process.env.SECRETS_KEY = "ab".repeat(32);
   process.env.NODE_ENV = "production";
   delete process.env.JWT_SECRET;
   assert.match(configProblems().join(" "), /JWT_SECRET is not set/);
@@ -322,6 +325,8 @@ check("a secret that lives in the repository is not a secret in production", () 
   process.env.NODE_ENV = previousEnv;
   if (previousSecret === undefined) delete process.env.JWT_SECRET;
   else process.env.JWT_SECRET = previousSecret;
+  if (previousKey === undefined) delete process.env.SECRETS_KEY;
+  else process.env.SECRETS_KEY = previousKey;
 });
 
 // ── clearing up ───────────────────────────────────────────────────────────────
