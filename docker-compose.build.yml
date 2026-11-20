@@ -1,0 +1,23 @@
+# Build the images from this checkout instead of pulling them from GHCR.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+#
+# For people changing zaatool, and for anyone who wants to run exactly what is on disk.
+# The image names stay the same, so a build here replaces the pulled image of that name.
+
+services:
+  engine:
+    build:
+      context: .
+      dockerfile: packages/engine/Dockerfile
+      args:
+        BUILD_VERSION: ${BUILD_VERSION:-dev}
+        BUILD_COMMIT: ${BUILD_COMMIT:-unknown}
+
+  web:
+    build:
+      context: .
+      dockerfile: packages/web/Dockerfile
+      args:
+        BUILD_VERSION: ${BUILD_VERSION:-dev}
+        BUILD_COMMIT: ${BUILD_COMMIT:-unknown}

@@ -9,10 +9,25 @@
 # nothing here is shared between processes. The scheduler is one process and the run gate
 # is one process, so a second engine would break on cron long before it needed a cache.
 #
-#   cp .env.example .env      # then fill in JWT_SECRET, POSTGRES_PASSWORD and SECRETS_KEY
-#   docker compose up -d --build
+# The engine and web images are pulled from GHCR, not built here: a server that only runs
+# zaatool has no business compiling it. The version is ZAATOOL_VERSION in .env (default
+# `latest`; pin a release such as v1.2.0 so an update is a decision, not an accident).
+#
+#   scripts/install.sh --start                      # writes .env, pulls, starts
+#   docker compose pull && docker compose up -d     # by hand, once .env exists
+#
+# To build from source instead, add docker-compose.build.yml:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 #
 # See DEPLOY.md.
+
+# Every service rotates its own log, so a chatty container cannot fill the disk.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: ${LOG_MAX_SIZE:-10m}
+    max-file: "${LOG_MAX_FILE:-3}"
 
 services:
   postgres:
@@ -32,15 +47,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    logging: *default-logging
     restart: unless-stopped
 
   engine:
-    build:
-      context: .
-      dockerfile: packages/engine/Dockerfile
-      args:
-        BUILD_VERSION: ${BUILD_VERSION:-dev}
-        BUILD_COMMIT: ${BUILD_COMMIT:-unknown}
+    image: ghcr.io/afrizagilleon/zaatool-engine:${ZAATOOL_VERSION:-latest}
     environment:
       NODE_ENV: production
       # No default, on purpose. The engine refuses to start in production without it —
@@ -80,18 +91,22 @@ services:
       # Everything notebooks write, and everything sent to them. Without this, every file
       # produced since the last deploy disappears on the next one.
       - storage_data:/app/packages/storage
+    # Healthy means the HTTP server answers, which is after the migrations have run. Node is
+    # already in the image; nothing is installed for this.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    logging: *default-logging
     depends_on:
       postgres:
         condition: service_healthy
     restart: unless-stopped
 
   web:
-    build:
-      context: .
-      dockerfile: packages/web/Dockerfile
-      args:
-        BUILD_VERSION: ${BUILD_VERSION:-dev}
-        BUILD_COMMIT: ${BUILD_COMMIT:-unknown}
+    image: ghcr.io/afrizagilleon/zaatool-web:${ZAATOOL_VERSION:-latest}
     # The only published port. It serves the app and proxies everything the engine owns,
     # so there is one origin, one certificate to buy, and a share link that is a URL on
     # your own domain. Bound to this machine only: a reverse proxy on the same host (Caddy)
@@ -99,8 +114,15 @@ services:
     # without a proxy, and goes with COOKIE_SECURE=false over plain HTTP.
     ports:
       - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8080}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:80/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
     depends_on:
-      - engine
+      engine:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
