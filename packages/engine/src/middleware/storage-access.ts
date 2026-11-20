@@ -3,6 +3,7 @@ import { authService } from "../services/auth.service.js";
 import { storageLinkValid } from "../core/storage-links.js";
 import { safeSubPath } from "../core/storage-paths.js";
 import { STORAGE_DIR } from "../services/storage.service.js";
+import { notebookAccessService } from "../services/notebook-access.service.js";
 
 /**
  * The gate in front of `express.static`.
@@ -12,13 +13,14 @@ import { STORAGE_DIR } from "../services/storage.service.js";
  *  - **A signed link**, which is what a page puts in `src` and what a shared page hands to
  *    someone with no account. It names one file and stops working on its own.
  *  - **A bearer token**, for code that can set a header — the file browser fetching a text
- *    file to preview it, a script pulling something down.
+ *    file to preview it, a script pulling something down. It opens everything except the
+ *    folders of notebooks its account cannot edit; a signed link is the way to hand those out.
  *
  * There is deliberately no third way, and in particular no session in the query string: a
  * link that carries a whole session is a link that grants everything if it is forwarded,
  * which is the opposite of what a shared page needs.
  */
-export function storageAccess(req: Request, res: Response, next: NextFunction) {
+export async function storageAccess(req: Request, res: Response, next: NextFunction) {
   let decoded: string;
   try {
     decoded = decodeURIComponent(req.path);
@@ -37,7 +39,12 @@ export function storageAccess(req: Request, res: Response, next: NextFunction) {
   }
 
   const header = req.headers.authorization;
-  if (header?.startsWith("Bearer ") && authService.verifyToken(header.slice(7))) {
+  const session = header?.startsWith("Bearer ") ? authService.verifyToken(header.slice(7)) : null;
+  if (session) {
+    // A session reaches every folder except the two that belong to a notebook it cannot edit.
+    // Not 403: the folder is named after the notebook's id, so a refusal would confirm it.
+    const hidden = await notebookAccessService.hiddenFromStorage(session.id);
+    if (hidden(relative)) return res.status(404).json({ error: "Not found" });
     return next();
   }
 

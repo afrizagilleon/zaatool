@@ -5,6 +5,7 @@ import { storageController } from "../controllers/storage.controller.js";
 import { STORAGE_DIR } from "../services/storage.service.js";
 import { resolveInside, safeFilename } from "../core/storage-paths.js";
 import { requireRole } from "../middleware/require-role.js";
+import { notebookAccessService } from "../services/notebook-access.service.js";
 import { maxUploadBytes } from "../config.js";
 
 /**
@@ -41,6 +42,22 @@ const upload = multer({ storage, limits: { fileSize: maxUploadBytes(), files: 1 
  * useful on screen — a limit nobody can tell they hit is a limit that gets reported as a
  * bug.
  */
+/**
+ * Before multer writes anything: a file must not land in a folder that belongs to a notebook
+ * the caller cannot edit. Multer decides the destination from `?dir=` on its own, so this has
+ * to be asked first, and answered as if the folder were not there.
+ */
+async function notSomeoneElsesFolder(req: Request, res: Response, next: NextFunction) {
+  try {
+    const user = (req as Request & { user: { id: string } }).user;
+    const hidden = await notebookAccessService.hiddenFromStorage(user.id);
+    if (hidden(String(req.query.dir ?? ""))) return res.status(404).json({ error: "Not found" });
+    next();
+  } catch (err) {
+    next(err);
+  }
+}
+
 function uploadOne(req: Request, res: Response, next: NextFunction) {
   upload.single("file")(req, res, (err: unknown) => {
     if (!err) return next();
@@ -58,7 +75,7 @@ export const storageRouter = Router();
 const creator = requireRole("creator");
 
 storageRouter.get("/files", storageController.getAll);
-storageRouter.post("/files", creator, uploadOne, storageController.uploadFile);
+storageRouter.post("/files", creator, notSomeoneElsesFolder, uploadOne, storageController.uploadFile);
 storageRouter.patch("/files/:id", creator, storageController.renameItem);
 storageRouter.delete("/files/:id", creator, storageController.deleteItem);
 storageRouter.post("/folders", creator, storageController.createFolder);

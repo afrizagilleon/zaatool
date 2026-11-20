@@ -4,6 +4,22 @@ import { storageService, OutsideStorageError } from "../services/storage.service
 import { signStorageLink } from "../core/storage-links.js";
 import { safeSubPath } from "../core/storage-paths.js";
 import { STORAGE_DIR } from "../services/storage.service.js";
+import { notebookAccessService } from "../services/notebook-access.service.js";
+
+/**
+ * Which paths are somebody else's notebook's folders, for the person asking.
+ *
+ * Only `notebooks/<id>/` and `uploads/<id>/` belong to a notebook. Every other folder in
+ * storage is shared among creators, which is how it has always worked and is written down
+ * in ARCHITECTURE.md rather than fixed here. A folder hidden from somebody is answered the
+ * way a folder that is not there is: empty, or "not found".
+ */
+async function hiddenFor(req: Request): Promise<(relativePath: string) => boolean> {
+  return notebookAccessService.hiddenFromStorage((req as Request & { user: { id: string } }).user.id);
+}
+
+/** An item's id is its path, base64 — the form the listing hands out and the client sends back. */
+const pathOfId = (id: string): string => Buffer.from(id, "base64").toString("utf-8");
 
 /** A refused path is the caller's mistake, not the server's. */
 function fail(res: Response, err: unknown) {
@@ -15,12 +31,16 @@ function fail(res: Response, err: unknown) {
 }
 
 export class StorageController {
-  getAll(req: Request, res: Response) {
+  async getAll(req: Request, res: Response) {
     try {
       const dir = req.query.dir ? String(req.query.dir) : "";
       const search = req.query.search ? String(req.query.search) : "";
+      const hidden = await hiddenFor(req);
+      // Looking inside somebody else's notebook folder finds nothing, like a folder that is
+      // not there; and whatever a listing or a search turns up from inside one is dropped.
+      if (hidden(dir)) return res.json([]);
       const items = search ? storageService.searchItems(search, dir) : storageService.listItems(dir);
-      res.json(items);
+      res.json(items.filter((item) => !hidden(item.path)));
     } catch (err) {
       fail(res, err);
     }
@@ -53,7 +73,7 @@ export class StorageController {
     }
   }
 
-  createFolder(req: Request, res: Response) {
+  async createFolder(req: Request, res: Response) {
     try {
       const { name, dir } = req.body;
       if (!name) {
@@ -61,25 +81,32 @@ export class StorageController {
       }
 
       const currentDir = dir ? String(dir) : "";
+      if ((await hiddenFor(req))(currentDir)) return res.status(404).json({ error: "Not found" });
       res.json(storageService.createFolder(name, currentDir));
     } catch (err) {
       fail(res, err);
     }
   }
 
-  deleteItem(req: Request, res: Response) {
+  async deleteItem(req: Request, res: Response) {
     try {
+      if ((await hiddenFor(req))(pathOfId(String(req.params.id)))) {
+        return res.status(404).json({ error: "Not found" });
+      }
       res.json(storageService.deleteItem(String(req.params.id)));
     } catch (err) {
       fail(res, err);
     }
   }
 
-  renameItem(req: Request, res: Response) {
+  async renameItem(req: Request, res: Response) {
     try {
       const { name } = req.body;
       if (!name) {
         return res.status(400).json({ error: "New name is required" });
+      }
+      if ((await hiddenFor(req))(pathOfId(String(req.params.id)))) {
+        return res.status(404).json({ error: "Not found" });
       }
       res.json(storageService.renameItem(String(req.params.id), name));
     } catch (err) {

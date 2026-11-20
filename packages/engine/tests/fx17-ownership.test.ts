@@ -1129,6 +1129,98 @@ await check("catalog changes reach only the people who could see that notebook �
   for (const socket of Object.values(watchers)) socket.close();
 });
 
+// ── storage (T-08) ────────────────────────────────────────────────────────────
+
+console.log("\nstorage: a notebook's folders are its team's");
+
+const ownersFolders = [path.join(STORAGE_DIR, "notebooks", picked), path.join(STORAGE_DIR, "uploads", picked)];
+const othersNotebook = "zz-fx17-nb-watch-others";
+const othersFolder = path.join(STORAGE_DIR, "notebooks", othersNotebook);
+const sharedFolder = path.join(STORAGE_DIR, "zz-fx17-shared");
+for (const folder of [...ownersFolders, othersFolder, sharedFolder]) fs.mkdirSync(folder, { recursive: true });
+fs.writeFileSync(path.join(ownersFolders[0], "zz-fx17-note.txt"), "the owner's output");
+fs.writeFileSync(path.join(ownersFolders[1], "zz-fx17-upload.txt"), "somebody uploaded this");
+fs.writeFileSync(path.join(othersFolder, "zz-fx17-theirs.txt"), "the other creator's output");
+fs.writeFileSync(path.join(sharedFolder, "zz-fx17-common.txt"), "shared among creators");
+
+const listing = async (who: Person, dir: string, search = "") => {
+  const res = await call(who, "GET", `/api/resources/files?dir=${encodeURIComponent(dir)}${search ? `&search=${encodeURIComponent(search)}` : ""}`);
+  assert.equal(res.status, 200);
+  return (await res.json()) as { name: string; path: string; url?: string }[];
+};
+const fetchStored = (who: Person | null, relative: string, query = "") =>
+  fetch(`${base}/storage/${relative}${query}`, { headers: who ? who.headers : {} });
+
+await check("the Resources list shows a notebook's folders only to the people who can edit that notebook", async () => {
+  const names = async (who: Person, dir: string) => (await listing(who, dir)).map((item) => item.name);
+  for (const who of [owner, editor]) {
+    assert.ok((await names(who, "notebooks")).includes(picked), "the team cannot see its own folder");
+    assert.ok((await names(who, "uploads")).includes(picked));
+    assert.deepEqual(await names(who, `notebooks/${picked}`), ["zz-fx17-note.txt"]);
+  }
+  for (const who of [other, viewer, chosen]) {
+    assert.ok(!(await names(who, "notebooks")).includes(picked), "somebody else's notebook folder is listed");
+    assert.ok(!(await names(who, "uploads")).includes(picked));
+    assert.deepEqual(await names(who, `notebooks/${picked}`), [], "looking inside it found something");
+  }
+  assert.ok((await names(other, "notebooks")).includes(othersNotebook), "a creator cannot see their own notebook's folder");
+  assert.ok(!(await names(owner, "notebooks")).includes(othersNotebook));
+});
+
+await check("a search does not turn up files from somebody else's notebook folders", async () => {
+  const paths = async (who: Person) => (await listing(who, "", "zz-fx17-")).map((item) => item.path);
+  assert.ok((await paths(owner)).includes(`notebooks/${picked}/zz-fx17-note.txt`));
+  const strangers = await paths(other);
+  assert.ok(!strangers.some((entry) => entry.includes(picked)), `a search found ${strangers.join(", ")}`);
+  assert.ok(strangers.includes(`notebooks/${othersNotebook}/zz-fx17-theirs.txt`));
+});
+
+await check("other folders stay shared among creators, as they always were", async () => {
+  for (const who of [owner, other]) {
+    assert.ok((await listing(who, "zz-fx17-shared")).some((item) => item.name === "zz-fx17-common.txt"));
+  }
+});
+
+await check("the bearer path of /storage follows the same rule", async () => {
+  assert.equal((await fetchStored(owner, `notebooks/${picked}/zz-fx17-note.txt`)).status, 200);
+  assert.equal((await fetchStored(editor, `uploads/${picked}/zz-fx17-upload.txt`)).status, 200);
+  for (const who of [other, viewer, chosen]) {
+    assert.equal((await fetchStored(who, `notebooks/${picked}/zz-fx17-note.txt`)).status, 404, "a bearer token read somebody else's output");
+    assert.equal((await fetchStored(who, `uploads/${picked}/zz-fx17-upload.txt`)).status, 404);
+  }
+  assert.equal((await fetchStored(other, "zz-fx17-shared/zz-fx17-common.txt")).status, 200);
+  const hidden = await fetchStored(other, `notebooks/${picked}/zz-fx17-note.txt`);
+  const missing = await fetchStored(other, `notebooks/${picked}/zz-fx17-nothing-here.txt`);
+  assert.equal(await hidden.text(), await missing.text(), "a hidden file and a missing one answer differently");
+});
+
+await check("a signed link from the owner's listing still works for anyone holding it", async () => {
+  const [item] = (await listing(owner, `notebooks/${picked}`)).filter((entry) => entry.name === "zz-fx17-note.txt");
+  assert.ok(item.url, "the owner's listing carried no link");
+  const res = await fetch(`${base}${item.url}`);
+  assert.equal(res.status, 200);
+  assert.equal(await res.text(), "the owner's output");
+});
+
+await check("nobody can rename, delete, upload into or create folders inside somebody else's notebook folder", async () => {
+  const id = Buffer.from(`notebooks/${picked}/zz-fx17-note.txt`).toString("base64");
+  assert.equal((await call(other, "PATCH", `/api/resources/files/${encodeURIComponent(id)}`, { name: "zz-fx17-renamed.txt" })).status, 404);
+  assert.equal((await call(other, "DELETE", `/api/resources/files/${encodeURIComponent(id)}`)).status, 404);
+  assert.equal((await call(other, "POST", "/api/resources/folders", { name: "zz-fx17-sub", dir: `notebooks/${picked}` })).status, 404);
+
+  const form = new FormData();
+  form.append("file", new Blob(["planted"], { type: "text/plain" }), "zz-fx17-planted.txt");
+  const upload = await fetch(`${base}/api/resources/files?dir=${encodeURIComponent(`uploads/${picked}`)}`, { method: "POST", headers: other.headers, body: form });
+  assert.equal(upload.status, 404);
+
+  assert.ok(fs.existsSync(path.join(ownersFolders[0], "zz-fx17-note.txt")), "the file was renamed or deleted");
+  assert.ok(!fs.existsSync(path.join(ownersFolders[1], "zz-fx17-planted.txt")), "a file was planted");
+  assert.ok(!fs.existsSync(path.join(ownersFolders[0], "zz-fx17-sub")));
+  assert.equal((await call(owner, "POST", "/api/resources/folders", { name: "zz-fx17-sub", dir: `notebooks/${picked}` })).status, 200);
+});
+
+for (const folder of [...ownersFolders, othersFolder, sharedFolder]) fs.rmSync(folder, { recursive: true, force: true });
+
 // ── next ──
 manager.close();
 server.close();
