@@ -2,6 +2,7 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { notebooksService, type NotebookRecord } from "../services/notebooks.service.js";
 import { notebookRunsService } from "../services/notebook-runs.service.js";
+import { notebookAccessService } from "../services/notebook-access.service.js";
 import { secretsService } from "../services/secrets.service.js";
 import {
   notebookExecutionService,
@@ -57,6 +58,12 @@ export interface McpToolDeps {
    * notebook's history.
    */
   writer: string;
+  /**
+   * The account the token belongs to. The tools act as this person: they list, read, run and
+   * write what this person could in the browser, and the access module is asked on their
+   * behalf for every notebook they touch.
+   */
+  userId: string;
 }
 
 /**
@@ -220,10 +227,21 @@ function storedCodeOf(document: NotebookJson, cell: string | undefined, action: 
   return inserted?.code ?? "";
 }
 
+/**
+ * A notebook by name or id, among the ones `userId` may open.
+ *
+ * Everything an agent does to a notebook starts here, and a notebook outside the set is "no
+ * notebook matches" — word for word what a name that does not exist gets, so an agent cannot
+ * use the difference to find what else is on the installation.
+ */
 async function resolveNotebook(
-  reference: string
+  reference: string,
+  userId: string
 ): Promise<{ record: NotebookRecord } | { error: ToolReply }> {
-  const found = await notebooksService.findByIdOrName(reference.trim());
+  const found = await notebooksService.findByIdOrName(
+    reference.trim(),
+    await notebookAccessService.editableIds(userId)
+  );
   if (found === null) return { error: refuse(`No notebook matches "${reference}".`) };
   if (found === "ambiguous") {
     return {
@@ -394,7 +412,9 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
       inputSchema: {},
     },
     async () => {
-      const summaries = await notebooksService.getSummary();
+      const summaries = await notebooksService.getSummary(
+        await notebookAccessService.editableIds(deps.userId)
+      );
       if (summaries.length === 0) return reply("No notebooks yet.");
 
       const lines: string[] = [];
@@ -434,10 +454,12 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
     },
     async ({ about }) =>
       reply(
-        renderNotebookMap(buildNotebookMap(await notebooksService.getAllDocuments()), {
-          about,
-          grouped: true,
-        })
+        renderNotebookMap(
+          buildNotebookMap(
+            await notebooksService.getAllDocuments(await notebookAccessService.editableIds(deps.userId))
+          ),
+          { about, grouped: true }
+        )
       )
   );
 
@@ -473,7 +495,7 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
       },
     },
     async ({ notebook, part, cell }) => {
-      const resolved = await resolveNotebook(notebook);
+      const resolved = await resolveNotebook(notebook, deps.userId);
       if ("error" in resolved) return resolved.error;
       const document = notebooksService.parseDocument(resolved.record);
       const updatedAt = new Date(resolved.record.updated_at).toISOString();
@@ -509,7 +531,7 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
       inputSchema: { notebook: z.string().describe("The notebook's name or id.") },
     },
     async ({ notebook }) => {
-      const resolved = await resolveNotebook(notebook);
+      const resolved = await resolveNotebook(notebook, deps.userId);
       if ("error" in resolved) return resolved.error;
 
       const draft = notebooksService.parseDocument(resolved.record);
@@ -534,7 +556,7 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
       },
     },
     async ({ notebook, limit }) => {
-      const resolved = await resolveNotebook(notebook);
+      const resolved = await resolveNotebook(notebook, deps.userId);
       if ("error" in resolved) return resolved.error;
       return asJson(await notebookRunsService.listByNotebook(resolved.record.id, limit ?? 10));
     }
@@ -551,10 +573,14 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
       },
     },
     async ({ run }) => {
+      // A run id answers only if this person could read that run in the browser: every run
+      // of a notebook they work on, and for a page they merely use, their own.
       const direct = await notebookRunsService.getById(run.trim());
-      if (direct) return asJson(abridge(direct));
+      if (direct && (await notebookAccessService.canSeeRun(deps.userId, direct))) {
+        return asJson(abridge(direct));
+      }
 
-      const resolved = await resolveNotebook(run);
+      const resolved = await resolveNotebook(run, deps.userId);
       if ("error" in resolved) {
         return refuse(`No run and no notebook matches "${run}".`);
       }
@@ -572,7 +598,7 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
       inputSchema: {},
     },
     async () => {
-      const rows = (await secretsService.getAll()) as { key: string; is_secret: boolean }[];
+      const rows = (await secretsService.getAll(deps.userId)) as { key: string; is_secret: boolean }[];
       if (rows.length === 0) return reply("No secrets stored.");
       return reply(
         rows.map((row) => `- ${row.key}${row.is_secret ? "" : " (plain variable, not hidden)"}`).join("\n")
@@ -599,7 +625,7 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
       },
     },
     async ({ notebook, cell, input, timeoutSeconds }) => {
-      const resolved = await resolveNotebook(notebook);
+      const resolved = await resolveNotebook(notebook, deps.userId);
       if ("error" in resolved) return resolved.error;
 
       try {
@@ -619,6 +645,7 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
           cellId,
           input,
           triggerSource: "cell",
+          startedBy: deps.userId,
         });
         return await awaitRun(started, timeoutSeconds, cellId);
       } catch (err: unknown) {
@@ -646,13 +673,14 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
       },
     },
     async ({ notebook, args, timeoutSeconds }) => {
-      const resolved = await resolveNotebook(notebook);
+      const resolved = await resolveNotebook(notebook, deps.userId);
       if ("error" in resolved) return resolved.error;
 
       try {
         const started = await notebookExecutionService.start(resolved.record.id, deps.publishRunEvent, {
           args,
           triggerSource: "manual",
+          startedBy: deps.userId,
         });
         return await awaitRun(started, timeoutSeconds);
       } catch (err: unknown) {
@@ -692,7 +720,7 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
       },
     },
     async ({ notebook, key, value, expected_updated_at }) => {
-      const resolved = await resolveNotebook(notebook);
+      const resolved = await resolveNotebook(notebook, deps.userId);
       if ("error" in resolved) return resolved.error;
 
       const etagError = verifyEtag(resolved.record, expected_updated_at);
@@ -714,7 +742,7 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
       const judged = judgeDocument(edited, document);
       if ("error" in judged) return judged.error;
 
-      const saved = await notebooksService.save(judged.document, deps.writer);
+      const saved = await notebooksService.save(judged.document, deps.writer, deps.userId);
 
 
       return reply(
@@ -776,7 +804,7 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
       },
     },
     async ({ notebook, action, cell, code, note, dry_run, label, force, expected_updated_at }) => {
-      const resolved = await resolveNotebook(notebook);
+      const resolved = await resolveNotebook(notebook, deps.userId);
       if ("error" in resolved) return resolved.error;
 
       const etagError = verifyEtag(resolved.record, expected_updated_at);
@@ -836,7 +864,7 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
         );
       }
 
-      const saved = await notebooksService.save(edited, deps.writer);
+      const saved = await notebooksService.save(edited, deps.writer, deps.userId);
 
       const lines = [
         `${action} on **${saved.name}** \`${saved.id}\``,
@@ -946,7 +974,7 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
     async ({ text, notebook, expected_updated_at }) => {
       let fallbackId: string | undefined;
       if (notebook) {
-        const resolved = await resolveNotebook(notebook);
+        const resolved = await resolveNotebook(notebook, deps.userId);
         if ("error" in resolved) return resolved.error;
         const etagError = verifyEtag(resolved.record, expected_updated_at);
         if (etagError) return etagError;
@@ -963,6 +991,11 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
       }
 
       const existing = await notebooksService.getById(document.id);
+      // An id that is somebody else's is "no such notebook", as it is over REST: writing to
+      // it would overwrite their work, and refusing differently would confirm it is there.
+      if (existing && !(await notebookAccessService.canEdit(deps.userId, existing.id))) {
+        return refuse(`No notebook matches "${document.id}".`);
+      }
       if (existing) {
         const etagError = verifyEtag(existing, expected_updated_at);
         if (etagError) return etagError;
@@ -970,7 +1003,7 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
       const before = existing ? notebooksService.parseDocument(existing) : null;
       if (before) document = fromMarkdown(text, { id: fallbackId, previous: before });
 
-      const saved = await notebooksService.save(document, deps.writer);
+      const saved = await notebooksService.save(document, deps.writer, deps.userId);
 
       const lines = [
         `${existing ? "Updated" : "Created"} **${saved.name}** \`${saved.id}\``,
@@ -1059,8 +1092,13 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
       },
     },
     async ({ notebook, confirmName }) => {
-      const resolved = await resolveNotebook(notebook);
+      const resolved = await resolveNotebook(notebook, deps.userId);
       if ("error" in resolved) return resolved.error;
+
+      // An editor may change the notebook but not end it: that is the owner's alone.
+      if (!(await notebookAccessService.isOwner(deps.userId, resolved.record.id))) {
+        return refuse(`Only the owner can delete "${resolved.record.name}".`);
+      }
 
       const approval = await requestApproval(server, {
         summary: `Delete "${resolved.record.name}"?`,

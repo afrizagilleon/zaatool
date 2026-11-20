@@ -243,6 +243,113 @@ export async function initDb() {
       END $$;
     `);
 
+    // ── Who owns what (FX17) ─────────────────────────────────────────────────────
+    //
+    // Each block adds its column and backfills it in the same `DO`, so the backfill runs
+    // exactly once, the way `deployed_version_id` does above. Deleting a user takes their
+    // grants, secrets and tokens with them; it only *orphans* a notebook and a run, because
+    // a notebook without an owner is recoverable (`transfer-owner`) and a deleted one is not.
+
+    // D-1, D-8. The owner is whoever deployed the oldest version, if that account still
+    // exists and is a creator; otherwise the first creator; with no creator at all, nobody.
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE notebooks ADD COLUMN owner_id VARCHAR(255) REFERENCES users(id) ON DELETE SET NULL;
+
+        UPDATE notebooks n
+        SET owner_id = COALESCE(
+          (SELECT u.id FROM users u
+           WHERE u.role = 'creator'
+             AND u.username = (
+               SELECT v.deployed_by FROM notebook_versions v
+               WHERE v.notebook_id = n.id
+               ORDER BY v.created_at ASC, v.id ASC
+               LIMIT 1
+             )),
+          (SELECT u.id FROM users u WHERE u.role = 'creator' ORDER BY u.created_at ASC, u.id ASC LIMIT 1)
+        );
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
+
+    // D-4. `all` is what every notebook did before this existed.
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE notebooks ADD COLUMN app_visibility VARCHAR(16) NOT NULL DEFAULT 'all'
+          CHECK (app_visibility IN ('all', 'selected'));
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
+
+    // The people a notebook was shared with, besides its owner: `editor` may change it,
+    // `app` may use its deployed page when the notebook's visibility is `selected`.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS notebook_access (
+        notebook_id VARCHAR(255) NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
+        user_id VARCHAR(255) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        permission VARCHAR(16) NOT NULL CHECK (permission IN ('editor', 'app')),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (notebook_id, user_id)
+      );
+    `);
+
+    // D-6. A secret belongs to the account that made it. Before this every creator could
+    // use every secret, so each existing one is copied to every creator: nobody gains
+    // access and no deployed notebook loses a secret it was running with. The originals
+    // are removed once copied — left behind they would be plaintext nobody can reach — but
+    // only when there was a creator to copy them to, so an installation with none loses
+    // nothing.
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE secrets ADD COLUMN owner_id VARCHAR(255) REFERENCES users(id) ON DELETE CASCADE;
+        ALTER TABLE secrets DROP CONSTRAINT IF EXISTS secrets_key_key;
+
+        INSERT INTO secrets (id, key, value, is_secret, created_at, owner_id)
+        SELECT md5(random()::text || clock_timestamp()::text || s.id || u.id),
+               s.key, s.value, s.is_secret, s.created_at, u.id
+        FROM secrets s CROSS JOIN users u
+        WHERE s.owner_id IS NULL AND u.role = 'creator';
+
+        DELETE FROM secrets s
+        WHERE s.owner_id IS NULL AND EXISTS (SELECT 1 FROM users u WHERE u.role = 'creator');
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
+
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS secrets_owner_key_idx ON secrets (owner_id, key);
+    `);
+
+    // D-9. A token acts as the account that made it. Existing ones go to the first creator.
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE agent_tokens ADD COLUMN user_id VARCHAR(255) REFERENCES users(id) ON DELETE CASCADE;
+
+        UPDATE agent_tokens
+        SET user_id = (SELECT u.id FROM users u WHERE u.role = 'creator' ORDER BY u.created_at ASC, u.id ASC LIMIT 1);
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
+
+    // D-11. Who started a run. NULL for cron, webhooks and share links, which no account
+    // started.
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE notebook_runs ADD COLUMN started_by VARCHAR(255) REFERENCES users(id) ON DELETE SET NULL;
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
+
     // Add token_version to users: every session token carries the number it was minted
     // under, and raising it here is how all of a person's older sessions are ended at once.
     await client.query(`

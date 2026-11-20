@@ -159,16 +159,20 @@ export function PageRunner({
             )}
           </div>
           {/* Sharing is about the page, not about this run, so it sits with the title
-              rather than in the row of buttons that do things. */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 shrink-0 px-3 text-xs text-muted-foreground"
-            onClick={() => setIsSharing(true)}
-          >
-            <ShareNetwork size={14} className="mr-1.5" />
-            Share
-          </Button>
+              rather than in the row of buttons that do things. Only for the people who work
+              on the notebook: for anyone who merely uses it the share list is a request the
+              engine answers with "no such notebook", so the button is not offered. */}
+          {page.canEdit !== false && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 shrink-0 px-3 text-xs text-muted-foreground"
+              onClick={() => setIsSharing(true)}
+            >
+              <ShareNetwork size={14} className="mr-1.5" />
+              Share
+            </Button>
+          )}
         </div>
 
         {moved && <PageMoved gone={latest === null} onReload={onReload} />}
@@ -220,12 +224,14 @@ export function PageRunner({
           />
         </div>
 
-        <ShareDialog
-          notebookId={page.id}
-          notebookName={page.name}
-          open={isSharing}
-          onOpenChange={setIsSharing}
-        />
+        {page.canEdit !== false && (
+          <ShareDialog
+            notebookId={page.id}
+            notebookName={page.name}
+            open={isSharing}
+            onOpenChange={setIsSharing}
+          />
+        )}
 
         {error && (
           <div className="border border-status-error/40 bg-status-error/5 p-3 text-xs text-status-error">

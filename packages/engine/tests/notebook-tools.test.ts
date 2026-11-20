@@ -20,6 +20,7 @@ import { registerNotebookTools } from "../src/mcp/notebook-tools.js";
 import { notebooksService } from "../src/services/notebooks.service.js";
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
+import { testOwner, dropOwner } from "./owners.js";
 
 let passed = 0;
 let failed = 0;
@@ -37,9 +38,10 @@ async function check(name: string, run: () => Promise<void>): Promise<void> {
 }
 
 await initDb();
+const OWNER = (await testOwner("notebooktools")).id;
 
 const server = new McpServer({ name: "zaatool", version: "1.0.0" });
-registerNotebookTools(server, { publishRunEvent: () => {}, writer: "test-agent" }, "author");
+registerNotebookTools(server, { publishRunEvent: () => {}, writer: "test-agent", userId: OWNER }, "author");
 const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 await server.connect(serverTransport);
 const client = new Client({ name: "test-agent", version: "1.0.0" });
@@ -70,7 +72,8 @@ await notebooksService.save(
     runtime: "node",
     steps: [{ id: "cell-1", kind: "cell", note: "The only cell.", code: CODE }],
   } as never,
-  "test-agent"
+  "test-agent",
+  OWNER
 );
 
 const found = await notebooksService.findByIdOrName(NAME);
@@ -160,6 +163,7 @@ await check("notebook_edit_setup refuses a stale stamp too", async () => {
 });
 
 await pool.query("DELETE FROM notebooks WHERE name = $1", [NAME]);
+await dropOwner("notebooktools");
 await client.close();
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -23,6 +23,7 @@ import { notebookExecutionService } from "../src/services/notebook-execution.ser
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
 import type { NotebookJson, RunEvent } from "@zaa-tool/shared";
+import { testOwner, dropOwner } from "./owners.js";
 
 let passed = 0;
 let failed = 0;
@@ -40,11 +41,12 @@ async function check(name: string, run: () => Promise<void>): Promise<void> {
 }
 
 await initDb();
+const OWNER = (await testOwner("pagestream")).id;
 
 const created: string[] = [];
 
 async function store(document: Omit<NotebookJson, "version">): Promise<string> {
-  const { id } = await notebooksService.save({ version: "1.0", ...document });
+  const { id } = await notebooksService.save({ version: "1.0", ...document }, "test", OWNER);
   if (!created.includes(id)) created.push(id);
   return id;
 }
@@ -307,6 +309,7 @@ await check("what earlier cells produced is still announced", async () => {
 });
 
 for (const id of created) await notebooksService.delete(id).catch(() => {});
+await dropOwner("pagestream");
 await pool.end();
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

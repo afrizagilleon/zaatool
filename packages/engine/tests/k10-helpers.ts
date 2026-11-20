@@ -9,7 +9,11 @@ import fs from "node:fs";
 import { pool } from "../src/db/connection.js";
 import { notebooksService } from "../src/services/notebooks.service.js";
 import { notebookRunsService } from "../src/services/notebook-runs.service.js";
+import { testOwner, dropOwner } from "./owners.js";
 import type { NotebookJson } from "@zaa-tool/shared";
+
+/** The account these notebooks belong to: since FX-17 a notebook without one calls nothing. */
+let owner: { id: string } | null = null;
 
 export function makeCheck() {
   const tally = { passed: 0, failed: 0 };
@@ -39,21 +43,28 @@ export function watchdog(ms: number): NodeJS.Timeout {
 }
 
 export async function cleanupNotebooks(): Promise<void> {
+  owner = null;
   const { rows } = await pool.query("SELECT id FROM notebooks WHERE name LIKE 'zz-k10-%'");
   for (const row of rows) {
     await notebookRunsService.deleteByNotebook(row.id).catch(() => {});
     await notebooksService.delete(row.id).catch(() => {});
   }
+  await dropOwner("k10");
 }
 
 export async function store(doc: Partial<NotebookJson> & { name: string }): Promise<string> {
-  const saved = await notebooksService.save({
-    version: "1.0",
-    id: "",
-    runtime: "node",
-    steps: [],
-    ...doc,
-  } as NotebookJson);
+  owner ??= await testOwner("k10");
+  const saved = await notebooksService.save(
+    {
+      version: "1.0",
+      id: "",
+      runtime: "node",
+      steps: [],
+      ...doc,
+    } as NotebookJson,
+    "test",
+    owner.id
+  );
   return saved.id;
 }
 
@@ -110,4 +121,9 @@ export function readPid(file: string): number | undefined {
   if (!fs.existsSync(file)) return undefined;
   const text = fs.readFileSync(file, "utf8").trim();
   return text ? Number(text) : undefined;
+}
+
+/** For a test whose own creator account should be the owner of what it stores. */
+export function setOwner(id: string): void {
+  owner = { id };
 }

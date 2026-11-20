@@ -15,6 +15,7 @@ import { ParallelGroup } from './ParallelGroup';
 import { RunHistory } from './RunHistory';
 import { DeployButton } from './DeployButton';
 import { ExportButton } from './ExportButton';
+import { AccessButton } from './AccessDialog';
 import { RunErrorBanner } from './RunErrorBanner';
 import { TriggerPanel } from './TriggerPanel';
 import { ContractPanel } from './ContractPanel';
@@ -318,6 +319,7 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
           ) : null
         }
         exportButton={notebookId ? <ExportButton notebookId={notebookId} name={name} /> : null}
+        accessButton={notebookId ? <AccessButton notebookId={notebookId} notebookName={name} /> : null}
         mapButton={
           notebookId ? (
             <Button

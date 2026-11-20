@@ -44,9 +44,11 @@ const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 const CREATOR = "zz-k11-creator";
 const VIEWER = "zz-k11-viewer";
 const PASSWORD = "zz-k11-password";
+let creatorId = "";
 for (const [username, role] of [[CREATOR, "creator"], [VIEWER, "viewer"]] as const) {
   await pool.query("DELETE FROM users WHERE username = $1", [username]);
-  await authService.createUser(username, PASSWORD, role);
+  const created = await authService.createUser(username, PASSWORD, role);
+  if (username === CREATOR) creatorId = created.id;
 }
 const asCreator = { Authorization: `Bearer ${(await authService.login(CREATOR, PASSWORD)).token}` };
 const asViewer = { Authorization: `Bearer ${(await authService.login(VIEWER, PASSWORD)).token}` };
@@ -70,7 +72,7 @@ async function store(name: string, marker: string, id = ""): Promise<string> {
     outputs: ["marker"],
     steps: [{ id: "k11-cell", kind: "cell", code: `return { marker: '${marker}' };` }],
   };
-  const saved = await notebooksService.save(doc);
+  const saved = await notebooksService.save(doc, "test", creatorId);
   if (!created.includes(saved.id)) created.push(saved.id);
   return saved.id;
 }
@@ -98,10 +100,12 @@ const neverDeployed = await store("zz-k11-undeployed", "draft-secret");
 
 await check("a viewer cannot run a notebook nobody deployed, and nothing executes", async () => {
   const before = (await runsOf(neverDeployed)).length;
+  // 404 since FX-17 (was 409): a notebook nobody deployed is not one a viewer may use, so
+  // it is answered like one that does not exist rather than "exists but not deployed".
   const res = await as(asViewer, "POST", `/api/notebooks/${neverDeployed}/run`, {});
-  assert.equal(res.status, 409);
+  assert.equal(res.status, 404);
   const res2 = await as(asViewer, "POST", `/api/notebooks/${neverDeployed}/run`, { mode: "draft" });
-  assert.equal(res2.status, 409);
+  assert.equal(res2.status, 404);
   assert.equal((await runsOf(neverDeployed)).length, before);
 });
 

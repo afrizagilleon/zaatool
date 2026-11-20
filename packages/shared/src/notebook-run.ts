@@ -58,6 +58,12 @@ export interface NotebookRunSummary {
    * that it ran at 03:00 and have no way to find out what set it off.
    */
   parent_run_id: string | null;
+  /**
+   * The account that started it, when one did — a person in the editor or an agent acting
+   * for one. Null for a schedule, a webhook or a share link, which no account started.
+   * What decides whether somebody who only uses the page may read this run.
+   */
+  started_by?: string | null;
   error: string | null;
   started_at: string;
   finished_at: string | null;

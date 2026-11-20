@@ -42,7 +42,10 @@ export function SecretsTab({ secrets, onAdd, onDelete }: SecretsTabProps) {
   return (
     <div className="py-6">
       <div className="flex justify-between items-center gap-3 mb-4">
-        <p className="text-sm text-muted-foreground shrink-0">Manage your API keys and environment variables securely.</p>
+        <p className="text-sm text-muted-foreground shrink-0">
+          Manage your API keys and environment variables securely. They are yours: a notebook you own
+          runs with them, and an editor you invite can use them in that notebook without ever reading them.
+        </p>
         <div className="flex items-center gap-2">
           <div className="relative">
             <MagnifyingGlass

@@ -1,5 +1,6 @@
 import { API_BASE_URL, describeRequestFailure } from "./api.js";
 import type {
+  NotebookAccessSettings,
   NotebookDeployState,
   NotebookJson,
   NotebookMap,
@@ -143,6 +144,19 @@ export const notebooksApi = {
 
   revokeShare: (id: string, shareId: string): Promise<{ revoked: boolean }> =>
     request(`/api/notebooks/${id}/shares/${shareId}`, { method: "DELETE" }),
+
+  /** Who a notebook is shared with. Answered to its owner only. */
+  access: (id: string): Promise<NotebookAccessSettings> => request(`/api/notebooks/${id}/access`),
+
+  /**
+   * Replaces the lists it is sent, by username. A name that does not exist, or a viewer
+   * named as an editor, comes back as an error that says which.
+   */
+  setAccess: (
+    id: string,
+    change: { editors?: string[]; appVisibility?: 'all' | 'selected'; appUsers?: string[] }
+  ): Promise<NotebookAccessSettings> =>
+    request(`/api/notebooks/${id}/access`, { method: "PUT", body: JSON.stringify(change) }),
 
   /** Stops production without touching the draft, its history or its versions. */
   undeploy: (id: string): Promise<{ wasDeployed: boolean }> =>

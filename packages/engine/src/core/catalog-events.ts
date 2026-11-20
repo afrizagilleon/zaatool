@@ -21,6 +21,12 @@ import type { CatalogChange } from "@zaa-tool/shared";
 export interface CatalogChangeNotice {
   change: CatalogChange;
   notebookId: string;
+  /**
+   * Who may be told, as account ids, when that cannot be looked up afterwards — a delete,
+   * or an undeploy that took the page away from the people who used it. `null` is
+   * everybody; absent means "whoever can reach the notebook now".
+   */
+  audience?: string[] | null;
 }
 
 const changes = new EventEmitter();

@@ -15,6 +15,9 @@ import { notebookExecutionService } from "../src/services/notebook-execution.ser
 import { notebookRunsService } from "../src/services/notebook-runs.service.js";
 import { pool } from "../src/db/connection.js";
 import type { NotebookJson } from "@zaa-tool/shared";
+import { testOwner, dropOwner } from "./owners.js";
+
+const OWNER = (await testOwner("notebookreuseintegration")).id;
 
 let passed = 0;
 let failed = 0;
@@ -34,7 +37,7 @@ async function check(name: string, run: () => Promise<void>): Promise<void> {
 const created: string[] = [];
 
 async function store(document: Omit<NotebookJson, "version">): Promise<string> {
-  const { id } = await notebooksService.save({ version: "1.0", ...document });
+  const { id } = await notebooksService.save({ version: "1.0", ...document }, "test", OWNER);
   created.push(id);
   return id;
 }
@@ -395,6 +398,7 @@ await check("a callee that fails leaves its own failed run behind", async () => 
 for (const id of created) {
   await notebooksService.delete(id).catch(() => {});
 }
+await dropOwner("notebookreuseintegration");
 await pool.end();
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

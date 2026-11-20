@@ -104,7 +104,10 @@ async function main(): Promise<void> {
     const seen = await noticesDuring(async () => {
       await notebooksService.undeploy(firstId);
     });
-    assert.deepEqual(seen, [{ change: "undeployed", notebookId: firstId }]);
+    // `audience` is who may be told, asked before the change took the page away; it never
+    // reaches a client (the socket builds its event field by field). A page open to
+    // everybody has no list: `null`.
+    assert.deepEqual(seen, [{ change: "undeployed", notebookId: firstId, audience: null }]);
   });
 
   await check("undeploying something that was not deployed says nothing", async () => {
@@ -121,7 +124,8 @@ async function main(): Promise<void> {
     const seen = await noticesDuring(async () => {
       await notebooksService.delete(doomedId);
     });
-    assert.deepEqual(seen, [{ change: "deleted", notebookId: doomedId }]);
+    // Nobody owns it and it was never an app, so nobody in particular is told.
+    assert.deepEqual(seen, [{ change: "deleted", notebookId: doomedId, audience: [] }]);
   });
 
   console.log("\nwhat the notice contains");

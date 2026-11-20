@@ -144,8 +144,13 @@ await check("webhook rate limiter skips authenticated requests and limits unauth
   await initDb();
   process.env.HOOK_RATE_LIMIT_MAX = "2";
 
+  // The notebook runs with, and its webhook is guarded by, its owner's secret — so the
+  // notebook and the secret need an owner to share.
+  const { testOwner, dropOwner } = await import("./owners.js");
+  const hookOwner = await testOwner("sechook");
+
   const secretKey = `zz_test_secret_${Date.now()}`;
-  const createdSecret = await secretsService.create(secretKey, "my-secret-value-123", true);
+  const createdSecret = await secretsService.create(hookOwner.id, secretKey, "my-secret-value-123", true);
 
   const unauthedSlug = `zz-unauthed-hook-${Date.now()}`;
   const authedSlug = `zz-authed-hook-${Date.now()}`;
@@ -157,7 +162,7 @@ await check("webhook rate limiter skips authenticated requests and limits unauth
       { id: "t1", kind: "webhook", slug: unauthedSlug, enabled: true },
       { id: "t2", kind: "webhook", slug: authedSlug, secretKey, enabled: true },
     ],
-  });
+  }, "test", hookOwner.id);
   await notebooksService.deploy(nb.id, "test");
 
   const app = createApp(() => {});
@@ -187,7 +192,8 @@ await check("webhook rate limiter skips authenticated requests and limits unauth
   } finally {
     server.close();
     await notebooksService.delete(nb.id);
-    await secretsService.delete(createdSecret.id);
+    await secretsService.delete(hookOwner.id, createdSecret.id);
+    await dropOwner("sechook");
     delete process.env.HOOK_RATE_LIMIT_MAX;
   }
 });

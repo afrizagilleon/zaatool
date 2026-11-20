@@ -19,6 +19,7 @@ import { notebookSharesService } from "../src/services/notebook-shares.service.j
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
 import type { NotebookJson } from "@zaa-tool/shared";
+import { testOwner, dropOwner } from "./owners.js";
 
 let passed = 0;
 let failed = 0;
@@ -36,6 +37,7 @@ async function check(name: string, run: () => Promise<void>): Promise<void> {
 }
 
 await initDb();
+const OWNER = (await testOwner("notebookshare")).id;
 
 const server = http.createServer(createApp(() => {}));
 await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -44,7 +46,7 @@ const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 const created: string[] = [];
 
 async function store(document: Omit<NotebookJson, "version">): Promise<string> {
-  const { id } = await notebooksService.save({ version: "1.0", ...document });
+  const { id } = await notebooksService.save({ version: "1.0", ...document }, "test", OWNER);
   if (!created.includes(id)) created.push(id);
   return id;
 }
@@ -140,7 +142,7 @@ await check("revoking stops it, and the reason is not distinguishable", async ()
   const doomed = await notebookSharesService.create(plainId, "afriza");
   assert.equal((await open(doomed.token!)).status, 200);
 
-  await notebookSharesService.revoke(doomed.id);
+  await notebookSharesService.revoke(doomed.id, plainId);
   assert.equal((await open(doomed.token!)).status, 404);
   assert.equal((await fetch(`${base}/api/shared/${doomed.token}/run`, { method: "POST" })).status, 404);
 });
@@ -163,7 +165,7 @@ await check("a link runs the deployed version, not the draft", async () => {
   const share = await notebookSharesService.create(id, "afriza");
 
   const draft = { ...notebook("zz-share-pinned"), id, name: "renamed in the draft" };
-  await notebooksService.save({ version: "1.0", ...draft });
+  await notebooksService.save({ version: "1.0", ...draft }, "test", OWNER);
 
   const page = await (await open(share.token!)).json();
   assert.equal(page.name, "zz-share-pinned", "the link served the draft");
@@ -274,6 +276,7 @@ await check("and the name of the notebook it would have run never leaves the ser
 
 for (const id of created) await notebooksService.delete(id).catch(() => {});
 await pool.query("DELETE FROM notebook_shares WHERE created_by = 'afriza'").catch(() => {});
+await dropOwner("notebookshare");
 await pool.end();
 server.close();
 

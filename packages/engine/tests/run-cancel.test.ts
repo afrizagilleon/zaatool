@@ -28,6 +28,7 @@ import {
   finishedRun,
   readPid,
   sleep,
+  setOwner,
 } from "./k10-helpers.js";
 
 const wd = watchdog(150_000);
@@ -47,7 +48,8 @@ const VIEWER = "zz-k10-viewer";
 const PASSWORD = "zz-k10-password";
 for (const [username, role] of [[CREATOR, "creator"], [VIEWER, "viewer"]] as const) {
   await pool.query("DELETE FROM users WHERE username = $1", [username]);
-  await authService.createUser(username, PASSWORD, role);
+  const created = await authService.createUser(username, PASSWORD, role);
+  if (username === CREATOR) setOwner(created.id);
 }
 const asCreator = { Authorization: `Bearer ${(await authService.login(CREATOR, PASSWORD)).token}` };
 const asViewer = { Authorization: `Bearer ${(await authService.login(VIEWER, PASSWORD)).token}` };

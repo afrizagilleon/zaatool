@@ -49,7 +49,7 @@ async function cleanup(): Promise<void> {
 
 await initDb();
 await cleanup();
-await authService.createUser(USER, "zz-fx15-nm-password", "creator");
+const OWNER = (await authService.createUser(USER, "zz-fx15-nm-password", "creator")).id;
 const token = (await authService.login(USER, "zz-fx15-nm-password")).token;
 const auth = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
 
@@ -58,7 +58,7 @@ await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
 async function store(document: Omit<NotebookJson, "version">): Promise<string> {
-  const { id } = await notebooksService.save({ version: "1.0", ...document });
+  const { id } = await notebooksService.save({ version: "1.0", ...document }, "test", OWNER);
   return id;
 }
 

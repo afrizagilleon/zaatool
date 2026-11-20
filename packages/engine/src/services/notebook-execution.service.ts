@@ -12,6 +12,7 @@ import { notebooksService } from "./notebooks.service.js";
 import { notebookRunsService } from "./notebook-runs.service.js";
 import { NotebookRunRecorder } from "./notebook-run-recorder.js";
 import { secretsService } from "./secrets.service.js";
+import { notebookAccessService } from "./notebook-access.service.js";
 import type { NotebookCallRequest, NotebookCaller } from "../core/notebook-call.js";
 import type { NotebookPlan } from "../core/notebook-compiler.js";
 import type { NotebookJson, NotebookRunTrigger } from "@zaa-tool/shared";
@@ -75,6 +76,12 @@ export interface StartRunOptions {
   cellId?: string;
   /** Recorded on the run so a failure can be traced to what set it off. */
   triggerSource?: NotebookRunTrigger;
+  /**
+   * The account on whose behalf this runs, when there is one. Recorded on the run — it is
+   * what lets somebody who only uses a page read their own runs and no one else's — and
+   * inherited by every notebook the run calls.
+   */
+  startedBy?: string;
 }
 
 export interface StartedRun {
@@ -116,6 +123,8 @@ interface CallContext {
   publish: RunEventSink;
   /** The run that asked for this one, so the callee's history explains itself. */
   parentRunId: string;
+  /** Who the root run is for, so a callee's history is as readable to them as the caller's. */
+  startedBy?: string;
   /**
    * Whether this whole run is production.
    *
@@ -204,6 +213,15 @@ export class NotebookExecutionService {
     if (context.signal.aborted) throw new Error(abortMessage(context.signal));
 
     const reference = String(request.notebook ?? "").trim();
+
+    // Only among what the *caller's owner* could use as an app (or, in a draft run, open).
+    // A notebook is not a way to reach what its author could not: a callee outside this set
+    // is "not found", the same as one that does not exist, so a call cannot be used to find
+    // out which notebooks somebody else has. A caller with no owner may call nothing.
+    const callerId = context.stack[context.stack.length - 1];
+    const callerOwner = await notebookAccessService.ownerOf(callerId);
+    const among = callerOwner === null ? [] : await notebookAccessService.callableIds(callerOwner);
+
     // A production run looks the callee up among the names of what is *deployed*; a draft
     // run among the drafts. Resolving production against the draft `name` column made a
     // rename in the editor break a deployed caller before anyone deployed anything.
@@ -211,7 +229,7 @@ export class NotebookExecutionService {
     let document: NotebookJson;
 
     if (context.useDeployed) {
-      const deployed = await notebooksService.findDeployedByIdOrName(reference);
+      const deployed = await notebooksService.findDeployedByIdOrName(reference, among);
       if (deployed === null) throw new NotebookNotFoundError(reference);
       if (deployed === "ambiguous") {
         throw new Error(
@@ -225,7 +243,7 @@ export class NotebookExecutionService {
       found = deployed;
       document = deployed.document;
     } else {
-      const draft = await notebooksService.findByIdOrName(reference);
+      const draft = await notebooksService.findByIdOrName(reference, among);
       if (draft === null) throw new NotebookNotFoundError(reference);
       if (draft === "ambiguous") {
         throw new Error(
@@ -254,7 +272,12 @@ export class NotebookExecutionService {
       plan.inputs,
       bindInputs(plan.inputs, request.input)
     );
-    const secrets = await secretsService.getByKeys(plan.secrets);
+    // The callee's owner's, which is not necessarily the caller's: a notebook runs with the
+    // credentials of whoever owns *it*.
+    const secrets = await secretsService.getByKeys(
+      await notebookAccessService.ownerOf(found.id),
+      plan.secrets
+    );
 
     // A called notebook is a run in its own right, with its own id and its own history
     // row. It used to be invisible: a callee that failed at 3am left no record anywhere,
@@ -265,6 +288,7 @@ export class NotebookExecutionService {
       notebookId: found.id,
       triggerSource: "call",
       parentRunId: context.parentRunId,
+      startedBy: context.startedBy,
     });
 
     const nested = {
@@ -273,6 +297,7 @@ export class NotebookExecutionService {
       log: context.log,
       publish: context.publish,
       parentRunId: runId,
+      startedBy: context.startedBy,
       useDeployed: context.useDeployed,
       signal: context.signal,
       fan: context.fan,
@@ -321,7 +346,8 @@ export class NotebookExecutionService {
     runId: string,
     useDeployed: boolean,
     signal: AbortSignal,
-    fan: FanOut
+    fan: FanOut,
+    startedBy?: string
   ): NotebookCaller {
     return (request, log) =>
       this.callNotebook(request, {
@@ -330,6 +356,7 @@ export class NotebookExecutionService {
         log: log ?? (() => {}),
         publish,
         parentRunId: runId,
+        startedBy,
         useDeployed,
         signal,
         fan,
@@ -378,7 +405,9 @@ export class NotebookExecutionService {
     // a webhook can try again, but a missed tick is simply a run that never happened.
     if (runGate.isFull(options.triggerSource === "cron")) throw new TooManyRunsError();
 
-    const secrets = await secretsService.getByKeys(plan.secrets);
+    // The owner's, whoever pressed Run: an editor's run uses the notebook's secrets, not the
+    // editor's own, and the editor never sees them.
+    const secrets = await secretsService.getByKeys(record.owner_id, plan.secrets);
 
     const runId = randomUUID();
     await notebookRunsService.start({
@@ -386,6 +415,7 @@ export class NotebookExecutionService {
       notebookId,
       triggerSource: options.triggerSource ?? (options.cellId ? "cell" : "manual"),
       cellId: options.cellId,
+      startedBy: options.startedBy,
     });
 
     // Recording is composed into the sink, so every event that reaches a client
@@ -435,7 +465,8 @@ export class NotebookExecutionService {
             runId,
             useDeployed,
             controller.signal,
-            fan
+            fan,
+            options.startedBy
           ),
           file: notebookFilesService.writerFor(notebookId),
           signal: controller.signal,

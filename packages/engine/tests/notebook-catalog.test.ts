@@ -20,6 +20,7 @@ import { notebookRunsService } from "../src/services/notebook-runs.service.js";
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
 import type { NotebookJson } from "@zaa-tool/shared";
+import { testOwner, dropOwner } from "./owners.js";
 
 let passed = 0;
 let failed = 0;
@@ -37,11 +38,12 @@ async function check(name: string, run: () => Promise<void>): Promise<void> {
 }
 
 await initDb();
+const OWNER = (await testOwner("notebookcatalog")).id;
 
 const created: string[] = [];
 
 async function store(document: Omit<NotebookJson, "version">): Promise<string> {
-  const { id } = await notebooksService.save({ version: "1.0", ...document });
+  const { id } = await notebooksService.save({ version: "1.0", ...document }, "test", OWNER);
   if (!created.includes(id)) created.push(id);
   return id;
 }
@@ -49,7 +51,7 @@ async function store(document: Omit<NotebookJson, "version">): Promise<string> {
 /** A client seeing the catalogue exactly as an agent would. */
 async function connect(): Promise<Client> {
   const server = new McpServer({ name: "zaatool", version: "1.0.0" });
-  await registerDeployedNotebooks(server, { publishRunEvent: () => {} });
+  await registerDeployedNotebooks(server, { publishRunEvent: () => {}, userId: OWNER });
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
@@ -208,6 +210,7 @@ await check("two notebooks with one name publish neither, rather than a coin tos
 
 for (const client of opened) await client.close().catch(() => {});
 for (const id of created) await notebooksService.delete(id).catch(() => {});
+await dropOwner("notebookcatalog");
 await pool.end();
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

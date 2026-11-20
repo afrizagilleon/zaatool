@@ -9,6 +9,11 @@ import { actionSpecs } from "../core/notebook-actions.js";
 import { notebookSharesService } from "../services/notebook-shares.service.js";
 import { notebookRunsService } from "../services/notebook-runs.service.js";
 import {
+  notebookAccessService,
+  isEditAccess,
+  AccessInputError,
+} from "../services/notebook-access.service.js";
+import {
   notebookExecutionService,
   NotebookNotFoundError,
   CellNotFoundError,
@@ -25,6 +30,24 @@ import type {
   NotebookPage,
   NotebookPageAction,
 } from "@zaa-tool/shared";
+
+/** Who is asking. `authMiddleware` ran before any of these handlers, so there is always one. */
+interface Caller {
+  id: string;
+  username: string;
+  role: string;
+}
+
+function callerOf(req: Request): Caller {
+  return (req as Request & { user: Caller }).user;
+}
+
+/**
+ * The answer for a notebook the caller may not see — the same as for one that does not
+ * exist, word for word. If the two differed, asking would be a way to find out which ids
+ * are real.
+ */
+const NOT_FOUND = { error: "Notebook not found" };
 
 /**
  * Every note in the notebook, in the order they are written.
@@ -63,8 +86,15 @@ function firstNoteOf(document: NotebookJson): string {
  *
  * Undeployed or missing targets contribute nothing rather than failing the page: the
  * button will say so when pressed, and one broken action should not blank an app list.
+ *
+ * `among` is what the *page's owner* may call as an app, and a target outside it is treated
+ * as missing: a button must not be a way to learn what else exists, or to reach what its
+ * author could not.
  */
-async function withQuestions(actions: NotebookAction[]): Promise<NotebookPageAction[]> {
+async function withQuestions(
+  actions: NotebookAction[],
+  among: string[]
+): Promise<NotebookPageAction[]> {
   const asked: NotebookPageAction[] = [];
 
   for (const action of actions) {
@@ -75,7 +105,7 @@ async function withQuestions(actions: NotebookAction[]): Promise<NotebookPageAct
 
     // By the target's deployed name, like the press itself: a form that asked about a
     // renamed draft would not be the form the button then runs against.
-    const target = await notebooksService.findDeployedByIdOrName(action.notebook);
+    const target = await notebooksService.findDeployedByIdOrName(action.notebook, among);
     if (target === null || target === "ambiguous" || target === "undeployed") {
       asked.push(action);
       continue;
@@ -91,9 +121,60 @@ async function withQuestions(actions: NotebookAction[]): Promise<NotebookPageAct
   return asked;
 }
 
+/** What a notebook's owner may call as an app — the only notebooks its buttons may reach. */
+async function callableBy(ownerId: string | null): Promise<string[]> {
+  return ownerId === null ? [] : notebookAccessService.callableIds(ownerId);
+}
+
+/**
+ * A deployed notebook as a page, or null when it has nothing to show.
+ *
+ * The only shape of a notebook anyone who merely *uses* it ever receives: names, the form
+ * it asks, what it returns and how that is laid out — never a cell, the setup, the secret
+ * names, the triggers or the packages.
+ */
+async function pageOf(
+  id: string,
+  document: NotebookJson,
+  among: string[],
+  canEdit: boolean
+): Promise<NotebookPage | null> {
+  const hasContract = (document.inputs?.length ?? 0) > 0 || (document.outputs?.length ?? 0) > 0;
+  // Only when there is nothing else to show, or every existing page would suddenly
+  // grow a wall of the author's working notes above its results.
+  const notes = hasContract ? [] : notesOf(document);
+  if (!hasContract && notes.length === 0) return null;
+
+  return {
+    notes,
+    id,
+    name: document.name,
+    description: firstNoteOf(document),
+    // The deployed document's tags, not the draft's: this list describes what is
+    // running, and a tag added to the draft this morning has not been published.
+    tags: normaliseTags(document.tags ?? []),
+    inputs: document.inputs ?? [],
+    // Normalised here rather than in the browser: a page has to decide how to show
+    // each value, and it should not also have to know there are two ways to write
+    // an output down.
+    outputs: outputSpecs(document.outputs),
+    // Only tiles for names the contract still declares. An output removed since
+    // the arrangement was made leaves no orphan behind.
+    layout: (document.layout ?? []).filter((item) =>
+      outputSpecs(document.outputs).some((output) => output.name === item.i)
+    ),
+    actions: await withQuestions(actionSpecs(document.actions), among),
+    canEdit,
+  };
+}
+
 function respondWithError(res: Response, err: unknown) {
   if (err instanceof NotebookNotFoundError || err instanceof CellNotFoundError) {
     return res.status(404).json({ error: err.message });
+  }
+  // Somebody tried to give a notebook to an account that cannot have it.
+  if (err instanceof AccessInputError) {
+    return res.status(400).json({ error: err.message });
   }
   // The arguments were wrong, not the notebook — the caller can fix this one.
   if (err instanceof ContractError) {
@@ -122,18 +203,31 @@ function respondWithError(res: Response, err: unknown) {
 export class NotebooksController {
   constructor(private readonly publishRunEvent: RunEventSink) {}
 
-  list = async (_req: Request, res: Response) => {
+  /** The editor's list: the notebooks this person owns or was invited to. Apps are `pages`. */
+  list = async (req: Request, res: Response) => {
     try {
-      res.json(await notebooksService.getSummary());
+      res.json(
+        await notebooksService.getSummary(await notebookAccessService.editableIds(callerOf(req).id))
+      );
     } catch (err: unknown) {
       respondWithError(res, err);
     }
   };
 
-  /** The system map. Computed on request — there is nothing stored to go stale. */
-  map = async (_req: Request, res: Response) => {
+  /**
+   * The system map. Computed on request — there is nothing stored to go stale. Drawn from the
+   * notebooks the caller may open: it is made of their documents, and a map that included
+   * somebody else's would publish what they are.
+   */
+  map = async (req: Request, res: Response) => {
     try {
-      res.json(buildNotebookMap(await notebooksService.getAllDocuments()));
+      res.json(
+        buildNotebookMap(
+          await notebooksService.getAllDocuments(
+            await notebookAccessService.editableIds(callerOf(req).id)
+          )
+        )
+      );
     } catch (err: unknown) {
       respondWithError(res, err);
     }
@@ -149,42 +243,33 @@ export class NotebooksController {
    *
    * A notebook with neither notes nor a contract is still nothing to render, and still
    * skipped: there is already a Run button in the editor.
+   *
+   * Only the apps this person may use: everyone's, for an app open to everybody, and the
+   * ones they were named on for the rest.
    */
-  pages = async (_req: Request, res: Response) => {
+  pages = async (req: Request, res: Response) => {
     try {
       const pages: NotebookPage[] = [];
+      // Each owner's callable set is asked once however many of their pages there are.
+      const callable = new Map<string | null, string[]>();
+      const editable = new Set(await notebookAccessService.editableIds(callerOf(req).id));
 
-      for (const summary of await notebooksService.getSummary()) {
+      for (const summary of await notebooksService.getSummary(
+        await notebookAccessService.appIds(callerOf(req).id)
+      )) {
         const document = await notebooksService.getDeployedDocument(summary.id);
         if (!document) continue;
 
-        const hasContract =
-          (document.inputs?.length ?? 0) > 0 || (document.outputs?.length ?? 0) > 0;
-        // Only when there is nothing else to show, or every existing page would suddenly
-        // grow a wall of the author's working notes above its results.
-        const notes = hasContract ? [] : notesOf(document);
-        if (!hasContract && notes.length === 0) continue;
+        const owner = await notebookAccessService.ownerOf(summary.id);
+        if (!callable.has(owner)) callable.set(owner, await callableBy(owner));
 
-        pages.push({
-          notes,
-          id: summary.id,
-          name: document.name,
-          description: firstNoteOf(document),
-          // The deployed document's tags, not the draft's: this list describes what is
-          // running, and a tag added to the draft this morning has not been published.
-          tags: normaliseTags(document.tags ?? []),
-          inputs: document.inputs ?? [],
-          // Normalised here rather than in the browser: a page has to decide how to show
-          // each value, and it should not also have to know there are two ways to write
-          // an output down.
-          outputs: outputSpecs(document.outputs),
-          // Only tiles for names the contract still declares. An output removed since
-          // the arrangement was made leaves no orphan behind.
-          layout: (document.layout ?? []).filter((item) =>
-            outputSpecs(document.outputs).some((output) => output.name === item.i)
-          ),
-          actions: await withQuestions(actionSpecs(document.actions)),
-        });
+        const page = await pageOf(
+          summary.id,
+          document,
+          callable.get(owner) ?? [],
+          editable.has(summary.id)
+        );
+        if (page) pages.push(page);
       }
 
       res.json(pages);
@@ -195,8 +280,12 @@ export class NotebooksController {
 
   getById = async (req: Request, res: Response) => {
     try {
-      const record = await notebooksService.getById(String(req.params.id));
-      if (!record) return res.status(404).json({ error: "Notebook not found" });
+      const id = String(req.params.id);
+      if (!(await notebookAccessService.canEdit(callerOf(req).id, id))) {
+        return res.status(404).json(NOT_FOUND);
+      }
+      const record = await notebooksService.getById(id);
+      if (!record) return res.status(404).json(NOT_FOUND);
       res.json(notebooksService.parseDocument(record));
     } catch (err: unknown) {
       respondWithError(res, err);
@@ -208,8 +297,15 @@ export class NotebooksController {
       if (!req.body || !Array.isArray(req.body.steps)) {
         return res.status(400).json({ error: "Invalid notebook: missing steps" });
       }
-      const user = (req as Request & { user?: { username?: string } }).user;
-      res.json(await notebooksService.save(req.body, user?.username ?? "unknown"));
+      const user = callerOf(req);
+      // An id that is already somebody's is theirs to overwrite only if it is this
+      // person's to edit — and otherwise it is answered like an id that does not exist,
+      // not like a refusal, because a refusal would confirm that the id is taken.
+      const taken = req.body.id ? await notebooksService.getById(String(req.body.id)) : null;
+      if (taken && !(await notebookAccessService.canEdit(user.id, taken.id))) {
+        return res.status(404).json(NOT_FOUND);
+      }
+      res.json(await notebooksService.save(req.body, user.username, user.id));
     } catch (err: unknown) {
       respondWithError(res, err);
     }
@@ -218,20 +314,44 @@ export class NotebooksController {
   /** What production is running, and whether the draft has moved on since. */
   deployState = async (req: Request, res: Response) => {
     try {
-      const state = await notebooksService.getDeployState(String(req.params.id));
-      if (!state) return res.status(404).json({ error: "Notebook not found" });
+      const id = String(req.params.id);
+      if (!(await notebookAccessService.canEdit(callerOf(req).id, id))) {
+        return res.status(404).json(NOT_FOUND);
+      }
+      const state = await notebooksService.getDeployState(id);
+      if (!state) return res.status(404).json(NOT_FOUND);
       res.json(state);
     } catch (err: unknown) {
       respondWithError(res, err);
     }
   };
 
-  /** The version production is running, so the editor can show what has changed. */
+  /**
+   * The version production is running, so the editor can show what has changed.
+   *
+   * Whoever may only *use* the page gets the page — the same projection the Apps list
+   * shows — and never the document: this is the one door that used to hand a page user the
+   * cells, the setup and the secret names of the thing they were using.
+   */
   deployedDocument = async (req: Request, res: Response) => {
     try {
-      const document = await notebooksService.getDeployedDocument(String(req.params.id));
+      const id = String(req.params.id);
+      const access = await notebookAccessService.accessFor(callerOf(req).id, id);
+      if (access === null) return res.status(404).json(NOT_FOUND);
+
+      const document = await notebooksService.getDeployedDocument(id);
       if (!document) return res.status(404).json({ error: "Nothing deployed" });
-      res.json(document);
+
+      if (isEditAccess(access)) return res.json(document);
+
+      const page = await pageOf(
+        id,
+        document,
+        await callableBy(await notebookAccessService.ownerOf(id)),
+        false
+      );
+      if (!page) return res.status(404).json({ error: "Nothing deployed" });
+      res.json(page);
     } catch (err: unknown) {
       respondWithError(res, err);
     }
@@ -241,12 +361,12 @@ export class NotebooksController {
     try {
       // Named on the version, because "who decided this may run unattended" is the
       // question a deploy record exists to answer.
-      const user = (req as Request & { user?: { username?: string } }).user;
-      const result = await notebooksService.deploy(
-        String(req.params.id),
-        user?.username ?? "unknown"
-      );
-      if (!result) return res.status(404).json({ error: "Notebook not found" });
+      const user = callerOf(req);
+      if (!(await notebookAccessService.canEdit(user.id, String(req.params.id)))) {
+        return res.status(404).json(NOT_FOUND);
+      }
+      const result = await notebooksService.deploy(String(req.params.id), user.username);
+      if (!result) return res.status(404).json(NOT_FOUND);
 
       res.json(result);
     } catch (err: unknown) {
@@ -264,8 +384,11 @@ export class NotebooksController {
    */
   undeploy = async (req: Request, res: Response) => {
     try {
+      if (!(await notebookAccessService.canEdit(callerOf(req).id, String(req.params.id)))) {
+        return res.status(404).json(NOT_FOUND);
+      }
       const result = await notebooksService.undeploy(String(req.params.id));
-      if (!result) return res.status(404).json({ error: "Notebook not found" });
+      if (!result) return res.status(404).json(NOT_FOUND);
 
       res.json(result);
     } catch (err: unknown) {
@@ -286,6 +409,10 @@ export class NotebooksController {
    */
   runAction = async (req: Request, res: Response) => {
     try {
+      const user = callerOf(req);
+      if (!(await notebookAccessService.canUseApp(user.id, String(req.params.id)))) {
+        return res.status(404).json(NOT_FOUND);
+      }
       const document = await notebooksService.getDeployedDocument(String(req.params.id));
       if (!document) return res.status(409).json({ error: "This page is not deployed." });
 
@@ -297,8 +424,12 @@ export class NotebooksController {
       }
 
       // Resolved among the names of what is *deployed*, not the draft `name` column: this
-      // is a production page, and renaming a draft target must not break its button.
-      const target = await notebooksService.findDeployedByIdOrName(action.notebook);
+      // is a production page, and renaming a draft target must not break its button. And only
+      // among what the page's owner may call: a button reaches what its author could reach.
+      const target = await notebooksService.findDeployedByIdOrName(
+        action.notebook,
+        await callableBy(await notebookAccessService.ownerOf(String(req.params.id)))
+      );
       if (target === null) {
         return res.status(404).json({ error: `"${action.notebook}" does not exist.` });
       }
@@ -325,6 +456,7 @@ export class NotebooksController {
       const started = await notebookExecutionService.start(target.id, this.publishRunEvent, {
         args: { ...passed, ...(action.args ?? {}) },
         triggerSource: "page",
+        startedBy: user.id,
       });
 
       const outcome = await started.completed;
@@ -340,9 +472,71 @@ export class NotebooksController {
     }
   };
 
+  /**
+   * Who a notebook is shared with: its owner, its editors, and who may use the app.
+   *
+   * The owner's alone. An editor knows the notebook exists, so they are told this is not
+   * theirs to read (403); anyone else is told there is no such notebook (404).
+   */
+  private ownerOnly = async (req: Request, res: Response): Promise<string | null> => {
+    const id = String(req.params.id);
+    const access = await notebookAccessService.accessFor(callerOf(req).id, id);
+    if (!isEditAccess(access)) {
+      res.status(404).json(NOT_FOUND);
+      return null;
+    }
+    if (access !== "owner") {
+      res.status(403).json({ error: "Only the owner can change who has access to a notebook." });
+      return null;
+    }
+    return id;
+  };
+
+  getAccess = async (req: Request, res: Response) => {
+    try {
+      const id = await this.ownerOnly(req, res);
+      if (id === null) return;
+      res.json(await notebookAccessService.describe(id));
+    } catch (err: unknown) {
+      respondWithError(res, err);
+    }
+  };
+
+  /**
+   * Replaces the lists it is given and keeps the rest. A username that does not exist, or a
+   * viewer named as an editor, is a 400 that says which — nothing is half-applied.
+   */
+  putAccess = async (req: Request, res: Response) => {
+    try {
+      const id = await this.ownerOnly(req, res);
+      if (id === null) return;
+
+      // A list is names, or objects with a `username` — what `GET` hands out can be sent back.
+      const names = (value: unknown): string[] | undefined => {
+        if (value === undefined) return undefined;
+        if (!Array.isArray(value)) throw new AccessInputError("Expected a list of usernames.");
+        return value.map((entry) =>
+          typeof entry === "string" ? entry : String((entry as { username?: unknown })?.username ?? "")
+        );
+      };
+
+      await notebookAccessService.update(id, {
+        editors: names(req.body?.editors),
+        appVisibility: req.body?.appVisibility,
+        appUsers: names(req.body?.appUsers),
+      });
+      res.json(await notebookAccessService.describe(id));
+    } catch (err: unknown) {
+      respondWithError(res, err);
+    }
+  };
+
   /** Links that let someone without an account use this notebook's page. */
   listShares = async (req: Request, res: Response) => {
     try {
+      if (!(await notebookAccessService.canEdit(callerOf(req).id, String(req.params.id)))) {
+        return res.status(404).json(NOT_FOUND);
+      }
       res.json(await notebookSharesService.listByNotebook(String(req.params.id)));
     } catch (err: unknown) {
       respondWithError(res, err);
@@ -351,8 +545,12 @@ export class NotebooksController {
 
   createShare = async (req: Request, res: Response) => {
     try {
+      const user = callerOf(req);
+      if (!(await notebookAccessService.canEdit(user.id, String(req.params.id)))) {
+        return res.status(404).json(NOT_FOUND);
+      }
       const notebook = await notebooksService.getById(String(req.params.id));
-      if (!notebook) return res.status(404).json({ error: "Notebook not found" });
+      if (!notebook) return res.status(404).json(NOT_FOUND);
 
       // A link to something not in production would 409 for whoever you sent it to,
       // which looks like a broken link rather than a decision you had not made yet.
@@ -361,11 +559,10 @@ export class NotebooksController {
         return res.status(409).json({ error: "Deploy it before sharing it." });
       }
 
-      const user = (req as Request & { user?: { username?: string } }).user;
       res.json(
         await notebookSharesService.create(
           String(req.params.id),
-          user?.username ?? "unknown",
+          user.username,
           typeof req.body?.password === "string" ? req.body.password : undefined
         )
       );
@@ -376,7 +573,12 @@ export class NotebooksController {
 
   revokeShare = async (req: Request, res: Response) => {
     try {
-      res.json(await notebookSharesService.revoke(String(req.params.shareId)));
+      if (!(await notebookAccessService.canEdit(callerOf(req).id, String(req.params.id)))) {
+        return res.status(404).json(NOT_FOUND);
+      }
+      res.json(
+        await notebookSharesService.revoke(String(req.params.shareId), String(req.params.id))
+      );
     } catch (err: unknown) {
       respondWithError(res, err);
     }
@@ -385,10 +587,15 @@ export class NotebooksController {
   duplicate = async (req: Request, res: Response) => {
     try {
       const id = String(req.params.id);
-      const user = (req as Request & { user?: { username?: string } }).user;
-      const duplicated = await notebooksService.duplicate(id, user?.username ?? "unknown");
+      const user = callerOf(req);
+      // Copying reads the source, so it needs what reading the source needs.
+      if (!(await notebookAccessService.canEdit(user.id, id))) {
+        res.status(404).json(NOT_FOUND);
+        return;
+      }
+      const duplicated = await notebooksService.duplicate(id, user.username, user.id);
       if (!duplicated) {
-        res.status(404).json({ error: `Notebook ${id} not found` });
+        res.status(404).json(NOT_FOUND);
         return;
       }
       res.json(duplicated);
@@ -397,9 +604,19 @@ export class NotebooksController {
     }
   };
 
+  /**
+   * Deleting is the owner's alone. An editor knows the notebook exists, so they are told
+   * they may not (403); everyone else is told it is not there (404).
+   */
   remove = async (req: Request, res: Response) => {
     try {
-      const result = await notebooksService.delete(String(req.params.id));
+      const id = String(req.params.id);
+      const access = await notebookAccessService.accessFor(callerOf(req).id, id);
+      if (!isEditAccess(access)) return res.status(404).json(NOT_FOUND);
+      if (access !== "owner") {
+        return res.status(403).json({ error: "Only the owner can delete a notebook." });
+      }
+      const result = await notebooksService.delete(id);
       res.json(result);
     } catch (err: unknown) {
       respondWithError(res, err);
@@ -419,8 +636,13 @@ export class NotebooksController {
       const file = (req as Request & { file?: { originalname: string; buffer: Buffer } }).file;
       if (!file) return res.status(400).json({ error: "No file provided" });
 
-      const notebook = await notebooksService.findByIdOrName(String(req.params.id));
-      if (notebook === null) return res.status(404).json({ error: "Notebook not found" });
+      // Among what this person may use: a page's file picker is for the people who can run
+      // the page, and it is not a way to put files into somebody else's folder.
+      const notebook = await notebooksService.findByIdOrName(
+        String(req.params.id),
+        await notebookAccessService.callableIds(callerOf(req).id)
+      );
+      if (notebook === null) return res.status(404).json(NOT_FOUND);
       if (notebook === "ambiguous") {
         return res.status(400).json({ error: "More than one notebook goes by that name" });
       }
@@ -441,8 +663,11 @@ export class NotebooksController {
    */
   text = async (req: Request, res: Response) => {
     try {
+      if (!(await notebookAccessService.canEdit(callerOf(req).id, String(req.params.id)))) {
+        return res.status(404).json(NOT_FOUND);
+      }
       const record = await notebooksService.getById(String(req.params.id));
-      if (!record) return res.status(404).json({ error: "Notebook not found" });
+      if (!record) return res.status(404).json(NOT_FOUND);
 
       const document = notebooksService.parseDocument(record);
       res.type("text/markdown").send(toMarkdown(document));
@@ -464,7 +689,7 @@ export class NotebooksController {
         return res.status(400).json({ error: "No text provided" });
       }
 
-      const user = (req as Request & { user?: { username?: string } }).user;
+      const user = callerOf(req);
       let document = fromMarkdown(text);
 
       if (asNew) {
@@ -473,6 +698,11 @@ export class NotebooksController {
         // The same two-pass read the MCP write does, so an import that omits `layout`
         // or `actions` keeps the ones already stored rather than deleting them.
         const existing = await notebooksService.getById(document.id);
+        // Somebody else's id is answered as if there were none: importing a file that
+        // names it must not be a way to find out it exists, or to overwrite it.
+        if (existing && !(await notebookAccessService.canEdit(user.id, existing.id))) {
+          return res.status(404).json(NOT_FOUND);
+        }
         if (existing) {
           document = fromMarkdown(text, {
             previous: notebooksService.parseDocument(existing),
@@ -480,15 +710,25 @@ export class NotebooksController {
         }
       }
 
-      res.json(await notebooksService.save(document, user?.username ?? "unknown"));
+      res.json(await notebooksService.save(document, user.username, user.id));
     } catch (err: unknown) {
       respondWithError(res, err);
     }
   };
 
+  /** Every run for the team; for somebody who only uses the page, the ones they started. */
   listRuns = async (req: Request, res: Response) => {
     try {
-      res.json(await notebookRunsService.listByNotebook(String(req.params.id)));
+      const user = callerOf(req);
+      const scope = await notebookAccessService.runScope(user.id, String(req.params.id));
+      if (scope === "none") return res.status(404).json(NOT_FOUND);
+      res.json(
+        await notebookRunsService.listByNotebook(
+          String(req.params.id),
+          undefined,
+          scope === "own" ? user.id : undefined
+        )
+      );
     } catch (err: unknown) {
       respondWithError(res, err);
     }
@@ -496,6 +736,9 @@ export class NotebooksController {
 
   clearRuns = async (req: Request, res: Response) => {
     try {
+      if (!(await notebookAccessService.canEdit(callerOf(req).id, String(req.params.id)))) {
+        return res.status(404).json(NOT_FOUND);
+      }
       res.json(await notebookRunsService.deleteByNotebook(String(req.params.id)));
     } catch (err: unknown) {
       respondWithError(res, err);
@@ -514,6 +757,10 @@ export class NotebooksController {
     try {
       const runId = String(req.params.runId);
       const notebookId = String(req.params.id);
+      const user = callerOf(req);
+      if (!(await notebookAccessService.canEdit(user.id, notebookId))) {
+        return res.status(404).json({ error: "Run not found" });
+      }
       const run = await notebookRunsService.getById(runId);
       if (!run || run.notebook_id !== notebookId) {
         return res.status(404).json({ error: "Run not found" });
@@ -525,8 +772,7 @@ export class NotebooksController {
         return res.status(409).json({ error: "This run was started by another run — cancel the run that started it" });
       }
 
-      const user = (req as Request & { user?: { username?: string } }).user;
-      const stopped = notebookExecutionService.cancel(runId, user?.username ?? "unknown");
+      const stopped = notebookExecutionService.cancel(runId, user.username);
       // Marked running in the history but not active here: it finished a moment ago, or the
       // engine restarted under it. Either way there is nothing left to stop.
       if (!stopped) return res.status(409).json({ error: "Run is not active" });
@@ -541,14 +787,26 @@ export class NotebooksController {
     try {
       const runId = String(req.params.runId);
       const notebookId = String(req.params.id);
+      const user = callerOf(req);
+      const scope = await notebookAccessService.runScope(user.id, notebookId);
+      if (scope === "none") return res.status(404).json({ error: "Run not found" });
+
       const run =
         runId === "latest"
-          ? await notebookRunsService.getLatestForNotebook(notebookId)
+          ? await notebookRunsService.getLatestForNotebook(
+              notebookId,
+              scope === "own" ? user.id : undefined
+            )
           : await notebookRunsService.getById(runId);
 
       // A run id is only meaningful under the notebook it belongs to; otherwise the
       // `:id` in the URL is decoration and any run can be read through any notebook.
       if (!run || run.notebook_id !== notebookId) return res.status(404).json({ error: "Run not found" });
+      // Somebody who only uses the page reads the runs they started, and a run somebody
+      // else started is answered like one that does not exist.
+      if (!(await notebookAccessService.canSeeRun(user.id, run))) {
+        return res.status(404).json({ error: "Run not found" });
+      }
       res.json(run);
     } catch (err: unknown) {
       respondWithError(res, err);
@@ -567,8 +825,15 @@ export class NotebooksController {
       // against the declared inputs) but not of the draft, nor of `input`/`cellId`, which
       // seed scope verbatim and aim at any one cell. Those are refused rather than
       // ignored: a client that sent them expected something this account cannot have.
-      const role = (req as Request & { user?: { role?: string } }).user?.role;
-      const isViewer = role !== "creator";
+      //
+      // "Viewer" here is what the notebook makes the caller, not what the account is: a
+      // creator who may only use somebody else's app runs it exactly as a viewer does. The
+      // draft belongs to the people who work on the notebook.
+      const user = callerOf(req);
+      const access = await notebookAccessService.accessFor(user.id, String(req.params.id));
+      if (access === null) return res.status(404).json(NOT_FOUND);
+
+      const isViewer = !isEditAccess(access);
       if (isViewer && (req.body?.input !== undefined || req.body?.cellId !== undefined)) {
         return res.status(403).json({
           error: "This needs a creator account: a viewer runs the deployed page with its declared arguments only.",
@@ -583,6 +848,7 @@ export class NotebooksController {
           input: req.body?.input,
           args: req.body?.args,
           cellId: req.body?.cellId,
+          startedBy: user.id,
           ...(isPage ? { triggerSource: "page" as const } : {}),
         }
       );

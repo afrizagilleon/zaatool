@@ -21,6 +21,7 @@ import { notebookFilesService } from "../src/services/notebook-files.service.js"
 import { fromMarkdown } from "../src/core/notebook-text.js";
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
+import { testOwner, dropOwner } from "./owners.js";
 
 let passed = 0;
 let failed = 0;
@@ -38,11 +39,12 @@ async function check(name: string, run: () => Promise<void> | void): Promise<voi
 }
 
 await initDb();
+const OWNER = (await testOwner("pythonrpcinjection")).id;
 
 const created: string[] = [];
 
 async function store(text: string): Promise<string> {
-  const saved = await notebooksService.save(fromMarkdown(text), "test");
+  const saved = await notebooksService.save(fromMarkdown(text), "test", OWNER);
   await notebooksService.deploy(saved.id, "test");
   created.push(saved.id);
   return saved.id;
@@ -182,6 +184,7 @@ try {
   }
 } finally {
   for (const id of created) await notebooksService.delete(id).catch(() => {});
+  await dropOwner("pythonrpcinjection");
   await pool.end();
 }
 

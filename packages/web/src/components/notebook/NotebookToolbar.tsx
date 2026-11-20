@@ -89,6 +89,8 @@ interface NotebookToolbarProps {
   deployButton?: React.ReactNode;
   /** Downloads the notebook as the text form. Absent until it has been saved once. */
   exportButton?: React.ReactNode;
+  /** Who the notebook is shared with. Absent until it has been saved once. */
+  accessButton?: React.ReactNode;
   /** Trigger editor, shown in a popover next to Secrets. */
   triggerPanel?: React.ReactNode;
   triggerCount: number;
@@ -140,6 +142,7 @@ export function NotebookToolbar({
   mapButton,
   deployButton,
   exportButton,
+  accessButton,
   triggerPanel,
   triggerCount,
   contractPanel,
@@ -328,6 +331,7 @@ export function NotebookToolbar({
         {pageToggle}
         {runHistory}
         {mapButton}
+        {accessButton}
         {exportButton}
         <Divider />
         {outlinePanel && (
@@ -418,6 +422,7 @@ export function NotebookToolbar({
               {viewMenu}
               {runHistory}
               {mapButton}
+              {accessButton}
               {exportButton}
             </DrawerRow>
 

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { notebooksService } from "../services/notebooks.service.js";
+import { notebookAccessService } from "../services/notebook-access.service.js";
 import { notebookExecutionService } from "../services/notebook-execution.service.js";
 import { ContractError } from "../core/notebook-contract.js";
 import type { RunEventSink } from "../core/run-emitter.js";
@@ -120,6 +121,8 @@ function describe(document: NotebookJson): string {
 
 export interface CatalogDeps {
   publishRunEvent: RunEventSink;
+  /** The account this connection acts as: the tools offered are the apps *they* may use. */
+  userId: string;
 }
 
 /**
@@ -132,7 +135,11 @@ export async function registerDeployedNotebooks(
   server: McpServer,
   deps: CatalogDeps
 ): Promise<number> {
-  const summaries = await notebooksService.getSummary();
+  // Only the apps this account may use. A tool is an app by another door: one the account
+  // could not open in the browser is not a tool it is offered, or can call by guessing its name.
+  const summaries = await notebooksService.getSummary(
+    await notebookAccessService.appIds(deps.userId)
+  );
 
   // Gathered before anything is registered, because a duplicate name has to disqualify
   // *both* notebooks. Skipping the second one would leave the first published, which is
@@ -172,6 +179,7 @@ export async function registerDeployedNotebooks(
           const started = await notebookExecutionService.start(notebookId, deps.publishRunEvent, {
             args,
             triggerSource: "tool",
+            startedBy: deps.userId,
           });
           const result = await started.completed;
 

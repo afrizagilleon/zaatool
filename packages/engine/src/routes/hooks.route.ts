@@ -13,6 +13,7 @@ import {
 import { NotebookCompileError } from "../core/notebook-compiler.js";
 import { ContractError } from "../core/notebook-contract.js";
 import { secretsService } from "../services/secrets.service.js";
+import { notebookAccessService } from "../services/notebook-access.service.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 
 /** Long enough for a real API call, short enough that a caller is not left hanging. */
@@ -24,7 +25,12 @@ export async function isSecretAuthenticatedWebhook(slug: string, secretHeader?: 
   const trigger = await notebookTriggersService.findEnabledWebhook(slug);
   if (!trigger || !trigger.secret_key) return false;
 
-  const expected = await secretsService.getValueByKey(trigger.secret_key);
+  // The owner's: a webhook is guarded by a secret of the notebook it starts, and that
+  // notebook runs with its owner's.
+  const expected = await secretsService.getValueByKey(
+    await notebookAccessService.ownerOf(trigger.notebook_id),
+    trigger.secret_key
+  );
   // A missing secret is a misconfiguration, not a bad request — the webhook
   // can never succeed until it is fixed. The caller still gets the same 401
   // so nothing about the configuration leaks, but the operator gets told.

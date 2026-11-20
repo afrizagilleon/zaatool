@@ -445,6 +445,13 @@ export interface NotebookPage {
   layout: NotebookLayoutItem[];
   /** Buttons beside Run. Empty is the normal case. */
   actions: NotebookPageAction[];
+  /**
+   * Whether the person asking also works on this notebook — owns it or was invited to edit
+   * it. A page is used by many people and edited by few, and what only the few can do (share
+   * a link, open the editor) is not offered to the rest. Absent from an engine that predates
+   * it, and from a shared link, where nobody is signed in; read as "do not hide anything".
+   */
+  canEdit?: boolean;
 }
 
 /**
@@ -494,4 +501,25 @@ export interface NotebookSummary {
   /** Distinct kinds of enabled trigger — how this notebook gets started. */
   trigger_kinds: NotebookTriggerKind[];
   tags: string[];
+}
+
+/** A person, as the access settings name them. */
+export interface AccessUser {
+  id: string;
+  username: string;
+}
+
+/**
+ * Who a notebook is shared with, as its owner sees it.
+ *
+ * `editors` may open, change, deploy and run the notebook. `appVisibility` says who may use
+ * the deployed page: `all` is every account, `selected` is `appUsers` plus the owner and the
+ * editors. Someone who only uses the page never receives the source and only sees the runs
+ * they started.
+ */
+export interface NotebookAccessSettings {
+  owner: AccessUser | null;
+  editors: AccessUser[];
+  appVisibility: "all" | "selected";
+  appUsers: AccessUser[];
 }

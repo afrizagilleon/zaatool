@@ -16,9 +16,9 @@ import WebSocket from "ws";
 import { RunEventHub } from "../src/server/run-event-hub.js";
 import { WebSocketManager } from "../src/server/websocket-manager.js";
 import { notifyCatalogChanged } from "../src/core/catalog-events.js";
-import { authService } from "../src/services/auth.service.js";
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
+import { authService } from "../src/services/auth.service.js";
 import type { RunEvent } from "@zaa-tool/shared";
 
 let passed = 0;
@@ -36,7 +36,29 @@ async function check(name: string, run: () => Promise<void>): Promise<void> {
   }
 }
 
+/**
+ * Since FX-17 a socket only hears about runs and notebooks its account could see over REST,
+ * so the account has to exist and the runs and notebooks it is told about have to be real
+ * rows: `nb1` and `nb9` belong to it, and `r1`..`r8` are runs of `nb1` that nobody
+ * started, which is the team's to read.
+ */
 await initDb();
+await pool.query("DELETE FROM notebook_runs WHERE id ~ '^r[0-9]$'");
+await pool.query("DELETE FROM notebooks WHERE id IN ('nb1', 'nb9')");
+await pool.query("DELETE FROM users WHERE username = 'zz-watch'");
+const watcherAccount = await authService.createUser("zz-watch", "zz-watch-password-long", "creator");
+for (const id of ["nb1", "nb9"]) {
+  await pool.query(
+    "INSERT INTO notebooks (id, name, runtime, document, owner_id) VALUES ($1, $2, 'node', '{}', $3)",
+    [id, `zz-watch-${id}`, watcherAccount.id]
+  );
+}
+for (let n = 1; n <= 8; n += 1) {
+  await pool.query(
+    "INSERT INTO notebook_runs (id, notebook_id, status, trigger_source) VALUES ($1, 'nb1', 'running', 'cron')",
+    [`r${n}`]
+  );
+}
 
 const server = http.createServer();
 const hub = new RunEventHub();
@@ -46,14 +68,9 @@ await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 // and a socket mounted there was answered with `index.html`.
 const url = `ws://127.0.0.1:${(server.address() as AddressInfo).port}/ws`;
 
-/**
- * A real session: an account that exists, signed in the way a sign-in signs one. The
- * socket now asks the database whether the account is still there and still switched on,
- * so a token for an invented user no longer passes.
- */
-await pool.query("DELETE FROM users WHERE username = 'zz-watch'");
-await authService.createUser("zz-watch", "zz-watch-password-1", "creator");
-const session = (await authService.login("zz-watch", "zz-watch-password-1")).token;
+/** A real session: the account signs in the way a person does, so its token carries the
+ * session version the socket now checks against the database. */
+const session = (await authService.login("zz-watch", "zz-watch-password-long")).token;
 
 /** Opens a socket and identifies it, which every client must now do before asking. */
 async function open(): Promise<{ socket: WebSocket; messages: Record<string, unknown>[] }> {
@@ -247,6 +264,8 @@ await check("a token that is nobody's closes the socket", async () => {
 
 manager.close();
 server.close();
+await pool.query("DELETE FROM notebook_runs WHERE id ~ '^r[0-9]$'");
+await pool.query("DELETE FROM notebooks WHERE id IN ('nb1', 'nb9')");
 await pool.query("DELETE FROM users WHERE username = 'zz-watch'");
 await pool.end();
 
