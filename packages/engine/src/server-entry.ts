@@ -8,6 +8,7 @@ import { schedulerService } from "./services/scheduler.service.js";
 import { notebookTriggersService } from "./services/notebook-triggers.service.js";
 import { configProblems, isProduction, registrationOpen, secretsKey, usingDevSecret } from "./config.js";
 import { secretsService, SecretsKeyMismatchError } from "./services/secrets.service.js";
+import { authService } from "./services/auth.service.js";
 import { sandboxWarnings } from "./core/sandbox-identity.js";
 
 /**
@@ -109,6 +110,13 @@ export async function startServer(port = 4000) {
       console.log(`   also on http://${address}:${port}`);
     }
   });
+
+  // After the tables exist, so the question "are there any accounts" has an answer.
+  try {
+    await authService.announceSetupCode();
+  } catch (err: unknown) {
+    console.error("❌ Could not work out whether a setup code is needed:", (err as Error).message);
+  }
 
   server.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE") {

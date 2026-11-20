@@ -12,6 +12,12 @@ import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
 const PREFIX = "enc:v1:";
 const IV_BYTES = 12;
+/**
+ * The full 16-byte GCM tag, required on the way in. Node accepts a shorter tag unless told
+ * otherwise, and every byte dropped from the tag halves and halves again the work of forging a
+ * ciphertext that decrypts.
+ */
+const TAG_BYTES = 16;
 
 /** 32 bytes written as 64 hex characters. */
 export function parseSecretsKey(raw: string | undefined): Buffer | null {
@@ -42,8 +48,12 @@ export function decryptValue(secretsKey: Buffer, ownerId: string, key: string, s
   if (iv === undefined || tag === undefined || body === undefined) {
     throw new Error("Malformed encrypted secret.");
   }
-  const decipher = createDecipheriv("aes-256-gcm", secretsKey, Buffer.from(iv, "base64"));
+  const tagBytes = Buffer.from(tag, "base64");
+  if (tagBytes.length !== TAG_BYTES) throw new Error("Malformed encrypted secret.");
+  const decipher = createDecipheriv("aes-256-gcm", secretsKey, Buffer.from(iv, "base64"), {
+    authTagLength: TAG_BYTES,
+  });
   decipher.setAAD(aad(ownerId, key));
-  decipher.setAuthTag(Buffer.from(tag, "base64"));
+  decipher.setAuthTag(tagBytes);
   return Buffer.concat([decipher.update(Buffer.from(body, "base64")), decipher.final()]).toString("utf8");
 }

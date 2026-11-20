@@ -1,9 +1,10 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
+import { createHash, randomInt, timingSafeEqual } from "node:crypto";
 import { ROLES, type Role } from "@zaa-tool/shared";
 import { pool } from "../db/connection.js";
-import { jwtSecret, registrationOpen } from "../config.js";
+import { jwtSecret, registrationOpen, setupCodeOverride } from "../config.js";
 
 const SALT_ROUNDS = 10;
 export const MIN_PASSWORD_LENGTH = 12;
@@ -51,6 +52,76 @@ export class RegistrationClosedError extends Error {
 }
 
 /**
+ * The first account was asked for without the setup code, or with the wrong one.
+ *
+ * The message names where the code is, because the person reading it is the owner of a
+ * server they have just deployed and the log is the one place only they can look.
+ */
+export class SetupCodeError extends Error {
+  constructor() {
+    super(
+      "A setup code is required to create the first account. The server printed one to its " +
+        "log when it started: run `docker compose logs engine | grep -i setup` on the server " +
+        "and enter that code."
+    );
+    this.name = "SetupCodeError";
+  }
+}
+
+/** Letters and digits with nothing that reads as another (no 0/O, 1/I). 32 symbols, 5 bits each. */
+const SETUP_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const SETUP_CODE_GROUPS = 6;
+const SETUP_CODE_GROUP_LENGTH = 5;
+
+/** Six groups of five: 30 symbols, 150 bits. Drawn with `randomInt`, which is uniform. */
+function makeSetupCode(): string {
+  const groups: string[] = [];
+  for (let g = 0; g < SETUP_CODE_GROUPS; g++) {
+    let group = "";
+    for (let i = 0; i < SETUP_CODE_GROUP_LENGTH; i++) {
+      group += SETUP_CODE_ALPHABET[randomInt(SETUP_CODE_ALPHABET.length)];
+    }
+    groups.push(group);
+  }
+  return groups.join("-");
+}
+
+/** Held in memory only: a restart makes a new one, and nothing on disk ever contains it. */
+let generatedSetupCode: string | null = null;
+
+/**
+ * What a first registration has to present, while there are no accounts.
+ *
+ * The operator's `SETUP_CODE` wins; otherwise a random code made on first use. It is the
+ * proof that whoever is registering can read this server's log — and so is its owner —
+ * rather than whoever happened to open the URL first.
+ */
+export function currentSetupCode(): { code: string; chosen: boolean } {
+  const chosen = setupCodeOverride();
+  if (chosen) return { code: chosen, chosen: true };
+  if (!generatedSetupCode) generatedSetupCode = makeSetupCode();
+  return { code: generatedSetupCode, chosen: false };
+}
+
+/** Compared as digests, so the lengths match and the comparison takes the same time either way. */
+function sameCode(given: string, expected: string): boolean {
+  const a = createHash("sha256").update(given).digest();
+  const b = createHash("sha256").update(expected).digest();
+  return timingSafeEqual(a, b);
+}
+
+/**
+ * Whether `given` is the code. A generated code is read without regard to case (people
+ * retype it); one the operator chose is compared exactly.
+ */
+export function setupCodeMatches(given: unknown): boolean {
+  if (typeof given !== "string") return false;
+  const { code, chosen } = currentSetupCode();
+  const trimmed = given.trim();
+  return sameCode(chosen ? trimmed : trimmed.toUpperCase(), code);
+}
+
+/**
  * What a session token amounts to once it has been checked against the account behind it.
  *
  * `inactive` is kept apart from `revoked` because the two are told to the caller
@@ -72,19 +143,48 @@ export class AuthService {
   }
 
   /**
+   * Prints the setup code if the installation has no accounts, once, at startup.
+   * Returns whether it did. A code the operator chose is announced but never printed.
+   */
+  async announceSetupCode(log: (line: string) => void = console.log): Promise<boolean> {
+    if ((await this.userCount()) > 0) return false;
+    const { code, chosen } = currentSetupCode();
+    log("");
+    log("🔑 Setup code: there are no accounts yet, so the first one needs a code.");
+    if (chosen) {
+      log("   The code is the value of SETUP_CODE in this server's environment.");
+    } else {
+      log(`   Setup code: ${code}`);
+      log("   It lives in memory only and changes on every restart.");
+    }
+    log("   Open the app, choose Register and enter it. (`pnpm create-user` needs no code.)");
+    log("");
+    return true;
+  }
+
+  /**
    * Sign-up from the login screen.
    *
    * Open in exactly one case that cannot be configured away: an installation with no
    * users at all. Somebody has to be able to get in the first time, and that person is
    * the creator. After that the door is shut unless it was deliberately propped open.
    */
-  async register(username: string, passwordPlain: string, email?: string) {
+  async register(username: string, passwordPlain: string, email?: string, setupCode?: unknown) {
     const existingUsers = await this.userCount();
     if (existingUsers > 0 && !registrationOpen()) {
       throw new RegistrationClosedError();
     }
+    // The first account is the creator, so it is not handed to whoever arrives first: it
+    // needs the code the server printed. Checked before the username and password, so a
+    // wrong code learns nothing about them. Once an account exists the code means nothing.
+    if (existingUsers === 0 && !setupCodeMatches(setupCode)) {
+      throw new SetupCodeError();
+    }
 
-    return this.createUser(username, passwordPlain, existingUsers === 0 ? "creator" : "viewer", email);
+    const user = await this.createUser(username, passwordPlain, existingUsers === 0 ? "creator" : "viewer", email);
+    // The code did its one job. If every account were ever deleted a new one is made.
+    if (existingUsers === 0) generatedSetupCode = null;
+    return user;
   }
 
   /**

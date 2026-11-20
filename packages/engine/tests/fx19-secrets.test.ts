@@ -81,6 +81,13 @@ await check("the IV is fresh per write: the same value encrypts differently twic
   assert.notEqual(encryptValue(keyA, "o", "K", "same"), encryptValue(keyA, "o", "K", "same"));
 });
 
+await check("a ciphertext with a shortened tag is refused, not checked against fewer bytes", () => {
+  const stored = encryptValue(keyA, "owner-1", "API", "hunter2");
+  const [iv, tag, body] = stored.slice("enc:v1:".length).split(":");
+  const shortTag = Buffer.from(tag, "base64").subarray(0, 4).toString("base64");
+  assert.throws(() => decryptValue(keyA, "owner-1", "API", `enc:v1:${iv}:${shortTag}:${body}`));
+});
+
 await check("another owner, another name, another key or a flipped byte all fail to decrypt", () => {
   const stored = encryptValue(keyA, "owner-1", "API", "hunter2");
   assert.throws(() => decryptValue(keyA, "owner-2", "API", stored));

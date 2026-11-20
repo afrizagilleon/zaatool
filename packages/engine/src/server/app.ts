@@ -7,7 +7,8 @@ import { storageRouter } from "../routes/storage.route.js";
 import { STORAGE_DIR } from "../services/storage.service.js";
 import { createNotebooksRouter } from "../routes/notebooks.route.js";
 import { createHooksRouter } from "../routes/hooks.route.js";
-import { createMcpRouter } from "../routes/mcp.route.js";
+import { createMcpRouter, agentTokenOf } from "../routes/mcp.route.js";
+import { agentTokensService } from "../services/agent-tokens.service.js";
 import { createShareRouter } from "../routes/share.route.js";
 import { authRouter } from "../routes/auth.route.js";
 import { agentTokensRouter } from "../routes/agent-tokens.route.js";
@@ -66,7 +67,21 @@ export function createApp(publishRunEvent: RunEventSink) {
 
   // Agents authenticate with their own revocable token rather than a browser session,
   // so this sits outside /api and guards itself.
-  app.use("/mcp", smallJson, createMcpRouter(publishRunEvent));
+  //
+  // An agent writing a whole notebook sends as much as the editor does, so a request that
+  // carries a live agent token is parsed with the notebook limit (K-27). Everyone else gets
+  // the small one: the token is checked before the body is read, so the larger allowance
+  // costs a stranger nothing. The router still authenticates every request on its own.
+  const mcpJson: express.RequestHandler = async (req, res, next) => {
+    try {
+      const token = agentTokenOf(req);
+      const live = token ? await agentTokensService.verify(token) : null;
+      return (live ? notebookJson : smallJson)(req, res, next);
+    } catch (err) {
+      next(err);
+    }
+  };
+  app.use("/mcp", mcpJson, createMcpRouter(publishRunEvent));
 
   // A shared page's token is its credential, the same bargain as a webhook slug, so
   // these are reachable without a session and guard themselves.

@@ -1,0 +1,11 @@
+# Development only: lets `pnpm dev` on this machine reach the compose Postgres.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
+#
+# docker-compose.yml publishes no database port, so a server does not have one by accident.
+# This adds the one a laptop needs, on the loopback address only.
+
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"

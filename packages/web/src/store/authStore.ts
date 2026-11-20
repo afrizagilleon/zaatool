@@ -18,7 +18,8 @@ interface AuthState {
   checked: boolean;
 
   login: (username: string, passwordPlain: string) => Promise<boolean>;
-  registerUser: (username: string, passwordPlain: string, email?: string) => Promise<boolean>;
+  /** `setupCode` is the one-time code the server prints to its log; only the first account needs it. */
+  registerUser: (username: string, passwordPlain: string, email?: string, setupCode?: string) => Promise<boolean>;
   changePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
   sessionExpired: () => void;
   /** Signs this browser out. Sessions on other devices stay. */
@@ -106,13 +107,13 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      registerUser: async (username, passwordPlain, email) => {
+      registerUser: async (username, passwordPlain, email, setupCode) => {
         set({ isLoading: true, error: null });
         try {
           const res = await fetch(`${API_BASE_URL}/api/auth/register`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', [REQUEST_HEADER]: '1' },
-            body: JSON.stringify({ username, password: passwordPlain, email }),
+            body: JSON.stringify({ username, password: passwordPlain, email, setupCode }),
           });
 
           const data = await res.json().catch(() => null);

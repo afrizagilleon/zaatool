@@ -21,11 +21,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-zaa_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-zaa_tool}
-    ports:
-      # Bound to the loopback address rather than to every interface. It stays reachable
-      # for `pnpm dev` on this machine and is not reachable from the network, which is the
-      # difference between a convenience and a database on the internet.
-      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    # No `ports:` on purpose. Only the engine talks to this database, over the compose
+    # network, and a database port on the host is a port to firewall and a password to guard
+    # on a machine that runs other things. For `pnpm dev` against this Postgres, add
+    # docker-compose.dev.yml (it publishes 127.0.0.1:5432 and nothing else).
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -70,6 +69,13 @@ services:
       # The engine publishes no port, so nothing reaches it except through nginx. If another
       # proxy sits in front of nginx, count it: 2.
       TRUST_PROXY: ${TRUST_PROXY:-1}
+      # Replaces the random setup code printed to the log while no account exists. Leave it
+      # unset unless a script has to create the first account without reading the log.
+      SETUP_CODE: ${SETUP_CODE:-}
+    # A runaway cell or a pile of nested runs should slow zaatool down, not the other
+    # services on this machine. Change them in .env.
+    mem_limit: ${ENGINE_MEMORY_LIMIT:-2g}
+    cpus: ${ENGINE_CPU_LIMIT:-2}
     volumes:
       # Everything notebooks write, and everything sent to them. Without this, every file
       # produced since the last deploy disappears on the next one.
@@ -88,9 +94,11 @@ services:
         BUILD_COMMIT: ${BUILD_COMMIT:-unknown}
     # The only published port. It serves the app and proxies everything the engine owns,
     # so there is one origin, one certificate to buy, and a share link that is a URL on
-    # your own domain.
+    # your own domain. Bound to this machine only: a reverse proxy on the same host (Caddy)
+    # reaches it, nothing else does. WEB_BIND=0.0.0.0 is for trying the stack directly,
+    # without a proxy, and goes with COOKIE_SECURE=false over plain HTTP.
     ports:
-      - "${WEB_PORT:-8080}:80"
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8080}:80"
     depends_on:
       - engine
     restart: unless-stopped

@@ -96,6 +96,15 @@ export function registrationOpen(): boolean {
   return (process.env.ALLOW_REGISTRATION ?? "").trim().toLowerCase() === "true";
 }
 
+/**
+ * The setup code the operator chose with `SETUP_CODE`, or null. Without one the engine makes
+ * a random code of its own while there are no accounts; see `auth.service.ts`.
+ */
+export function setupCodeOverride(): string | null {
+  const raw = process.env.SETUP_CODE?.trim();
+  return raw ? raw : null;
+}
+
 /** Bytes. A limit that exists is the point; the number is a preference. */
 export function maxUploadBytes(): number {
   const raw = Number(process.env.MAX_UPLOAD_MB);
