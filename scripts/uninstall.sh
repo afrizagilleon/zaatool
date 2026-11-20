@@ -21,7 +21,7 @@ cd "$(dirname "$0")/.."
 PURGE="no"
 YES="no"
 BACKUP="ask"
-while [ "$#" -gt 0 ]; do
+while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --purge) PURGE="yes"; shift ;;
     --yes) YES="yes"; shift ;;
@@ -47,22 +47,22 @@ echo "Containers and volumes of this project:"
 docker volume ls --filter "label=com.docker.compose.project=$PROJECT" --format '  volume {{.Name}}' 2>/dev/null || true
 echo
 
-if [ "$PURGE" = "yes" ]; then
-  if [ "$YES" != "yes" ]; then
+if [[ "$PURGE" = "yes" ]]; then
+  if [[ "$YES" != "yes" ]]; then
     echo "--purge DELETES the database and every stored file of '$PROJECT'. This cannot be undone."
-    if [ ! -t 0 ]; then
+    if [[ ! -t 0 ]]; then
       echo "uninstall.sh: no terminal to ask on; add --yes if you are sure." >&2
       exit 1
     fi
     read -r -p "Type the project name ($PROJECT) to go on: " typed
-    if [ "$typed" != "$PROJECT" ]; then
+    if [[ "$typed" != "$PROJECT" ]]; then
       echo "Not the name; nothing was changed."
       exit 1
     fi
   fi
 
-  if [ "$BACKUP" = "ask" ]; then
-    if [ "$YES" = "yes" ]; then
+  if [[ "$BACKUP" = "ask" ]]; then
+    if [[ "$YES" = "yes" ]]; then
       BACKUP="yes"
     else
       read -r -p "Take a last backup into ./backups first? [Y/n] " answer
@@ -70,10 +70,10 @@ if [ "$PURGE" = "yes" ]; then
     fi
   fi
 
-  if [ "$BACKUP" = "yes" ]; then
+  if [[ "$BACKUP" = "yes" ]]; then
     STAMP="$(date +%Y%m%d-%H%M%S)"
     mkdir -p backups
-    if [ -f .env ]; then
+    if [[ -f .env ]]; then
       set -a
       # shellcheck disable=SC1091
       source .env
@@ -82,14 +82,14 @@ if [ "$PURGE" = "yes" ]; then
     if "${COMPOSE[@]}" exec -T postgres true >/dev/null 2>&1; then
       echo "==> backups/zaatool-final-$STAMP.sql"
       "${COMPOSE[@]}" exec -T postgres pg_dump -U "${POSTGRES_USER:-zaa_user}" -d "${POSTGRES_DB:-zaa_tool}" > "backups/zaatool-final-$STAMP.sql"
-      if [ ! -s "backups/zaatool-final-$STAMP.sql" ]; then
+      if [[ ! -s "backups/zaatool-final-$STAMP.sql" ]]; then
         rm -f "backups/zaatool-final-$STAMP.sql"
         echo "uninstall.sh: the database dump is empty; nothing was changed." >&2
         exit 1
       fi
       echo "==> backups/storage-final-$STAMP.tar"
       "${COMPOSE[@]}" exec -T engine tar -cf - -C /app/packages storage > "backups/storage-final-$STAMP.tar"
-      if [ ! -s "backups/storage-final-$STAMP.tar" ]; then
+      if [[ ! -s "backups/storage-final-$STAMP.tar" ]]; then
         rm -f "backups/storage-final-$STAMP.tar"
         echo "uninstall.sh: the storage archive is empty; nothing was changed." >&2
         exit 1
@@ -99,7 +99,7 @@ if [ "$PURGE" = "yes" ]; then
       echo "and run this again, or use --no-backup if you really want no copy." >&2
       exit 1
     fi
-    if [ -f .env ]; then
+    if [[ -f .env ]]; then
       echo "==> backups/env-final-$STAMP  (the SECRETS_KEY in it is what opens the stored secrets)"
       ( umask 077; cp .env "backups/env-final-$STAMP" )
     fi
@@ -114,7 +114,7 @@ fi
 
 echo
 echo "Done."
-if [ "$PURGE" != "yes" ]; then
+if [[ "$PURGE" != "yes" ]]; then
   echo "The data volumes are still here; running the installer again brings the same data back."
   echo "To delete them too: ./scripts/uninstall.sh --purge"
 fi

@@ -20,21 +20,21 @@ cd "$(dirname "$0")/.."
 
 MODE="pull"
 NEW_VERSION=""
-while [ "$#" -gt 0 ]; do
+while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --build) MODE="build"; shift ;;
-    --version) [ "$#" -ge 2 ] || { echo "--version needs a tag"; exit 1; }; NEW_VERSION="$2"; shift 2 ;;
+    --version) [[ "$#" -ge 2 ]] || { echo "--version needs a tag"; exit 1; }; NEW_VERSION="$2"; shift 2 ;;
     -h|--help) sed -n '2,/^set -euo/p' "$0" | sed '$d' | sed 's/^# {0,1}//'; exit 0 ;;
     *) echo "unknown option: $1 (see --help)"; exit 1 ;;
   esac
 done
 
 COMPOSE=(docker compose)
-if [ "$MODE" = "build" ]; then
+if [[ "$MODE" = "build" ]]; then
   COMPOSE=(docker compose -f docker-compose.yml -f docker-compose.build.yml)
 fi
 
-if [ ! -f .env ]; then
+if [[ ! -f .env ]]; then
   echo "No .env here. Copy .env.example to .env and fill it in first."
   exit 1
 fi
@@ -57,7 +57,7 @@ echo "==> Backing up the database to ${BACKUP_FILE}"
 
 # A pg_dump that failed still leaves a file, and an empty file looks like a backup right
 # up until the moment you need it.
-if [ ! -s "$BACKUP_FILE" ]; then
+if [[ ! -s "$BACKUP_FILE" ]]; then
   echo "The backup is empty. Stopping — nothing has been changed."
   rm -f "$BACKUP_FILE"
   exit 1
@@ -69,7 +69,7 @@ echo "==> Backing up storage to ${BACKUP_DIR}/storage-${STAMP}.tar"
 "${COMPOSE[@]}" exec -T engine tar -cf - -C /app/packages storage \
   > "${BACKUP_DIR}/storage-${STAMP}.tar"
 
-if [ "$MODE" = "build" ]; then
+if [[ "$MODE" = "build" ]]; then
   echo "==> Pulling the source"
   git pull --ff-only
 
@@ -82,7 +82,7 @@ if [ "$MODE" = "build" ]; then
   echo "==> Building and restarting"
   "${COMPOSE[@]}" up -d --build
 else
-  if [ -n "$NEW_VERSION" ]; then
+  if [[ -n "$NEW_VERSION" ]]; then
     echo "==> Moving to $NEW_VERSION (ZAATOOL_VERSION in .env)"
     if grep -q '^ZAATOOL_VERSION=' .env; then
       sed -i.bak "s|^ZAATOOL_VERSION=.*|ZAATOOL_VERSION=$NEW_VERSION|" .env && rm -f .env.bak
@@ -110,7 +110,7 @@ for attempt in $(seq 1 30); do
     echo "  docker compose exec -T postgres dropdb   -U ${POSTGRES_USER:-zaa_user} ${POSTGRES_DB:-zaa_tool}"
     echo "  docker compose exec -T postgres createdb -U ${POSTGRES_USER:-zaa_user} ${POSTGRES_DB:-zaa_tool}"
     echo "  docker compose exec -T postgres psql -U ${POSTGRES_USER:-zaa_user} -d ${POSTGRES_DB:-zaa_tool} < ${BACKUP_FILE}"
-    if [ "$MODE" = "build" ]; then
+    if [[ "$MODE" = "build" ]]; then
       echo "  git checkout <the previous commit>"
       echo "  docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build"
     else

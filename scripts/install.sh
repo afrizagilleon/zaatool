@@ -73,7 +73,7 @@ WITH_CADDY="no"
 
 usage() {
   # Piped from curl there is no file to read the help from.
-  if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
+  if [[ -n "${BASH_SOURCE[0]:-}" ]] && [[ -f "${BASH_SOURCE[0]}" ]]; then
     sed -n '2,/^set -euo/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//'
   else
     echo "Usage: install.sh [--dir DIR] [--version TAG] [--start] [--with-caddy] [--domain NAME]"
@@ -86,16 +86,16 @@ die() {
   exit 1
 }
 
-while [ "$#" -gt 0 ]; do
+while [[ "$#" -gt 0 ]]; do
   case "$1" in
-    --domain) [ "$#" -ge 2 ] || die "--domain needs a value"; DOMAIN="$2"; shift 2 ;;
-    --behind-proxy) [ "$#" -ge 2 ] || die "--behind-proxy needs yes or no"; BEHIND_PROXY="$2"; shift 2 ;;
-    --web-port) [ "$#" -ge 2 ] || die "--web-port needs a number"; WEB_PORT="$2"; shift 2 ;;
-    --tz) [ "$#" -ge 2 ] || die "--tz needs a time zone name"; TZ_NAME="$2"; shift 2 ;;
-    --output) [ "$#" -ge 2 ] || die "--output needs a file name"; OUTPUT="$2"; shift 2 ;;
+    --domain) [[ "$#" -ge 2 ]] || die "--domain needs a value"; DOMAIN="$2"; shift 2 ;;
+    --behind-proxy) [[ "$#" -ge 2 ]] || die "--behind-proxy needs yes or no"; BEHIND_PROXY="$2"; shift 2 ;;
+    --web-port) [[ "$#" -ge 2 ]] || die "--web-port needs a number"; WEB_PORT="$2"; shift 2 ;;
+    --tz) [[ "$#" -ge 2 ]] || die "--tz needs a time zone name"; TZ_NAME="$2"; shift 2 ;;
+    --output) [[ "$#" -ge 2 ]] || die "--output needs a file name"; OUTPUT="$2"; shift 2 ;;
     --force) FORCE="yes"; shift ;;
-    --dir) [ "$#" -ge 2 ] || die "--dir needs a folder"; DIR="$2"; shift 2 ;;
-    --version) [ "$#" -ge 2 ] || die "--version needs a tag"; VERSION="$2"; shift 2 ;;
+    --dir) [[ "$#" -ge 2 ]] || die "--dir needs a folder"; DIR="$2"; shift 2 ;;
+    --version) [[ "$#" -ge 2 ]] || die "--version needs a tag"; VERSION="$2"; shift 2 ;;
     --start) START="yes"; shift ;;
     --build) BUILD="yes"; shift ;;
     --with-caddy) WITH_CADDY="yes"; shift ;;
@@ -109,23 +109,23 @@ command -v openssl >/dev/null 2>&1 || die "openssl is required to make the secre
 # Where are we? Piped from curl there is no script file, and BASH_SOURCE is empty.
 REPO_MODE="no"
 SRC="${BASH_SOURCE[0]:-}"
-if [ -n "$SRC" ] && [ -f "$SRC" ]; then
+if [[ -n "$SRC" ]] && [[ -f "$SRC" ]]; then
   CHECKOUT="$(cd "$(dirname "$SRC")/.." && pwd)"
-  if [ -f "$CHECKOUT/.env.example" ] && [ -f "$CHECKOUT/docker-compose.yml" ]; then
+  if [[ -f "$CHECKOUT/.env.example" ]] && [[ -f "$CHECKOUT/docker-compose.yml" ]]; then
     REPO_MODE="yes"
   fi
 fi
 
-if [ -z "$VERSION" ]; then
+if [[ -z "$VERSION" ]]; then
   VERSION="$EMBEDDED_VERSION"
 fi
-if [ -z "$VERSION" ]; then
+if [[ -z "$VERSION" ]]; then
   VERSION="latest"
 fi
 case "$VERSION" in
   *[!A-Za-z0-9._-]*) die "the version should be a tag like v1.0.0, not '$VERSION'" ;;
 esac
-if [ "$BUILD" = "yes" ] && [ "$START" != "yes" ]; then
+if [[ "$BUILD" = "yes" ]] && [[ "$START" != "yes" ]]; then
   die "--build goes with --start"
 fi
 
@@ -144,7 +144,7 @@ download() {
   # download PATH [optional]: <base>/<ref>/PATH into ./PATH, never over an existing file
   # without --force. The optional ones only warn.
   local path="$1" optional="${2:-}" url="$BASE/$REF/$1"
-  if [ -e "$path" ] && [ "$FORCE" != "yes" ]; then
+  if [[ -e "$path" ]] && [[ "$FORCE" != "yes" ]]; then
     echo "==> Keeping the $path already in $(pwd) (--force downloads it again)"
     return 0
   fi
@@ -154,7 +154,7 @@ download() {
     mv "$path.part" "$path"
   else
     rm -f "$path.part"
-    if [ -n "$optional" ]; then
+    if [[ -n "$optional" ]]; then
       echo "    (could not download $url; skipped)" >&2
     else
       die "could not download $url"
@@ -162,17 +162,17 @@ download() {
   fi
 }
 
-if [ "$REPO_MODE" = "yes" ]; then
-  [ -z "$DIR" ] || die "--dir is for installing without a checkout; this installs in $CHECKOUT"
+if [[ "$REPO_MODE" = "yes" ]]; then
+  [[ -z "$DIR" ]] || die "--dir is for installing without a checkout; this installs in $CHECKOUT"
   cd "$CHECKOUT"
 else
-  [ "$BUILD" != "yes" ] || die "--build needs a checkout of the source (run ./scripts/install.sh from it)"
+  [[ "$BUILD" != "yes" ]] || die "--build needs a checkout of the source (run ./scripts/install.sh from it)"
   DIR="${DIR:-zaatool}"
   mkdir -p "$DIR"
   cd "$DIR"
   # A tag is also the git ref the files are published under; "latest" follows main.
   REF="$VERSION"
-  if [ "$VERSION" = "latest" ]; then
+  if [[ "$VERSION" = "latest" ]]; then
     REF="main"
   fi
   BASE="${ZAATOOL_RAW_BASE:-https://raw.githubusercontent.com/afrizagilleon/zaatool}"
@@ -184,7 +184,7 @@ else
   done
 fi
 
-if [ -e "$OUTPUT" ] && [ "$FORCE" != "yes" ]; then
+if [[ -e "$OUTPUT" ]] && [[ "$FORCE" != "yes" ]]; then
   echo "$OUTPUT already exists, so nothing was changed." >&2
   echo "Edit it by hand, or run again with --force to replace it (a copy is kept)." >&2
   exit 1
@@ -195,8 +195,8 @@ fi
 ask() {
   # ask VARNAME "question" "default"
   local name="$1" question="$2" default="$3" reply=""
-  if [ -t 0 ]; then
-    if [ -n "$default" ]; then
+  if [[ -t 0 ]]; then
+    if [[ -n "$default" ]]; then
       read -r -p "$question [$default]: " reply || true
     else
       read -r -p "$question: " reply || true
@@ -205,11 +205,11 @@ ask() {
   printf -v "$name" '%s' "${reply:-$default}"
 }
 
-if [ "$WITH_CADDY" = "yes" ]; then
+if [[ "$WITH_CADDY" = "yes" ]]; then
   # Caddy is the proxy, and it is on this host.
   BEHIND_PROXY="yes"
 fi
-if [ -z "$BEHIND_PROXY" ]; then
+if [[ -z "$BEHIND_PROXY" ]]; then
   ask BEHIND_PROXY "Is a reverse proxy (Caddy, nginx) already running on this host? yes/no" "yes"
 fi
 case "$BEHIND_PROXY" in
@@ -218,25 +218,25 @@ case "$BEHIND_PROXY" in
   *) die "--behind-proxy must be yes or no, not '$BEHIND_PROXY'" ;;
 esac
 
-if [ -z "$DOMAIN" ]; then
+if [[ -z "$DOMAIN" ]]; then
   ask DOMAIN "Public domain name for zaatool (empty if there is none yet)" ""
 fi
-if [ -z "$WEB_PORT" ]; then
+if [[ -z "$WEB_PORT" ]]; then
   ask WEB_PORT "Host port for the web container" "8080"
 fi
 case "$WEB_PORT" in
   ''|*[!0-9]*) die "--web-port must be a number, not '$WEB_PORT'" ;;
 esac
-if [ "$WEB_PORT" -lt 1 ] || [ "$WEB_PORT" -gt 65535 ]; then
+if [[ 10#$WEB_PORT -lt 1 ]] || [[ 10#$WEB_PORT -gt 65535 ]]; then
   die "--web-port must be between 1 and 65535"
 fi
-if [ -z "$TZ_NAME" ]; then
+if [[ -z "$TZ_NAME" ]]; then
   ask TZ_NAME "Time zone cron triggers are read in (IANA name)" "UTC"
 fi
 case "$DOMAIN" in
   *[[:space:]/]*) die "the domain should be a bare name like zaa.example.com" ;;
 esac
-if [ "$WITH_CADDY" = "yes" ] && [ -z "$DOMAIN" ]; then
+if [[ "$WITH_CADDY" = "yes" ]] && [[ -z "$DOMAIN" ]]; then
   die "--with-caddy needs --domain: Caddy asks for a certificate for that name"
 fi
 
@@ -247,7 +247,7 @@ POSTGRES_PASSWORD="$(openssl rand -hex 24)"
 # separately from the database dumps (DEPLOY.md, "The secrets key").
 SECRETS_KEY="$(openssl rand -hex 32)"
 
-if [ "$BEHIND_PROXY" = "yes" ]; then
+if [[ "$BEHIND_PROXY" = "yes" ]]; then
   WEB_BIND="127.0.0.1"
   TRUST_PROXY="2"
 else
@@ -258,11 +258,11 @@ fi
 # With no domain there is no certificate, and a Secure cookie is never sent back over HTTP:
 # sign-in would seem to work and the next request would be signed out.
 COOKIE_SECURE=""
-if [ -z "$DOMAIN" ]; then
+if [[ -z "$DOMAIN" ]]; then
   COOKIE_SECURE="false"
 fi
 
-if [ -e "$OUTPUT" ]; then
+if [[ -e "$OUTPUT" ]]; then
   BACKUP="${OUTPUT}.bak-$(date +%Y%m%d-%H%M%S)"
   cp "$OUTPUT" "$BACKUP"
   echo "==> Kept a copy of the old file as $BACKUP"
@@ -297,13 +297,13 @@ set_var WEB_BIND "$WEB_BIND"
 set_var WEB_PORT "$WEB_PORT"
 set_var TRUST_PROXY "$TRUST_PROXY"
 set_var CRON_TZ "$TZ_NAME"
-if [ "$VERSION" != "latest" ]; then
+if [[ "$VERSION" != "latest" ]]; then
   set_var ZAATOOL_VERSION "$VERSION"
 fi
-if [ -n "$COOKIE_SECURE" ]; then
+if [[ -n "$COOKIE_SECURE" ]]; then
   set_var COOKIE_SECURE "$COOKIE_SECURE"
 fi
-if [ "$WITH_CADDY" = "yes" ]; then
+if [[ "$WITH_CADDY" = "yes" ]]; then
   set_var PUBLIC_DOMAIN "$DOMAIN"
   # Every later `docker compose` command in this folder then includes the caddy service.
   set_var COMPOSE_PROFILES "caddy"
@@ -312,7 +312,7 @@ fi
 ( umask 077; cp "$TMP" "$OUTPUT" )
 chmod 600 "$OUTPUT" 2>/dev/null || true
 
-if [ "$WITH_CADDY" = "yes" ]; then
+if [[ "$WITH_CADDY" = "yes" ]]; then
   printf '%s {\n    reverse_proxy web:80\n}\n' "$DOMAIN" > Caddyfile
   # Caddy reaches web over the compose network; the host needs no port for it.
   printf 'services:\n  web:\n    ports: !reset []\n' > docker-compose.override.yml
@@ -333,31 +333,31 @@ echo "      WEB_PORT          = $WEB_PORT"
 echo "      TRUST_PROXY       = $TRUST_PROXY"
 echo "      CRON_TZ           = $TZ_NAME"
 echo "      ZAATOOL_VERSION   = $VERSION"
-if [ -n "$COOKIE_SECURE" ]; then
+if [[ -n "$COOKIE_SECURE" ]]; then
   echo "      COOKIE_SECURE     = $COOKIE_SECURE"
 fi
-if [ "$WITH_CADDY" = "yes" ]; then
+if [[ "$WITH_CADDY" = "yes" ]]; then
   echo "      Caddy             = on, serving $DOMAIN (Caddyfile and docker-compose.override.yml written)"
 fi
 echo
 
-if [ "$BEHIND_PROXY" = "no" ]; then
+if [[ "$BEHIND_PROXY" = "no" ]]; then
   echo "WARNING: no reverse proxy means the web port is open on every interface of this"
   echo "machine, over plain HTTP unless you put TLS in front of it yourself. Anyone who can"
   echo "reach port $WEB_PORT can reach the login screen. If you do not terminate HTTPS, the"
   echo "session cookie must not be Secure: COOKIE_SECURE=false in $OUTPUT."
-  if [ -n "$DOMAIN" ] && [ -z "$COOKIE_SECURE" ]; then
+  if [[ -n "$DOMAIN" ]] && [[ -z "$COOKIE_SECURE" ]]; then
     echo "You gave a domain, so COOKIE_SECURE was left on. That is only right if HTTPS reaches"
     echo "this port through something you run; otherwise set COOKIE_SECURE=false."
   fi
   echo
 fi
 
-if [ "$WITH_CADDY" = "yes" ]; then
+if [[ "$WITH_CADDY" = "yes" ]]; then
   echo "Caddy will request a certificate for $DOMAIN: its DNS record must already point at this"
   echo "machine, and ports 80 and 443 must be free."
   echo
-elif [ -n "$DOMAIN" ]; then
+elif [[ -n "$DOMAIN" ]]; then
   echo "Add this to your Caddyfile, then reload Caddy yourself (this script does not touch it):"
   echo
   echo "$DOMAIN {"
@@ -373,7 +373,7 @@ else
   echo
 fi
 
-if [ "$START" != "yes" ]; then
+if [[ "$START" != "yes" ]]; then
   cat <<NEXT
 Next (in $(pwd)):
 
@@ -393,12 +393,12 @@ command -v docker >/dev/null 2>&1 || die "docker is not installed (or not on PAT
 docker compose version >/dev/null 2>&1 || die "the 'docker compose' v2 plugin is required"
 
 COMPOSE=(docker compose)
-if [ "$OUTPUT" != ".env" ]; then
+if [[ "$OUTPUT" != ".env" ]]; then
   COMPOSE+=(--env-file "$OUTPUT")
 fi
-if [ "$BUILD" = "yes" ]; then
+if [[ "$BUILD" = "yes" ]]; then
   COMPOSE+=(-f docker-compose.yml -f docker-compose.build.yml)
-  if [ -f docker-compose.override.yml ]; then
+  if [[ -f docker-compose.override.yml ]]; then
     COMPOSE+=(-f docker-compose.override.yml)
   fi
   echo "==> Building the images (this can take a while)"
@@ -416,14 +416,14 @@ healthy() {
   # healthy SERVICE: its container reports "healthy"
   local id
   id="$("${COMPOSE[@]}" ps -q "$1" 2>/dev/null | head -n 1)"
-  [ -n "$id" ] || return 1
-  [ "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$id" 2>/dev/null)" = "healthy" ]
+  [[ -n "$id" ]] || return 1
+  [[ "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$id" 2>/dev/null)" = "healthy" ]]
 }
 
 echo "==> Waiting for the stack to be healthy (up to 120 s)"
 WAITED=0
 until healthy postgres && healthy engine && healthy web; do
-  if [ "$WAITED" -ge 120 ]; then
+  if [[ "$WAITED" -ge 120 ]]; then
     echo >&2
     echo "Not healthy after 120 s. The engine's log:" >&2
     "${COMPOSE[@]}" logs --tail 40 engine >&2 || true
@@ -438,9 +438,9 @@ echo
 echo "Setup code (needed once, to create the first account):"
 "${COMPOSE[@]}" logs engine 2>/dev/null | grep -i "setup" | tail -n 3 || echo "  (none printed: an account may already exist)"
 echo
-if [ "$WITH_CADDY" = "yes" ]; then
+if [[ "$WITH_CADDY" = "yes" ]]; then
   echo "Open https://$DOMAIN once its certificate has been issued (a minute or so)."
-elif [ "$BEHIND_PROXY" = "yes" ]; then
+elif [[ "$BEHIND_PROXY" = "yes" ]]; then
   echo "zaatool answers on 127.0.0.1:$WEB_PORT of this machine; point your proxy at it (block above)."
 else
   echo "zaatool answers on port $WEB_PORT of this machine."

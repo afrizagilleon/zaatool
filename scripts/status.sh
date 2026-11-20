@@ -22,7 +22,7 @@ section() { printf '\n== %s\n' "$1"; }
 section "Project"
 echo "name:    $PROJECT"
 echo "folder:  $(pwd)"
-if [ -f .env ]; then
+if [[ -f .env ]]; then
   echo ".env:    $(pwd)/.env"
   ver="$(sed -n 's/^ZAATOOL_VERSION=//p' .env | tail -n 1)"
   echo "release: ${ver:-latest (ZAATOOL_VERSION not set)}"
@@ -39,7 +39,7 @@ fi
 
 section "Containers"
 ids="$("${COMPOSE[@]}" ps -a -q 2>/dev/null)"
-if [ -z "$ids" ]; then
+if [[ -z "$ids" ]]; then
   echo "none: zaatool is not installed here, or it was removed"
 else
   # shellcheck disable=SC2086
@@ -48,7 +48,7 @@ fi
 
 section "CPU and memory"
 running="$("${COMPOSE[@]}" ps -q 2>/dev/null)"
-if [ -n "$running" ]; then
+if [[ -n "$running" ]]; then
   # shellcheck disable=SC2086
   docker stats --no-stream --format 'table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}' $running
 else
@@ -57,7 +57,7 @@ fi
 
 section "Volumes"
 vols="$(docker volume ls -q --filter "label=com.docker.compose.project=$PROJECT" 2>/dev/null)"
-if [ -z "$vols" ]; then
+if [[ -z "$vols" ]]; then
   echo "none"
 else
   # `docker system df -v` is the one place Docker reports a volume's size; its volume rows
@@ -70,7 +70,7 @@ else
 fi
 
 section "Backups"
-if [ -d backups ]; then
+if [[ -d backups ]]; then
   echo "backups/: $(du -sh backups 2>/dev/null | cut -f1) in $(find backups -maxdepth 1 -type f | wc -l | tr -d ' ') files"
   # shellcheck disable=SC2012
   ls -1t backups 2>/dev/null | head -n 3 | sed 's/^/  newest: /'
@@ -79,7 +79,7 @@ else
 fi
 
 section "Ports published on this host"
-if [ -n "$ids" ]; then
+if [[ -n "$ids" ]]; then
   # shellcheck disable=SC2086
   docker inspect -f '{{.Name}}{{range $p, $b := .NetworkSettings.Ports}}{{if $b}}  {{$p}} -> {{range $b}}{{.HostIp}}:{{.HostPort}} {{end}}{{end}}{{end}}' $ids | sed 's#^/##'
 fi
