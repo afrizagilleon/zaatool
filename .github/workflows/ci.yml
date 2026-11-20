@@ -1,0 +1,67 @@
+# Does it build, and do the tests pass. Nothing is published from here; see release.yml.
+name: ci
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    branches: [dev, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      # The engine tests talk to a real Postgres.
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: zaa_user
+          POSTGRES_PASSWORD: zaa_password
+          POSTGRES_DB: zaa_tool
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U zaa_user -d zaa_tool"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: zaa_user
+      POSTGRES_PASSWORD: zaa_password
+      POSTGRES_DB: zaa_tool
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # Same install as the Dockerfiles: pnpm is installed, not activated through corepack.
+      - run: npm install --global --no-fund --no-audit pnpm@11.6.0
+      - uses: astral-sh/setup-uv@v5
+      - run: pnpm install --frozen-lockfile
+      - name: Build engine
+        run: pnpm --filter @zaa-tool/engine run build
+      - name: Build web
+        run: pnpm --filter @zaa-tool/web run build
+      - name: Test web
+        run: pnpm --filter @zaa-tool/web run test
+      - name: Test engine
+        run: pnpm --filter @zaa-tool/engine run test
+
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: bash -n
+        run: for f in scripts/*.sh; do bash -n "$f"; done
+      - name: shellcheck
+        run: shellcheck -S warning scripts/*.sh
