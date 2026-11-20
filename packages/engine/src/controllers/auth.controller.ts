@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { AuthInputError, authService, isRole, RegistrationClosedError } from "../services/auth.service.js";
-import { registrationOpen } from "../config.js";
+import { cronTimezone, registrationOpen } from "../config.js";
 import { pool } from "../db/connection.js";
 import { clearSessionCookie, setSessionCookie } from "../middleware/session-cookie.js";
 
@@ -30,7 +30,11 @@ export class AuthController {
   async policy(_req: Request, res: Response) {
     try {
       const count = await authService.userCount();
-      res.json({ registrationOpen: count === 0 || registrationOpen(), firstUser: count === 0 });
+      res.json({
+        registrationOpen: count === 0 || registrationOpen(),
+        firstUser: count === 0,
+        cronTimezone: cronTimezone(),
+      });
     } catch (err) {
       console.error("Auth policy error:", err);
       res.status(500).json({ error: "Something went wrong. Please try again." });

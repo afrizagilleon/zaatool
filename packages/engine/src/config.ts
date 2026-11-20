@@ -22,12 +22,18 @@ import {
   type CellSpawnIdentity,
   type SandboxIdentity,
 } from "./core/sandbox-identity.js";
+import { isValidTimeZone } from "./core/cron.js";
 
 /** Obvious on sight, and long enough that nothing accidentally depends on its shape. */
 const DEV_JWT_SECRET = "zaatool-development-secret-do-not-deploy";
 
 /** Shortest secret worth having. 32 bytes of anything unguessable clears it. */
 const MIN_SECRET_LENGTH = 32;
+
+/** The one time zone every cron trigger is read in. IANA name; UTC unless `CRON_TZ` says otherwise. */
+export function cronTimezone(): string {
+  return process.env.CRON_TZ?.trim() || "UTC";
+}
 
 export function isProduction(): boolean {
   return process.env.NODE_ENV === "production";
@@ -221,6 +227,12 @@ export function configProblems(): string[] {
   // Not behind the production check: a half-set sandbox is wrong in development too, and
   // the cost of finding out is every cell failing.
   const problems: string[] = sandboxProblems(process.platform, process.env, process.getuid?.bind(process));
+  if (!isValidTimeZone(cronTimezone())) {
+    problems.push(
+      `CRON_TZ is "${cronTimezone()}", which is not an IANA time zone name. Use a name like ` +
+        "Asia/Jakarta or UTC, or leave it unset for UTC."
+    );
+  }
   if (!isProduction()) return problems;
 
   if (usingDevSecret()) {
