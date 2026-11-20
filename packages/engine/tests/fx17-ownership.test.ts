@@ -15,6 +15,10 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { AddressInfo } from "node:net";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { agentTokensService } from "../src/services/agent-tokens.service.js";
+import { toolNameFor } from "../src/core/notebook-tool-name.js";
 import { createApp } from "../src/server/app.js";
 import { RunEventHub } from "../src/server/run-event-hub.js";
 import { notebookSharesService } from "../src/services/notebook-shares.service.js";
@@ -588,7 +592,7 @@ await check("importing text that names somebody else's id changes nothing and sa
   const text = (await (await call(owner, "GET", `/api/notebooks/${picked}/text`)).text());
   const res = await call(other, "POST", "/api/notebooks/text", { text });
   assert.equal(res.status, 404);
-  const asNew = await call(other, "POST", "/api/notebooks/text", { text, asNew: true });
+  const asNew = await call(other, "POST", "/api/notebooks/text", { text: text.replace("name: zz-fx17-picked", "name: zz-fx17-imported"), asNew: true });
   assert.equal(asNew.status, 200);
   const made = (await asNew.json()) as { id: string };
   assert.equal(await access.ownerOf(made.id), other.id);
@@ -828,6 +832,153 @@ await check("a stranger cannot press a button on a page they cannot use", async 
   const hiddenPage = await seed("hidden-page", { owner, deployed: true, visibility: "selected", extra: { actions: [{ label: "Go", do: "rerun" }] } });
   assert.equal((await call(other, "POST", `/api/notebooks/${hiddenPage}/actions/0`, {})).status, 404);
 });
+
+// ── agent tokens and MCP (T-06) ───────────────────────────────────────────────
+
+console.log("\nagents act as the person who made their token");
+
+const mcpEndpoint = new URL(`${base}/mcp`);
+const mcpClients: Client[] = [];
+
+async function tokenFor(who: Person, scope: "author" | "reader" = "author"): Promise<string> {
+  return (await agentTokensService.issue(who.id, `zz-fx17-${who.username}-${scope}`, scope)).token;
+}
+
+async function mcpAs(token: string): Promise<Client> {
+  const client = new Client({ name: "zz-fx17-test", version: "1.0.0" });
+  await client.connect(new StreamableHTTPClientTransport(mcpEndpoint, { requestInit: { headers: { Authorization: `Bearer ${token}` } } }));
+  mcpClients.push(client);
+  return client;
+}
+
+async function tool(client: Client, name: string, args: Record<string, unknown> = {}): Promise<{ text: string; isError: boolean }> {
+  const result = (await client.callTool({ name, arguments: args })) as { content: { text: string }[]; isError?: boolean };
+  return { text: result.content.map((part) => part.text).join("\n"), isError: result.isError === true };
+}
+
+const ownerAgent = await mcpAs(await tokenFor(owner));
+const editorAgent = await mcpAs(await tokenFor(editor));
+const otherAgent = await mcpAs(await tokenFor(other));
+const viewerAgent = await mcpAs(await tokenFor(viewer));
+const chosenAgent = await mcpAs(await tokenFor(chosen));
+
+await check("notebook_list and system_map show exactly what the person sees in the editor", async () => {
+  const owners = (await tool(ownerAgent, "notebook_list")).text;
+  assert.ok(owners.includes("zz-fx17-picked") && owners.includes("zz-fx17-draft"));
+  assert.ok((await tool(editorAgent, "notebook_list")).text.includes("zz-fx17-picked"));
+
+  for (const agent of [otherAgent, viewerAgent, chosenAgent]) {
+    const text = (await tool(agent, "notebook_list")).text;
+    assert.ok(!text.includes("zz-fx17-picked") && !text.includes("zz-fx17-draft") && !text.includes("zz-fx17-open"), text);
+    const map = (await tool(agent, "system_map")).text;
+    assert.ok(!map.includes("zz-fx17-picked") && !map.includes("zz-fx17-open"), map);
+  }
+  assert.ok((await tool(ownerAgent, "system_map")).text.includes("zz-fx17-picked"));
+});
+
+await check("a notebook an agent may not open is 'no notebook matches' — to read, run, edit or delete — the same as one that is not there", async () => {
+  const missing = (await tool(otherAgent, "notebook_read", { notebook: "zz-fx17-no-such-notebook" })).text.replace("zz-fx17-no-such-notebook", "X");
+  for (const [name, args] of [
+    ["notebook_read", { notebook: "zz-fx17-picked" }],
+    ["notebook_diff", { notebook: "zz-fx17-picked" }],
+    ["run_list", { notebook: "zz-fx17-picked" }],
+    ["notebook_run", { notebook: "zz-fx17-picked" }],
+    ["notebook_run_cell", { notebook: "zz-fx17-picked", cell: "1" }],
+    ["notebook_edit_setup", { notebook: "zz-fx17-picked", key: "secrets", value: "[]" }],
+    ["notebook_delete", { notebook: "zz-fx17-picked", confirmName: "zz-fx17-picked" }],
+  ] as const) {
+    const result = await tool(otherAgent, name, args);
+    assert.equal(result.isError, true, name);
+    assert.equal(result.text.replace("zz-fx17-picked", "X"), missing, name);
+  }
+  assert.ok((await pool.query("SELECT 1 FROM notebooks WHERE id = $1", [picked])).rowCount === 1, "it was deleted");
+});
+
+await check("writing text that names somebody else's id overwrites nothing", async () => {
+  const text = ["---", `id: ${picked}`, "name: zz-fx17-hijack", "runtime: node", "---", "", "```js", "return {};", "```"].join("\n");
+  const result = await tool(otherAgent, "notebook_write", { text });
+  assert.equal(result.isError, true);
+  assert.equal((await pool.query("SELECT name FROM notebooks WHERE id = $1", [picked])).rows[0].name, "zz-fx17-picked");
+});
+
+await check("an agent's notebook belongs to the person behind its token, and its runs are recorded as theirs", async () => {
+  const text = ["---", "name: zz-fx17-agent-made", "runtime: node", "outputs: [answer]", "---", "", "```js", "return { answer: 1 };", "```"].join("\n");
+  const written = await tool(otherAgent, "notebook_write", { text });
+  assert.equal(written.isError, false, written.text);
+  const id = /`([0-9a-f-]{36})`/.exec(written.text)?.[1] as string;
+  assert.equal(await access.ownerOf(id), other.id);
+
+  const ran = JSON.parse((await tool(otherAgent, "notebook_run", { notebook: "zz-fx17-agent-made" })).text) as { runId: string };
+  const { rows } = await pool.query("SELECT started_by FROM notebook_runs WHERE id = $1", [ran.runId]);
+  assert.equal(rows[0].started_by, other.id);
+  assert.equal((await tool(ownerAgent, "notebook_read", { notebook: "zz-fx17-agent-made" })).isError, true, "the owner of another notebook read it");
+});
+
+await check("an editor's agent reads, runs and edits the owner's notebook, but cannot delete it", async () => {
+  assert.equal((await tool(editorAgent, "notebook_read", { notebook: "zz-fx17-picked" })).isError, false);
+  assert.equal((await tool(editorAgent, "notebook_run", { notebook: "zz-fx17-picked" })).isError, false);
+  const refused = await tool(editorAgent, "notebook_delete", { notebook: "zz-fx17-picked", confirmName: "zz-fx17-picked" });
+  assert.equal(refused.isError, true);
+  assert.match(refused.text, /owner/);
+  assert.equal((await pool.query("SELECT 1 FROM notebooks WHERE id = $1", [picked])).rowCount, 1);
+});
+
+await check("run_inspect answers for a run the person could read in the browser, and for no other", async () => {
+  const { rows } = await pool.query("SELECT id FROM notebook_runs WHERE notebook_id = $1 AND started_by = $2 LIMIT 1", [picked, owner.id]);
+  const ownersRun = rows[0].id as string;
+  assert.equal((await tool(ownerAgent, "run_inspect", { run: ownersRun })).isError, false);
+  assert.equal((await tool(editorAgent, "run_inspect", { run: ownersRun })).isError, false);
+  assert.equal((await tool(otherAgent, "run_inspect", { run: ownersRun })).isError, true, "a stranger read a run by id");
+  assert.equal((await tool(chosenAgent, "run_inspect", { run: ownersRun })).isError, true, "a page user read the team's run");
+});
+
+await check("deployed notebooks are offered as tools only to the people who may use that app", async () => {
+  const toolName = toolNameFor("zz-fx17-picked");
+  const names = async (agent: Client) => (await agent.listTools()).tools.map((entry) => entry.name);
+  assert.ok((await names(chosenAgent)).includes(toolName), "the named user was not offered it");
+  assert.ok((await names(ownerAgent)).includes(toolName));
+  assert.ok(!(await names(otherAgent)).includes(toolName), "a stranger was offered a selected app");
+  assert.ok(!(await names(viewerAgent)).includes(toolName));
+  assert.ok((await names(otherAgent)).includes(toolNameFor("zz-fx17-open")), "an app open to everybody is offered to everybody");
+});
+
+await check("secret_list_names lists the agent's own person's secrets", async () => {
+  assert.match((await tool(editorAgent, "secret_list_names")).text, /ZZ_FX17_TOKEN/);
+  assert.doesNotMatch((await tool(editorAgent, "secret_list_names")).text, /ZZ_FX17_ONLY_OTHER/);
+  assert.match((await tool(otherAgent, "secret_list_names")).text, /ZZ_FX17_ONLY_OTHER/);
+});
+
+await check("an author token whose person is demoted to viewer loses write access, at once, even on an open session", async () => {
+  const demoted = await person("demoted", "creator");
+  const token = await tokenFor(demoted);
+  const before = await mcpAs(token);
+  assert.ok((await before.listTools()).tools.some((entry) => entry.name === "notebook_write"));
+
+  await pool.query("UPDATE users SET role = 'viewer' WHERE id = $1", [demoted.id]);
+  const after = await mcpAs(token);
+  const names = (await after.listTools()).tools.map((entry) => entry.name);
+  assert.ok(!names.includes("notebook_write"), "a demoted person's author token still writes");
+  await assert.rejects(() => before.callTool({ name: "notebook_list", arguments: {} }), /401|different token scope|Reconnect/i);
+});
+
+await check("a token stops working with its person: deactivated is refused", async () => {
+  const gone = await person("gone", "creator");
+  const token = await tokenFor(gone);
+  await authService.setActive(gone.id, false);
+  await assert.rejects(() => mcpAs(token), /401|Unauthorized|deactivated/i);
+});
+
+await check("a person lists and revokes only their own tokens", async () => {
+  const mine = (await (await call(owner, "POST", "/api/agent-tokens", { label: "zz-fx17-owner-api", scope: "reader" })).json()) as { record: { id: string } };
+  const listed = async (who: Person) => ((await (await call(who, "GET", "/api/agent-tokens")).json()) as { id: string }[]).map((row) => row.id);
+  assert.ok((await listed(owner)).includes(mine.record.id));
+  assert.ok(!(await listed(editor)).includes(mine.record.id), "somebody else's token was listed");
+  assert.equal((await call(editor, "DELETE", `/api/agent-tokens/${mine.record.id}`)).status, 404);
+  assert.ok((await listed(owner)).includes(mine.record.id), "somebody else revoked it");
+  assert.equal((await call(owner, "DELETE", `/api/agent-tokens/${mine.record.id}`)).status, 200);
+});
+
+for (const client of mcpClients) await client.close().catch(() => {});
 
 // ── next ──
 server.close();
