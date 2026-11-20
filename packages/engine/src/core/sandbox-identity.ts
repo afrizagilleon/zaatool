@@ -13,6 +13,7 @@
  * Pure functions of their inputs (platform, environment, `getuid`), so the decision can be
  * tested on a machine that is none of Linux, root or Docker. Nothing here reads `process`.
  */
+import { trimEndChars } from "./linear-text.js";
 
 export interface SandboxConfig {
   /** First uid handed to an owner. */
@@ -70,7 +71,7 @@ export function lastSandboxUid(config: SandboxConfig): number {
 
 /** `${home}/owners/<uid>`: root of everything one owner's cells may touch. */
 export function ownerHomePath(config: SandboxConfig, uid: number): string {
-  return `${config.home.replace(/\/+$/, "")}/owners/${uid}`;
+  return `${trimEndChars(config.home, "/")}/owners/${uid}`;
 }
 
 /**

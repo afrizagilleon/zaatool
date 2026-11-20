@@ -18,6 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { safeFilename, safeSubPath } from "./storage-paths.js";
+import { trimEndChars } from "./linear-text.js";
 import { STORAGE_DIR } from "./storage-root.js";
 import { ownerHomePath, ownerSpawnIdentity, type CellSpawnIdentity, type SandboxConfig } from "./sandbox-identity.js";
 
@@ -87,7 +88,7 @@ const PRIVATE = 0o700;
  * (`tmp`, `.cache/uv`), all the owner's and 0700.
  */
 export function prepareOwnerHome(config: SandboxConfig, uid: number, wfs: WorkspaceFs = fs): string {
-  const owners = path.posix.join(config.home.replace(/\/+$/, ""), "owners");
+  const owners = path.posix.join(trimEndChars(config.home, "/"), "owners");
   wfs.mkdirSync(owners, { recursive: true });
   wfs.chmodSync(owners, 0o711);
 

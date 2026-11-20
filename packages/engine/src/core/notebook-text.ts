@@ -17,6 +17,14 @@ import type {
 } from "@zaa-tool/shared";
 import { PARAM_TYPES, normaliseTags, tagProblem } from "@zaa-tool/shared";
 import { OUTPUT_RENDERS } from "./notebook-outputs.js";
+import {
+  closesFence,
+  collapseTrailingBlankLines,
+  parseAttributePairs,
+  parseFenceLine,
+  parseMarkerLine,
+  trimEndChars,
+} from "./linear-text.js";
 
 export { PARAM_TYPES };
 import { actionProblems, actionSpecs } from "./notebook-actions.js";
@@ -88,7 +96,7 @@ export function toMarkdown(notebook: NotebookJson): string {
   writeSteps(notebook.steps ?? [], notebook.runtime, body);
 
   const front = stringifyYaml(meta, { lineWidth: 0 });
-  return `---\n${front}---\n\n${body.join("\n").replace(/\n{3,}$/, "\n")}`;
+  return `---\n${front}---\n\n${collapseTrailingBlankLines(body.join("\n"))}`;
 }
 
 function writeSteps(steps: NotebookStep[], runtime: NotebookRuntime, out: string[]): void {
@@ -112,13 +120,13 @@ function writeSteps(steps: NotebookStep[], runtime: NotebookRuntime, out: string
       ""
     );
 
-    if (step.note?.trim()) out.push(step.note.replace(/\s+$/, ""), "");
+    if (step.note?.trim()) out.push(step.note.trimEnd(), "");
 
     if (step.code !== undefined) {
       const fence = fenceFor(step.code);
       out.push(marker("code", {}), "");
       out.push(`${fence}${FENCE_LANGUAGE[runtime] ?? ""}`);
-      if (step.code !== "") out.push(step.code.replace(/\n+$/, ""));
+      if (step.code !== "") out.push(trimEndChars(step.code, "\n"));
       out.push(fence, "");
     }
   }
@@ -688,25 +696,24 @@ function tokenize(lines: string[]): Token[] {
   while (index < lines.length) {
     const line = lines[index];
 
-    const asMarker = /^\s*<!--\s*zaa:([a-z]+)\s*(.*?)\s*-->\s*$/.exec(line);
+    const asMarker = parseMarkerLine(line);
     if (asMarker) {
       tokens.push({
         kind: "marker",
         start: index,
         end: index,
-        name: asMarker[1],
-        attrs: parseAttributes(asMarker[2]),
+        name: asMarker.name,
+        attrs: parseAttributes(asMarker.attrs),
       });
       index += 1;
       continue;
     }
 
-    const asFence = /^\s{0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+    const asFence = parseFenceLine(line);
     if (asFence) {
-      const closing = new RegExp(`^\\s{0,3}\\${asFence[1][0]}{${asFence[1].length},}\\s*$`);
       const content: string[] = [];
       let cursor = index + 1;
-      while (cursor < lines.length && !closing.test(lines[cursor])) {
+      while (cursor < lines.length && !closesFence(lines[cursor], asFence.marker, asFence.length)) {
         content.push(lines[cursor]);
         cursor += 1;
       }
@@ -729,8 +736,8 @@ function tokenize(lines: string[]): Token[] {
 
 function parseAttributes(text: string): Record<string, string> {
   const attrs: Record<string, string> = {};
-  for (const match of text.matchAll(/([a-zA-Z]+)=("((?:[^"\\]|\\.)*)"|\S+)/g)) {
-    attrs[match[1]] = match[3] !== undefined ? match[3].replace(/\\(.)/g, "$1") : match[2];
+  for (const pair of parseAttributePairs(text)) {
+    attrs[pair.key] = pair.quoted !== undefined ? pair.quoted.replace(/\\(.)/g, "$1") : (pair.bare ?? "");
   }
   return attrs;
 }

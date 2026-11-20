@@ -24,9 +24,50 @@
 
 import { spawn } from "child_process";
 import { jsSyntaxProblem } from "./cell-analysis.js";
+import { trailingRun } from "./linear-text.js";
 
-/** Opening fence: three or more backticks or tildes, with an optional language word. */
-const FENCE_OPEN = /^\s*(`{3,}|~{3,})[ \t]*([A-Za-z0-9_+-]*)[ \t]*\r?\n/;
+const isBlank = (char: string | undefined): boolean => char === " " || char === "\t";
+const isLanguageChar = (char: string): boolean => /[A-Za-z0-9_+-]/.test(char);
+
+/**
+ * Opening fence: three or more backticks or tildes, with an optional language word, alone on
+ * the first line. Returns the marker, how many there are, and how much text the line takes
+ * (newline included), or null.
+ *
+ * Scanned by hand: the same shape as a regular expression (`\s*`, fence, `[ \t]*`, word,
+ * `[ \t]*`, newline) backtracks badly on a long run of spaces.
+ */
+function openingFence(text: string): { marker: string; length: number; consumed: number } | null {
+  let at = 0;
+  while (at < text.length && /\s/.test(text[at])) at += 1;
+  const marker = text[at];
+  if (marker !== "`" && marker !== "~") return null;
+  const start = at;
+  while (text[at] === marker) at += 1;
+  const length = at - start;
+  if (length < 3) return null;
+  while (isBlank(text[at])) at += 1;
+  while (at < text.length && isLanguageChar(text[at])) at += 1;
+  while (isBlank(text[at])) at += 1;
+  if (text[at] === "\r") at += 1;
+  if (text[at] !== "\n") return null;
+  return { marker, length, consumed: at + 1 };
+}
+
+/**
+ * Where a closing fence of at least `length` of `marker` starts, if the body ends with one:
+ * the fence, any spaces before it, and the line break before those. Null when it does not.
+ */
+function closingFenceStart(body: string, marker: string, length: number): number | null {
+  const content = body.trimEnd();
+  const run = trailingRun(content, marker);
+  if (run < length) return null;
+  let start = content.length - run;
+  while (isBlank(content[start - 1])) start -= 1;
+  if (content[start - 1] === "\n") start -= 1;
+  if (content[start - 1] === "\r") start -= 1;
+  return start;
+}
 
 /**
  * Removes a markdown fence around a whole block of code.
@@ -41,19 +82,16 @@ export function stripCodeFence(code: string): string {
   // send CRLF, and a stray `\r` at the end of a line is invisible in every view of the
   // code while being perfectly capable of breaking a template literal.
   const text = String(code ?? "").replace(/\r\n/g, "\n");
-  const open = FENCE_OPEN.exec(text);
+  const open = openingFence(text);
   if (!open) return text;
 
-  const marker = open[1][0];
-  const length = open[1].length;
-  const body = text.slice(open[0].length);
+  const body = text.slice(open.consumed);
 
   // The closing fence must be the end of the content, allowing trailing whitespace.
-  const close = new RegExp(`\\r?\\n?[ \\t]*\\${marker}{${length},}[ \\t]*\\s*$`);
-  const closed = close.exec(body);
-  if (!closed) return text;
+  const closeAt = closingFenceStart(body, open.marker, open.length);
+  if (closeAt === null) return text;
 
-  return body.slice(0, closed.index);
+  return body.slice(0, closeAt);
 }
 
 /** Named so an agent can fix itself in one turn rather than guessing at a parse error. */

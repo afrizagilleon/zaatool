@@ -1,3 +1,5 @@
+import { trimChars } from "./linear-text.js";
+
 /**
  * The identifier a notebook is known by to an agent.
  *
@@ -9,11 +11,6 @@
 
 /** MCP tool names are identifiers, and a notebook's name is a title. */
 export function toolNameFor(notebookName: string): string {
-  const slug = notebookName
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 48);
+  const slug = trimChars(notebookName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_"), "_").slice(0, 48);
   return slug ? `run_${slug}` : "";
 }

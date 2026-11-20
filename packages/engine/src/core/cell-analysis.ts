@@ -1,6 +1,7 @@
 import { parse } from "acorn";
 import { simple as walkSimple, ancestor as walkAncestor } from "acorn-walk";
 import type { Node } from "acorn";
+import { stripLocationSuffix } from "./linear-text.js";
 
 /**
  * What a cell reads and what it writes, read from its syntax tree.
@@ -200,6 +201,6 @@ export function jsSyntaxProblem(code: string): string | null {
     const where = error.loc
       ? ` (line ${Math.max(1, error.loc.line - WRAPPER_LINES)}, column ${error.loc.column + 1})`
       : "";
-    return `${error.message.replace(/\s*\(\d+:\d+\)\s*$/, "")}${where}`;
+    return `${stripLocationSuffix(error.message)}${where}`;
   }
 }

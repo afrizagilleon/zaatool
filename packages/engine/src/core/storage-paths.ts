@@ -13,6 +13,7 @@
  */
 import fs from "fs";
 import path from "path";
+import { trimEndChars } from "./linear-text.js";
 
 /**
  * Characters a filename may not carry.
@@ -41,7 +42,7 @@ export function safeFilename(raw: unknown): string {
   const base = path.basename(String(raw ?? "").replace(/\\/g, "/")).replace(UNSAFE_IN_NAME, "_");
   // Leading dots hide the file; trailing dots and spaces are silently dropped by Windows,
   // which would make the name on disk differ from the name in the listing.
-  const trimmed = base.replace(/^\.+/, "").replace(/[. ]+$/, "");
+  const trimmed = trimEndChars(base.replace(/^\.+/, ""), ". ");
   if (trimmed.length === 0) return "file";
 
   const dot = trimmed.lastIndexOf(".");
