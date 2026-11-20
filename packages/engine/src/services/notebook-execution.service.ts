@@ -141,6 +141,11 @@ interface CallContext {
   fan: FanOut;
   /** The calling run's place in `fan`, lent out while it waits on this call. Absent for a root run. */
   parentSlot?: Slot;
+  /**
+   * Storage paths some run in this chain was allowed to be given (see `admitInputFiles`),
+   * shared by every run in it: what one notebook was handed it may hand on.
+   */
+  grants: Set<string>;
 }
 
 /**
@@ -269,9 +274,13 @@ export class NotebookExecutionService {
     const plan = compileNotebook(document);
     // A contract failure names the callee, because from the caller's seat the error
     // is about the call it just made, not about a notebook it cannot see.
-    const input = notebookFilesService.withReadablePaths(
+    //
+    // The file inputs are admitted as the *caller's owner* (the person whose code chose the
+    // path), and not as the callee's: a callee's owner may see folders the caller's cannot.
+    const input = await notebookFilesService.admitInputFiles(
       plan.inputs,
-      bindInputs(plan.inputs, request.input)
+      bindInputs(plan.inputs, request.input),
+      { notebookId: found.id, actorId: callerOwner, ownFolders: false, grants: context.grants }
     );
     // The callee's owner's, which is not necessarily the caller's: a notebook runs with the
     // credentials of whoever owns *it*.
@@ -303,6 +312,7 @@ export class NotebookExecutionService {
       signal: context.signal,
       fan: context.fan,
       parentSlot: slot,
+      grants: context.grants,
     };
 
     const recorder = new NotebookRunRecorder(runId, sourcesOf(plan));
@@ -349,6 +359,7 @@ export class NotebookExecutionService {
     useDeployed: boolean,
     signal: AbortSignal,
     fan: FanOut,
+    grants: Set<string>,
     startedBy?: string
   ): NotebookCaller {
     return (request, log) =>
@@ -362,6 +373,7 @@ export class NotebookExecutionService {
         useDeployed,
         signal,
         fan,
+        grants,
       });
   }
 
@@ -390,9 +402,21 @@ export class NotebookExecutionService {
 
     // Bound before the run id exists, so bad arguments are a rejected request rather
     // than a run that fails on its first cell.
-    const boundInputs = notebookFilesService.withReadablePaths(
+    //
+    // Files are admitted as whoever started the run, or as the notebook's owner when nobody
+    // did (cron, webhook, a shared page): a file input cannot name a folder the actor could
+    // not open in the storage browser. `grants` is what the whole chain of runs may copy
+    // into a cell.
+    const grants = new Set<string>();
+    const boundInputs = await notebookFilesService.admitInputFiles(
       fullPlan.inputs,
-      bindInputs(fullPlan.inputs, options.args)
+      bindInputs(fullPlan.inputs, options.args),
+      {
+        notebookId,
+        actorId: options.startedBy ?? record.owner_id,
+        ownFolders: true,
+        grants,
+      }
     );
 
     let plan = fullPlan;
@@ -471,6 +495,7 @@ export class NotebookExecutionService {
             useDeployed,
             controller.signal,
             fan,
+            grants,
             options.startedBy
           ),
           file: notebookFilesService.writerFor(notebookId),

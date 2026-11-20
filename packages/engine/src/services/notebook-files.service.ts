@@ -12,6 +12,8 @@ import {
   type StoredFile,
 } from "../core/notebook-files.js";
 import { maxNotebookStorageBytes } from "../config.js";
+import { ContractError } from "../core/notebook-contract.js";
+import { notebookAccessService } from "./notebook-access.service.js";
 
 export function getFolderSizeRecursive(dirPath: string): number {
   if (!fs.existsSync(dirPath)) return 0;
@@ -162,41 +164,84 @@ export class NotebookFilesService {
     return describe(`uploads/${segment(notebookId)}/${filename}`, bytes.byteLength);
   }
 
-  /** The absolute path of a stored file, for a cell that wants to read one it was given. */
-  absolutePathOf(relativePath: string): string {
-    return path.join(STORAGE_DIR, relativePath);
-  }
-
   /**
-   * Adds the one field a cell needs and nothing else may see.
+   * Decides which of a run's file inputs the cell may be given, and drops what a caller
+   * dressed them up with.
    *
-   * A cell reads a file off this machine's disk, so it needs a real path. That path names
-   * the server's filesystem, so it is added here — on the way *in*, to bound arguments
-   * only — and never put in a descriptor that a page, a webhook reply or an agent will
-   * read back.
+   * `bindInputs` only proves a path is inside storage, and storage holds every notebook's
+   * folder: without this, an `args` value of `notebooks/<somebody else's id>/report.csv`
+   * from a page's visitor would have been read for them. A path is admitted when
+   *
+   *  - it was already admitted earlier in this chain of runs (`grants`: an input some run
+   *    was allowed, or a file some notebook wrote), or
+   *  - it lies under `uploads/<id>/` or `notebooks/<id>/` of the notebook being run (a page
+   *    visitor who can only *use* a notebook uploads into its folder), unless `ownFolders` is
+   *    off (a nested call: the caller's code chose the path, and a callee's folder is not
+   *    the caller's to name), or
+   *  - it is not hidden from the actor, who is whoever started the run, or the notebook's
+   *    owner when nobody did (cron, webhook, share link) — and for a nested call, the owner
+   *    of the notebook whose cell made the call.
+   *
+   * Anything else is refused with the words used for a file that is not there, so a refusal
+   * tells a visitor nothing about which files exist. Every admitted path is added to `grants`,
+   * which is what lets the runner copy it into the cell's folder (and nothing else).
+   *
+   * `absolute_path` never survives: a cell no longer reads a server path, it reads its copy.
    */
-  withReadablePaths(
+  async admitInputFiles(
     params: { name: string; type: string }[] | undefined,
-    bound: Record<string, unknown>
-  ): Record<string, unknown> {
+    bound: Record<string, unknown>,
+    context: { notebookId: string; actorId: string | null; ownFolders: boolean; grants: Set<string> }
+  ): Promise<Record<string, unknown>> {
     if (!Array.isArray(params)) return bound;
 
+    const fileParams = params.filter((param) => param?.type === "file");
+    if (fileParams.length === 0) return bound;
+
+    // Asked once per run, not once per file.
+    const hidden =
+      context.actorId === null
+        ? (relative: string): boolean => {
+            const [top, id] = relative.split("/");
+            return (top === "notebooks" || top === "uploads") && id !== undefined;
+          }
+        : await notebookAccessService.hiddenFromStorage(context.actorId);
+
+    const own = segment(context.notebookId);
     const enriched = { ...bound };
-    for (const param of params) {
-      if (param?.type !== "file") continue;
+    const issues: string[] = [];
+
+    for (const param of fileParams) {
       const value = enriched[param.name] as { path?: string } | undefined;
       if (!value || typeof value !== "object") continue;
 
-      // A caller-supplied `absolute_path` is never kept: it is recomputed from a
-      // validated path, or the field is left without one.
       const { absolute_path: _ignored, ...rest } = value as Record<string, unknown>;
+      enriched[param.name] = rest;
+
       const relative = typeof value.path === "string" ? safeSubPath(value.path, STORAGE_DIR) : null;
-      enriched[param.name] =
-        relative === null || relative === ""
-          ? rest
-          : { ...rest, absolute_path: this.absolutePathOf(relative) };
+      if (relative === null || relative === "") continue;
+
+      const inOwnFolder =
+        context.ownFolders && (relative.startsWith(`uploads/${own}/`) || relative.startsWith(`notebooks/${own}/`));
+      const allowed = context.grants.has(relative) || inOwnFolder || !hidden(relative);
+
+      if (!allowed || !isFile(path.join(STORAGE_DIR, relative))) {
+        issues.push(`"${param.name}": file not found`);
+        continue;
+      }
+      context.grants.add(relative);
     }
+
+    if (issues.length > 0) throw new ContractError(issues);
     return enriched;
+  }
+}
+
+function isFile(target: string): boolean {
+  try {
+    return fs.statSync(target).isFile();
+  } catch {
+    return false;
   }
 }
 
