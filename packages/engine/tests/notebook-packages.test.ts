@@ -178,12 +178,33 @@ await check("a Python cell with `packages: [pandas]` gets pandas", async () => {
 });
 
 await check("a Python cell without the declaration does not get it", async () => {
+  // `cowsay` rather than pandas: pandas is commonly installed system-wide, which made
+  // this test fail for a reason that has nothing to do with the property. `cowsay` is
+  // declared in security-hardening.test.ts and is very unlikely to be installed globally.
+  // If it is, say so explicitly instead of passing for the wrong reason.
+  const probe = await run(
+    notebook(
+      ["outputs: [present]"],
+      "import importlib.util\nreturn {'present': importlib.util.find_spec('cowsay') is not None}",
+      "python"
+    ),
+    20_000
+  );
+  assert.equal(probe.status, "success", probe.errors[0]);
+  assert.notEqual(
+    probe.outputs.present,
+    true,
+    "PRECONDITION NOT MET: the interpreter used for cells without `packages:` already has `cowsay` " +
+      "installed, so this test cannot show that an undeclared package is unavailable. " +
+      "Uninstall `cowsay` from that interpreter (or pick another package) and re-run."
+  );
+
   const result = await run(
-    notebook(["outputs: [ok]"], "import pandas as pd\nreturn {'ok': True}", "python"),
+    notebook(["outputs: [ok]"], "import cowsay\nreturn {'ok': True}", "python"),
     20_000
   );
   assert.equal(result.status, "failed");
-  assert.match(result.errors.join(" "), /pandas/i);
+  assert.match(result.errors.join(" "), /cowsay/i);
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
