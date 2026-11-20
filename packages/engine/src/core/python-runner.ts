@@ -8,6 +8,58 @@ import type { FileWriter } from "./notebook-files.js";
 import { cellIdentity } from "../config.js";
 import { STORAGE_DIR } from "./storage-root.js";
 
+/**
+ * Whether the code defines its own top-level `main` (`def main(` or `async def main(` at
+ * column 0), ignoring anything inside comments and strings. A plain substring test was
+ * fooled by `# def main(` and by a string that mentions it, which left the code unwrapped
+ * and then failed with "main is not defined".
+ *
+ * A small scanner rather than a regex: it only has to know, at the start of each line,
+ * whether that line begins inside a triple-quoted string, so a `def main(` in a docstring
+ * is not mistaken for a definition. Single-quoted strings cannot span lines, and a comment
+ * cannot start at column 0 with `def`, so those need no state.
+ */
+export function definesMain(code: string): boolean {
+  const mainDef = /^(?:async[ \t]+)?def[ \t]+main[ \t]*\(/;
+  let tripleQuote: string | null = null;
+
+  for (const line of code.split(/\r?\n/)) {
+    if (tripleQuote === null && mainDef.test(line)) return true;
+
+    let i = 0;
+    while (i < line.length) {
+      if (tripleQuote !== null) {
+        if (line[i] === "\\") {
+          i += 2;
+        } else if (line.startsWith(tripleQuote, i)) {
+          tripleQuote = null;
+          i += 3;
+        } else {
+          i += 1;
+        }
+        continue;
+      }
+
+      const ch = line[i];
+      if (ch === "#") break;
+      if (ch === '"' || ch === "'") {
+        if (line.startsWith(ch.repeat(3), i)) {
+          tripleQuote = ch.repeat(3);
+          i += 3;
+          continue;
+        }
+        // An ordinary string: skip to its closing quote on this line.
+        i += 1;
+        while (i < line.length && line[i] !== ch) i += line[i] === "\\" ? 2 : 1;
+        i += 1;
+        continue;
+      }
+      i += 1;
+    }
+  }
+  return false;
+}
+
 export function resolvePythonLockedPackages(packages: string[]): Promise<string[]> {
   if (!Array.isArray(packages) || packages.length === 0) {
     return Promise.resolve([]);
@@ -91,7 +143,7 @@ export function runPythonNode(
 
     // wrapper: wrap user's code in def main(inputs), call it, and print output if def main is not defined
     let finalCode = code;
-    if (!code.includes("def main(")) {
+    if (!definesMain(code)) {
       const indented = code
         .split("\n")
         .map((line) => "    " + line)
