@@ -57,6 +57,12 @@ export interface McpToolDeps {
    * notebook's history.
    */
   writer: string;
+  /**
+   * The account the token belongs to. The tools act as this person: they list, read, run and
+   * write what this person could in the browser, and the access module is asked on their
+   * behalf for every notebook they touch.
+   */
+  userId: string;
 }
 
 /**
@@ -572,7 +578,7 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
       inputSchema: {},
     },
     async () => {
-      const rows = (await secretsService.getAll()) as { key: string; is_secret: boolean }[];
+      const rows = (await secretsService.getAll(deps.userId)) as { key: string; is_secret: boolean }[];
       if (rows.length === 0) return reply("No secrets stored.");
       return reply(
         rows.map((row) => `- ${row.key}${row.is_secret ? "" : " (plain variable, not hidden)"}`).join("\n")

@@ -4,6 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { agentTokensService, type AgentScope } from "../services/agent-tokens.service.js";
+import { authService } from "../services/auth.service.js";
 import { registerNotebookTools } from "../mcp/notebook-tools.js";
 import { registerConventions } from "../mcp/conventions.js";
 import { onCatalogChanged, registerDeployedNotebooks } from "../mcp/notebook-catalog.js";
@@ -28,6 +29,8 @@ interface Session {
   scope: AgentScope;
   /** The token's label, recorded as the author of whatever this session writes. */
   writer: string;
+  /** The account the token acts as. Every tool answers for them and nobody else. */
+  userId: string;
 }
 
 /** JSON-RPC has its own shape for failure; an HTML error page would confuse a client. */
@@ -62,7 +65,7 @@ export function createMcpRouter(publishRunEvent: RunEventSink): Router {
   async function authenticate(
     req: Request,
     res: Response
-  ): Promise<{ scope: AgentScope; writer: string } | null> {
+  ): Promise<{ scope: AgentScope; writer: string; userId: string } | null> {
     const token = presentedToken(req);
     if (!token) {
       rpcError(res, 401, "Missing agent token. Send Authorization: Bearer <token> or X-API-Key.");
@@ -73,7 +76,19 @@ export function createMcpRouter(publishRunEvent: RunEventSink): Router {
       rpcError(res, 401, "Unknown or revoked agent token.");
       return null;
     }
-    return { scope: record.scope, writer: record.label };
+
+    // A token is an account. It stops working with the account, and it cannot do more than
+    // the account may: `author` writes only while its user is still a creator, so demoting
+    // somebody to viewer takes their agents' write access with them, with no list of tokens
+    // to go through. (A session opened earlier notices below, because the scope differs.)
+    const user = record.user_id ? await authService.currentUser(record.user_id) : null;
+    if (!user || user.active === false) {
+      rpcError(res, 401, "The account this agent token belongs to is gone or deactivated.");
+      return null;
+    }
+    const scope: AgentScope =
+      record.scope === "author" && user.role === "creator" ? "author" : "reader";
+    return { scope, writer: record.label, userId: user.id };
   }
 
   function sessionFor(req: Request): Session | undefined {
@@ -85,13 +100,13 @@ export function createMcpRouter(publishRunEvent: RunEventSink): Router {
     try {
       const identity = await authenticate(req, res);
       if (!identity) return;
-      const { scope, writer } = identity;
+      const { scope, writer, userId } = identity;
 
       const existing = sessionFor(req);
       if (existing) {
         // A token that was downgraded or revoked must not keep its old reach through a
         // session opened while it still had it.
-        if (existing.scope !== scope) {
+        if (existing.scope !== scope || existing.userId !== userId) {
           rpcError(res, 401, "This session was opened with a different token scope. Reconnect.");
           return;
         }
@@ -107,14 +122,14 @@ export function createMcpRouter(publishRunEvent: RunEventSink): Router {
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (sessionId) => {
-          sessions.set(sessionId, { transport, scope, writer });
+          sessions.set(sessionId, { transport, scope, writer, userId });
         },
       });
 
       const server = new McpServer({ name: "zaatool", version: "1.0.0" });
-      registerNotebookTools(server, { publishRunEvent, writer }, scope);
+      registerNotebookTools(server, { publishRunEvent, writer, userId }, scope);
       registerConventions(server);
-      await registerDeployedNotebooks(server, { publishRunEvent });
+      await registerDeployedNotebooks(server, { publishRunEvent, userId });
 
       // Deploying a notebook adds a capability, and a session opened this morning
       // should learn about it without reconnecting. The server only announces that the

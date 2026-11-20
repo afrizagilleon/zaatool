@@ -120,6 +120,8 @@ function describe(document: NotebookJson): string {
 
 export interface CatalogDeps {
   publishRunEvent: RunEventSink;
+  /** The account this connection acts as: the tools offered are the apps *they* may use. */
+  userId: string;
 }
 
 /**

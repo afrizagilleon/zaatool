@@ -23,6 +23,8 @@ import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
 import { authService } from "../src/services/auth.service.js";
 import { notebookAccessService } from "../src/services/notebook-access.service.js";
+import { notebooksService } from "../src/services/notebooks.service.js";
+import type { NotebookJson } from "@zaa-tool/shared";
 
 let passed = 0;
 let failed = 0;
@@ -48,7 +50,7 @@ async function clean(): Promise<void> {
   await pool.query("DELETE FROM notebook_versions WHERE notebook_id IN (SELECT id FROM notebooks WHERE name LIKE 'zz-fx17-%')");
   await pool.query("DELETE FROM notebook_shares WHERE notebook_id IN (SELECT id FROM notebooks WHERE name LIKE 'zz-fx17-%')");
   await pool.query("DELETE FROM notebooks WHERE name LIKE 'zz-fx17-%'");
-  await pool.query("DELETE FROM secrets WHERE key LIKE 'zz-fx17-%'");
+  await pool.query("DELETE FROM secrets WHERE key ILIKE 'zz%fx17%'");
   await pool.query("DELETE FROM agent_tokens WHERE label LIKE 'zz-fx17-%'");
   await pool.query("DELETE FROM users WHERE username LIKE 'zz-fx17-%'");
 }
@@ -621,6 +623,101 @@ await check("a page's file picker works for whoever may run the page, and for no
   fs.rmSync(path.join(STORAGE_DIR, "uploads", everyone), { recursive: true, force: true });
 });
 
+// ── secrets belong to whoever made them (T-04) ────────────────────────────────
+
+console.log("\nsecrets");
+
+async function putSecret(who: Person, key: string, value: string): Promise<Response> {
+  return call(who, "POST", "/api/resources/secrets", { key, value, is_secret: true });
+}
+
+/** A notebook that reports the secret it was given, stored through the service. */
+async function reporter(name: string, who: Person, key: string, extra: Record<string, unknown> = {}): Promise<string> {
+  const saved = await notebooksService.save(
+    {
+      version: "1.0",
+      id: "",
+      name: `zz-fx17-${name}`,
+      runtime: "node",
+      secrets: [key],
+      outputs: ["got"],
+      steps: [{ id: `cell-${name}`, kind: "cell", code: `return { got: process.env.${key} ?? null };` }],
+      ...extra,
+    } as NotebookJson,
+    "test",
+    who.id
+  );
+  return saved.id;
+}
+
+async function gotFrom(notebookId: string, runId: string): Promise<unknown> {
+  await finished(notebookId, runId);
+  const { rows } = await pool.query("SELECT cell_results FROM notebook_runs WHERE id = $1", [runId]);
+  const cell = Object.values(rows[0].cell_results as Record<string, { output?: { got?: unknown } }>)[0];
+  return cell?.output?.got;
+}
+
+await check("each account lists only its own secrets, and the same key may exist once per account", async () => {
+  assert.equal((await putSecret(owner, "ZZ_FX17_TOKEN", "owner-value")).status, 200);
+  assert.equal((await putSecret(editor, "ZZ_FX17_TOKEN", "editor-value")).status, 200);
+  assert.equal((await putSecret(other, "ZZ_FX17_ONLY_OTHER", "other-value")).status, 200);
+
+  const keys = async (who: Person) => ((await (await call(who, "GET", "/api/resources/secrets")).json()) as { key: string }[]).map((row) => row.key).sort();
+  assert.deepEqual(await keys(owner), ["ZZ_FX17_TOKEN"]);
+  assert.deepEqual(await keys(editor), ["ZZ_FX17_TOKEN"]);
+  assert.deepEqual(await keys(other), ["ZZ_FX17_ONLY_OTHER"]);
+  assert.equal((await putSecret(owner, "ZZ_FX17_TOKEN", "again")).status, 409, "the same key twice for one account");
+});
+
+await check("an editor cannot read, change or delete the owner's secret through the API", async () => {
+  const ownerRow = (await (await call(owner, "GET", "/api/resources/secrets")).json())[0] as { id: string; value: string };
+  assert.equal(ownerRow.value, "******");
+  assert.equal((await call(editor, "PUT", `/api/resources/secrets/${ownerRow.id}`, { key: "ZZ_FX17_TOKEN", value: "stolen", is_secret: true })).status, 404);
+  await call(editor, "DELETE", `/api/resources/secrets/${ownerRow.id}`);
+  const { rows } = await pool.query("SELECT value FROM secrets WHERE id = $1", [ownerRow.id]);
+  assert.equal(rows[0]?.value, "owner-value", "the owner's secret was changed or deleted by somebody else");
+});
+
+await check("D-6/D-7: a notebook runs with its owner's secret, whoever presses Run — an editor's own value is not used", async () => {
+  const id = await reporter("secret-owner", owner, "ZZ_FX17_TOKEN");
+  await pool.query("INSERT INTO notebook_access (notebook_id, user_id, permission) VALUES ($1, $2, 'editor')", [id, editor.id]);
+
+  const byOwner = (await (await call(owner, "POST", `/api/notebooks/${id}/run`, {})).json()) as { runId: string };
+  assert.equal(await gotFrom(id, byOwner.runId), "owner-value");
+  const byEditor = (await (await call(editor, "POST", `/api/notebooks/${id}/run`, {})).json()) as { runId: string };
+  assert.equal(await gotFrom(id, byEditor.runId), "owner-value", "the editor's run used the editor's secret");
+});
+
+await check("a notebook cannot use another account's secret that its owner does not have", async () => {
+  const id = await reporter("secret-borrow", owner, "ZZ_FX17_ONLY_OTHER");
+  const run = (await (await call(owner, "POST", `/api/notebooks/${id}/run`, {})).json()) as { runId: string };
+  assert.equal(await gotFrom(id, run.runId), null);
+});
+
+await check("an editor's own notebook uses the editor's secret, not the owner's with the same key", async () => {
+  const id = await reporter("secret-editors", editor, "ZZ_FX17_TOKEN");
+  const run = (await (await call(editor, "POST", `/api/notebooks/${id}/run`, {})).json()) as { runId: string };
+  assert.equal(await gotFrom(id, run.runId), "editor-value");
+});
+
+await check("a webhook guarded by a secret key is guarded by the notebook owner's value", async () => {
+  await putSecret(owner, "ZZ_FX17_HOOK", "hook-owner");
+  await putSecret(editor, "ZZ_FX17_HOOK", "hook-editor");
+  const slug = "zz-fx17-hook-slug-guarded-owner";
+  const id = await reporter("hooked", owner, "ZZ_FX17_HOOK", {
+    triggers: [{ id: "zz-fx17-hook-t", kind: "webhook", slug, secretKey: "ZZ_FX17_HOOK" }],
+  });
+  await pool.query("INSERT INTO notebook_access (notebook_id, user_id, permission) VALUES ($1, $2, 'editor')", [id, editor.id]);
+  assert.equal((await call(editor, "POST", `/api/notebooks/${id}/deploy`)).status, 200);
+
+  const hook = (secret: string) => fetch(`${base}/hooks/${slug}`, { method: "POST", headers: { "Content-Type": "application/json", "X-Webhook-Secret": secret }, body: "{}" });
+  assert.equal((await hook("hook-editor")).status, 401, "the editor's own value opened the owner's webhook");
+  const ok = await hook("hook-owner");
+  assert.equal(ok.status, 200);
+  assert.equal(((await ok.json()) as { outputs: { got: string } }).outputs.got, "hook-owner");
+});
+
+// ── next ──
 server.close();
 
 // ── finish ──

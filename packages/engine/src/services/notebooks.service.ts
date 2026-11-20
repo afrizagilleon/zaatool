@@ -25,6 +25,8 @@ export interface NotebookRecord {
   name: string;
   runtime: NotebookRuntime;
   document: string;
+  /** Whose secrets it runs with. Null for a notebook nobody owns. */
+  owner_id: string | null;
   created_at: Date;
   updated_at: Date;
 }

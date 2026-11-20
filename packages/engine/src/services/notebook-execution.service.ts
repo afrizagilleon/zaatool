@@ -12,6 +12,7 @@ import { notebooksService } from "./notebooks.service.js";
 import { notebookRunsService } from "./notebook-runs.service.js";
 import { NotebookRunRecorder } from "./notebook-run-recorder.js";
 import { secretsService } from "./secrets.service.js";
+import { notebookAccessService } from "./notebook-access.service.js";
 import type { NotebookCallRequest, NotebookCaller } from "../core/notebook-call.js";
 import type { NotebookPlan } from "../core/notebook-compiler.js";
 import type { NotebookJson, NotebookRunTrigger } from "@zaa-tool/shared";
@@ -262,7 +263,12 @@ export class NotebookExecutionService {
       plan.inputs,
       bindInputs(plan.inputs, request.input)
     );
-    const secrets = await secretsService.getByKeys(plan.secrets);
+    // The callee's owner's, which is not necessarily the caller's: a notebook runs with the
+    // credentials of whoever owns *it*.
+    const secrets = await secretsService.getByKeys(
+      await notebookAccessService.ownerOf(found.id),
+      plan.secrets
+    );
 
     // A called notebook is a run in its own right, with its own id and its own history
     // row. It used to be invisible: a callee that failed at 3am left no record anywhere,
@@ -390,7 +396,9 @@ export class NotebookExecutionService {
     // a webhook can try again, but a missed tick is simply a run that never happened.
     if (runGate.isFull(options.triggerSource === "cron")) throw new TooManyRunsError();
 
-    const secrets = await secretsService.getByKeys(plan.secrets);
+    // The owner's, whoever pressed Run: an editor's run uses the notebook's secrets, not the
+    // editor's own, and the editor never sees them.
+    const secrets = await secretsService.getByKeys(record.owner_id, plan.secrets);
 
     const runId = randomUUID();
     await notebookRunsService.start({
