@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import {
-  cellSpawnIdentity,
+  activeSandbox,
+  ownerHomePath,
+  ownerSpawnIdentity,
+  readSandboxConfig,
   sandboxProblems,
   sandboxWarnings,
 } from "../src/core/sandbox-identity.js";
-import { cellIdentity, configProblems, sandboxIdentity } from "../src/config.js";
+import { activeSandboxConfig, configProblems } from "../src/config.js";
 
 /**
- * K-02 part 2: cells run as an unprivileged user on Linux.
+ * K-02 part 2 and FX-20: cells run as an unprivileged user on Linux, one per owner.
  *
  * The switch itself (`spawn` with `uid`/`gid`) needs Linux and root and is not exercised
  * here. What is: the decision of when and how to switch, and the startup checks around it,
@@ -29,47 +32,61 @@ async function check(name: string, run: () => Promise<void> | void): Promise<voi
 
 const root = () => 0;
 const nonRoot = () => 1000;
-const set = { SANDBOX_UID: "10001", SANDBOX_GID: "10001" };
+const set = { SANDBOX_GID: "10001" };
 
 console.log("\nsandbox-identity (the spawn decision)");
 
-await check("linux + ids set + root: uid, gid and a home for HOME, TMPDIR and uv", () => {
-  const got = cellSpawnIdentity("linux", set, root);
-  assert.deepEqual(got.options, { uid: 10001, gid: 10001 });
+await check("linux + gid set + root: the range has defaults, the owner's uid and home come from it", () => {
+  const config = activeSandbox("linux", set, root)!;
+  assert.deepEqual(config, { uidBase: 20000, uidCount: 40000, gid: 10001, home: "/home/sandbox" });
+  const got = ownerSpawnIdentity(config, 20003);
+  assert.deepEqual(got.options, { uid: 20003, gid: 10001 });
   assert.deepEqual(got.env, {
-    HOME: "/home/sandbox",
-    TMPDIR: "/home/sandbox/tmp",
-    UV_CACHE_DIR: "/home/sandbox/.cache/uv",
+    HOME: "/home/sandbox/owners/20003",
+    TMPDIR: "/home/sandbox/owners/20003/tmp",
+    UV_CACHE_DIR: "/home/sandbox/owners/20003/.cache/uv",
   });
 });
 
-await check("SANDBOX_HOME moves all three", () => {
-  const got = cellSpawnIdentity("linux", { ...set, SANDBOX_HOME: "/srv/cells" }, root);
-  assert.equal(got.env.HOME, "/srv/cells");
-  assert.equal(got.env.TMPDIR, "/srv/cells/tmp");
-  assert.equal(got.env.UV_CACHE_DIR, "/srv/cells/.cache/uv");
+await check("two owners get two different homes", () => {
+  const config = readSandboxConfig(set)!;
+  assert.notEqual(ownerHomePath(config, 20000), ownerHomePath(config, 20001));
 });
 
-await check("linux + ids unset: nothing", () => {
-  assert.deepEqual(cellSpawnIdentity("linux", {}, root), { options: {}, env: {} });
+await check("SANDBOX_HOME, SANDBOX_UID_BASE and SANDBOX_UID_COUNT move the range and the home", () => {
+  const config = readSandboxConfig({
+    ...set,
+    SANDBOX_HOME: "/srv/cells",
+    SANDBOX_UID_BASE: "50000",
+    SANDBOX_UID_COUNT: "10",
+  })!;
+  assert.equal(ownerHomePath(config, 50009), "/srv/cells/owners/50009");
+  assert.equal(ownerSpawnIdentity(config, 50009).options.uid, 50009);
 });
 
-await check("linux + only one id set: nothing", () => {
-  assert.deepEqual(cellSpawnIdentity("linux", { SANDBOX_UID: "10001" }, root), { options: {}, env: {} });
+await check("a uid outside the range is refused rather than used", () => {
+  const config = readSandboxConfig({ ...set, SANDBOX_UID_COUNT: "10" })!;
+  assert.throws(() => ownerSpawnIdentity(config, 20010), /outside 20000\.\.20009/);
+  assert.throws(() => ownerSpawnIdentity(config, 0), /outside/);
 });
 
-await check("linux + ids set + not root: nothing (the engine cannot switch)", () => {
-  assert.deepEqual(cellSpawnIdentity("linux", set, nonRoot), { options: {}, env: {} });
+await check("linux + gid unset: nothing", () => {
+  assert.equal(activeSandbox("linux", {}, root), undefined);
+});
+
+await check("linux + configured + not root: nothing (the engine cannot switch)", () => {
+  assert.equal(activeSandbox("linux", set, nonRoot), undefined);
 });
 
 await check("win32: nothing, whatever is set", () => {
-  assert.deepEqual(cellSpawnIdentity("win32", set, root), { options: {}, env: {} });
+  assert.equal(activeSandbox("win32", set, root), undefined);
 });
 
 console.log("\nsandbox-identity (startup checks)");
 
 await check("linux + set + root: no problem", () => {
   assert.deepEqual(sandboxProblems("linux", set, root), []);
+  assert.deepEqual(sandboxProblems("linux", { ...set, SANDBOX_UID_BASE: "30000", SANDBOX_UID_COUNT: "5" }, root), []);
 });
 
 await check("linux + set + non-root: refuses, and says why", () => {
@@ -82,13 +99,30 @@ await check("linux + unset: no problem", () => {
   assert.deepEqual(sandboxProblems("linux", {}, nonRoot), []);
 });
 
-await check("linux + a half-set or non-numeric pair is a problem", () => {
+await check("the old SANDBOX_UID alone is refused with a migration message", () => {
+  const problems = sandboxProblems("linux", { SANDBOX_UID: "10001", SANDBOX_GID: "10001" }, root);
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /SANDBOX_UID is no longer used/);
+  assert.match(problems[0], /SANDBOX_UID_BASE/);
   assert.equal(sandboxProblems("linux", { SANDBOX_UID: "10001" }, root).length, 1);
-  assert.equal(sandboxProblems("linux", { SANDBOX_UID: "sandbox", SANDBOX_GID: "1" }, root).length, 1);
 });
 
-await check("linux + uid 0 is a problem: that is root", () => {
-  assert.equal(sandboxProblems("linux", { SANDBOX_UID: "0", SANDBOX_GID: "0" }, root).length, 1);
+await check("linux + a base or count without a gid, or non-numeric, is a problem", () => {
+  assert.equal(sandboxProblems("linux", { SANDBOX_UID_BASE: "20000" }, root).length, 1);
+  assert.equal(sandboxProblems("linux", { ...set, SANDBOX_UID_BASE: "owner" }, root).length, 1);
+  assert.equal(sandboxProblems("linux", { ...set, SANDBOX_UID_COUNT: "0" }, root).length, 1);
+});
+
+await check("linux + uid 0 or gid 0 is a problem: that is root", () => {
+  assert.equal(sandboxProblems("linux", { SANDBOX_GID: "0" }, root).length, 1);
+  assert.equal(sandboxProblems("linux", { ...set, SANDBOX_UID_BASE: "0" }, root).length, 1);
+});
+
+await check("a range that runs past the highest Linux uid is a problem", () => {
+  assert.equal(
+    sandboxProblems("linux", { ...set, SANDBOX_UID_BASE: "4294960000", SANDBOX_UID_COUNT: "40000" }, root).length,
+    1
+  );
 });
 
 await check("win32: no problem, one warning that it is ignored", () => {
@@ -100,23 +134,20 @@ await check("win32: no problem, one warning that it is ignored", () => {
 
 console.log("\nsandbox-identity (config wiring, on this platform)");
 
-await check("configProblems and cellIdentity read the environment at call time", () => {
+await check("configProblems and activeSandboxConfig read the environment at call time", () => {
   const old = { uid: process.env.SANDBOX_UID, gid: process.env.SANDBOX_GID };
   try {
     delete process.env.SANDBOX_UID;
     delete process.env.SANDBOX_GID;
-    assert.equal(sandboxIdentity(), undefined);
+    assert.equal(activeSandboxConfig(), undefined);
 
-    process.env.SANDBOX_UID = "10001";
     process.env.SANDBOX_GID = "10001";
-    assert.deepEqual(sandboxIdentity(), { uid: 10001, gid: 10001, home: "/home/sandbox" });
-
     const isRoot = process.platform !== "win32" && process.getuid?.() === 0;
     if (process.platform === "win32") {
       assert.deepEqual(configProblems(), []);
-      assert.deepEqual(cellIdentity(), { options: {}, env: {} });
+      assert.equal(activeSandboxConfig(), undefined);
     } else if (isRoot) {
-      assert.deepEqual(cellIdentity().options, { uid: 10001, gid: 10001 });
+      assert.equal(activeSandboxConfig()?.gid, 10001);
     } else {
       assert.equal(configProblems().length, 1);
     }

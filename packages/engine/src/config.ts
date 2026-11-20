@@ -15,13 +15,7 @@
  * script can run under different settings without reloading modules.
  */
 
-import {
-  cellSpawnIdentity,
-  readSandboxIdentity,
-  sandboxProblems,
-  type CellSpawnIdentity,
-  type SandboxIdentity,
-} from "./core/sandbox-identity.js";
+import { activeSandbox, sandboxProblems, type SandboxConfig } from "./core/sandbox-identity.js";
 import { isValidTimeZone } from "./core/cron.js";
 import { parseSecretsKey } from "./core/secrets-crypto.js";
 
@@ -223,17 +217,13 @@ export function maxNotebookStorageBytes(): number {
 }
 
 /**
- * The unprivileged user cells run as, from `SANDBOX_UID` / `SANDBOX_GID` / `SANDBOX_HOME`.
- * Unset (or missing either id) means no drop: cells run as the engine does. See
- * `core/sandbox-identity` for what is done with it, and why only on POSIX.
+ * The sandbox in force on this machine, from `SANDBOX_GID` / `SANDBOX_UID_BASE` /
+ * `SANDBOX_UID_COUNT` / `SANDBOX_HOME`: configured, not Windows, and this process is root.
+ * Undefined means no drop: cells run as the engine does. See `core/sandbox-identity` for
+ * what is done with it, and why only on POSIX.
  */
-export function sandboxIdentity(): SandboxIdentity | undefined {
-  return readSandboxIdentity(process.env);
-}
-
-/** Spawn options and environment that put a cell child under {@link sandboxIdentity}. */
-export function cellIdentity(): CellSpawnIdentity {
-  return cellSpawnIdentity(process.platform, process.env, process.getuid?.bind(process));
+export function activeSandboxConfig(): SandboxConfig | undefined {
+  return activeSandbox(process.platform, process.env, process.getuid?.bind(process));
 }
 
 /**
@@ -281,4 +271,9 @@ export function configProblems(): string[] {
   }
 
   return problems;
+}
+
+/** Removed in the next commit; keeps the runners compiling until they take the owner's identity. */
+export function cellIdentity(): { options: { uid?: number; gid?: number }; env: Record<string, string> } {
+  return { options: {}, env: {} };
 }

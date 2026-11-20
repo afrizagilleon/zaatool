@@ -243,6 +243,18 @@ export async function initDb() {
       END $$;
     `);
 
+    // The uid this account's notebooks' cells run as on Linux (FX-20), handed out the first
+    // time one of them runs. UNIQUE: two owners sharing a uid would share everything the
+    // kernel keeps apart. Null until then, and always null where cells do not change uid.
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE users ADD COLUMN sandbox_uid INTEGER UNIQUE;
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
+
     // ── Who owns what (FX17) ─────────────────────────────────────────────────────
     //
     // Each block adds its column and backfills it in the same `DO`, so the backfill runs
