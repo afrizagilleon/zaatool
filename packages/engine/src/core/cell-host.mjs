@@ -37,10 +37,11 @@ export const DENIED_BUILTINS = new Set([
 ]);
 
 /**
- * Storage root the engine handed this process. FileObject derives what it reads from
- * `path` and this root; it never trusts an `absolute_path` that arrived as data.
+ * The files the engine copied into this process's own folder: storage path (as the engine
+ * normalised it) to the copy. A FileObject reads only through this; it never trusts an
+ * `absolute_path` that arrived as data, and it has no storage folder to look in.
  */
-let storageRoot = "";
+const staged = new Map();
 
 export class Table {
   constructor(rows) {
@@ -86,11 +87,9 @@ export class FileObject {
   }
 
   #derive(rel) {
-    if (!storageRoot || typeof rel !== "string" || rel.trim() === "") return "";
-    const stripped = rel.trim().replace(/^[/\\]+/, "");
-    if (!stripped || nodePath.isAbsolute(stripped)) return "";
-    const resolved = nodePath.resolve(storageRoot, stripped);
-    return resolved.startsWith(storageRoot + nodePath.sep) ? resolved : "";
+    if (typeof rel !== "string" || rel.trim() === "") return "";
+    const key = nodePath.posix.normalize(rel.trim().replace(/\\/g, "/").replace(/^\/+/, ""));
+    return staged.get(key) ?? "";
   }
 
   readAsText() {
@@ -166,7 +165,11 @@ process.on("message", (msg) => {
         : undefined;
   if (!waiting) return;
 
-  if (msg.type === "call:result") pending.delete(msg.id);
+  if (msg.type === "call:result") {
+    // Files the callee handed back, copied in by the engine before this reply was sent.
+    for (const [key, copy] of Object.entries(msg.staged ?? {})) staged.set(key, copy);
+    pending.delete(msg.id);
+  }
   else fileWrites.delete(msg.id);
 
   if (msg.ok) waiting.resolve(msg.value);
@@ -251,7 +254,7 @@ async function run(init) {
     const { code, inputs, inputsSchema, packages } = init;
     canCall = Boolean(init.canCall);
     canWriteFile = Boolean(init.canWriteFile);
-    storageRoot = typeof init.storageRoot === "string" ? nodePath.resolve(init.storageRoot) : "";
+    for (const [key, copy] of Object.entries(init.staged ?? {})) staged.set(key, copy);
 
     /**
      * `require`, narrowed to what the notebook declared.

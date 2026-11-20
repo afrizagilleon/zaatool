@@ -114,8 +114,12 @@ export class NotebookFilesService {
    *
    * Built per run rather than imported as a singleton so the notebook's identity is
    * closed over: a cell asks for `chart.png` and cannot ask for anybody else's.
+   *
+   * A file it writes is added to `grants` (the run chain's, see `admitInputFiles`): the
+   * run that wrote it may be handed it back — as an output, or as an input to the next
+   * cell — and so may whoever that run passes it on to.
    */
-  writerFor(notebookId: string): FileWriter {
+  writerFor(notebookId: string, grants?: Set<string>): FileWriter {
     return async (request: FileWriteRequest): Promise<StoredFile> => {
       const problem = fileWriteProblem(request);
       if (problem) throw new Error(problem);
@@ -136,7 +140,9 @@ export class NotebookFilesService {
       fs.mkdirSync(folder, { recursive: true });
       fs.writeFileSync(path.join(folder, filename), bytes);
 
-      return describe(`notebooks/${segment(notebookId)}/${filename}`, bytes.byteLength);
+      const stored = describe(`notebooks/${segment(notebookId)}/${filename}`, bytes.byteLength);
+      grants?.add(stored.path);
+      return stored;
     };
   }
 

@@ -287,7 +287,7 @@ export class NotebookExecutionService {
     const calleeOwner = await notebookAccessService.ownerOf(found.id);
     const secrets = await secretsService.getByKeys(calleeOwner, plan.secrets);
     // The callee's cells run as the callee's owner, as its secrets are the owner's.
-    const host = await cellHostForOwner(calleeOwner);
+    const host = await cellHostForOwner(calleeOwner, context.grants);
 
     // A called notebook is a run in its own right, with its own id and its own history
     // row. It used to be invisible: a callee that failed at 3am left no record anywhere,
@@ -337,7 +337,7 @@ export class NotebookExecutionService {
       call: (nestedRequest) => this.callNotebook(nestedRequest, nested),
       // A callee writes into its own folder, not the caller's: a file belongs to the
       // notebook that produced it, however deep in a chain that notebook sits.
-      file: notebookFilesService.writerFor(found.id),
+      file: notebookFilesService.writerFor(found.id, context.grants),
       signal: context.signal,
       host,
     });
@@ -436,7 +436,7 @@ export class NotebookExecutionService {
     const secrets = await secretsService.getByKeys(record.owner_id, plan.secrets);
     // Also the owner's: every cell of this notebook runs as their uid. Refused here, before a
     // run row exists, when there is none to give (no owner, or the uid range is full).
-    const host = await cellHostForOwner(record.owner_id);
+    const host = await cellHostForOwner(record.owner_id, grants);
 
     const runId = randomUUID();
     await notebookRunsService.start({
@@ -498,7 +498,7 @@ export class NotebookExecutionService {
             grants,
             options.startedBy
           ),
-          file: notebookFilesService.writerFor(notebookId),
+          file: notebookFilesService.writerFor(notebookId, grants),
           signal: controller.signal,
           host,
         });

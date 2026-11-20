@@ -7,7 +7,6 @@ import { PY_RPC_PREFIX, pyRpcPrefix, type NotebookCaller } from "./notebook-call
 import type { FileWriter } from "./notebook-files.js";
 import { defaultCellHost, type CellHost, type CellWorkspace } from "./cell-workspace.js";
 import type { CellSpawnIdentity } from "./sandbox-identity.js";
-import { STORAGE_DIR } from "./storage-root.js";
 
 /**
  * Whether the code defines its own top-level `main` (`def main(` or `async def main(` at
@@ -181,7 +180,7 @@ export function runPythonNode(
     // This process's own folder, made before it starts and removed when it is over; see js-runner.
     let workspace: CellWorkspace;
     try {
-      workspace = host.open();
+      workspace = host.open(inputs);
     } catch (err) {
       resolve({ error: err instanceof Error ? err.message : String(err), logs, ms: Date.now() - startTime });
       return;
@@ -198,7 +197,7 @@ export function runPythonNode(
     }
 
     const wrapper = `
-import json, sys, os, base64, traceback
+import json, sys, os, base64, traceback, posixpath
 
 class Table:
     def __init__(self, rows):
@@ -227,20 +226,16 @@ class Table:
     def to_json(self):
         return self.rows
 
-_STORAGE_ROOT = ""
+_STAGED = {}
 
 def _zaa_derive(rel):
-    # Never trust an absolute_path that arrived as data: derive from path, contained in root.
-    if not _STORAGE_ROOT or not isinstance(rel, str) or not rel.strip():
+    # Never trust an absolute_path that arrived as data. A file is readable only if the
+    # engine copied it into this process's own folder and said so: _STAGED maps the storage
+    # path the engine granted to that copy, and nothing else resolves.
+    if not isinstance(rel, str) or not rel.strip():
         return ""
-    stripped = rel.strip().lstrip("/\\\\")
-    if not stripped or os.path.isabs(stripped):
-        return ""
-    root = os.path.realpath(_STORAGE_ROOT)
-    resolved = os.path.realpath(os.path.join(root, stripped))
-    if not resolved.startswith(root + os.sep):
-        return ""
-    return resolved
+    key = posixpath.normpath(rel.strip().replace("\\\\", "/").lstrip("/"))
+    return _STAGED.get(key, "")
 
 class FileObject:
     def __init__(self, file_data):
@@ -330,6 +325,7 @@ class _Notebooks:
         while True:
             frame = _zaa_receive()
             if frame.get("type") == "call:result" and frame.get("id") == call_id:
+                _STAGED.update(frame.get("staged") or {})
                 if frame.get("ok"):
                     return frame.get("value")
                 raise RuntimeError(frame.get("error") or "the call failed")
@@ -371,7 +367,7 @@ files = _Files()
 
 payload = _zaa_receive()
 _ZAA = ${JSON.stringify(PY_RPC_PREFIX)} + str(payload.get("marker", "")) + "@@"
-_STORAGE_ROOT = payload.get("storageRoot", "")
+_STAGED.update(payload.get("staged") or {})
 inputs = payload.get("inputs", {})
 inputs_schema = payload.get("inputsSchema", [])
 notebooks._enabled = bool(payload.get("canCall"))
@@ -515,7 +511,8 @@ except Exception as err:
         }
         pauseTimer();
         void onCall({ notebook: frame.notebook, input: frame.input })
-          .then((value) => ({ ok: true as const, value }))
+          // See js-runner: the callee's granted files are copied in before the cell hears back.
+          .then((value) => ({ ok: true as const, value, staged: workspace.stageFrom(value) }))
           .catch((err: unknown) => ({
             ok: false as const,
             error: err instanceof Error ? err.message : String(err),
@@ -584,7 +581,7 @@ except Exception as err:
     // The child reads this as its first line and keeps stdin open for call replies.
     send({
       marker,
-      storageRoot: STORAGE_DIR,
+      staged: workspace.staged,
       inputs,
       inputsSchema,
       canCall: Boolean(onCall),

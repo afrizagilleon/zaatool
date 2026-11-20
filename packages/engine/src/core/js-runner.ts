@@ -73,7 +73,7 @@ export function runJsNode(
     // with the sandbox on it belongs to the owner's uid, and so does the process.
     let workspace: CellWorkspace;
     try {
-      workspace = host.open();
+      workspace = host.open(inputs);
     } catch (err) {
       resolve({ error: err instanceof Error ? err.message : String(err), logs, ms: Date.now() - startTime });
       return;
@@ -192,7 +192,9 @@ export function runJsNode(
 
         pauseTimer();
         void onCall({ notebook: msg.notebook, input: msg.input })
-          .then((value) => ({ ok: true as const, value }))
+          // The callee's files this cell may read are copied into its folder before it is
+          // told the call is over, and the cell is told where they are.
+          .then((value) => ({ ok: true as const, value, staged: workspace.stageFrom(value) }))
           .catch((err: unknown) => ({
             ok: false as const,
             error: err instanceof Error ? err.message : String(err),
@@ -274,7 +276,7 @@ export function runJsNode(
       canCall: Boolean(onCall),
       canWriteFile: Boolean(onFile),
       packages,
-      storageRoot: STORAGE_DIR,
+      staged: workspace.staged,
     });
   });
 }

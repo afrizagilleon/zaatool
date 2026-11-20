@@ -22,10 +22,13 @@ export class NotebookWithoutOwnerError extends Error {
  *
  * Every cell of a notebook runs as its *owner*, whoever pressed Run: the editor's code
  * already holds the owner's secrets, so the owner is the one domain of trust.
+ *
+ * `grants` are the storage paths this run's chain may copy into a cell's folder; the set is
+ * read live, so a file granted after the host was made (one a cell has just written) counts.
  */
-export async function cellHostForOwner(ownerId: string | null): Promise<CellHost> {
+export async function cellHostForOwner(ownerId: string | null, grants: Set<string>): Promise<CellHost> {
   const config = activeSandboxConfig();
-  if (!config) return createCellHost({ ownerKey: ownerId ?? "none" });
+  if (!config) return createCellHost({ ownerKey: ownerId ?? "none", grants });
   if (ownerId === null) throw new NotebookWithoutOwnerError();
-  return createCellHost({ sandbox: { config, uid: await sandboxUidFor(ownerId, config) } });
+  return createCellHost({ sandbox: { config, uid: await sandboxUidFor(ownerId, config) }, grants });
 }

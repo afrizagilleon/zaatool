@@ -294,7 +294,7 @@ export class NotebooksService {
     let lockedPackages: string[] | null = null;
     if (record.runtime === "python" && Array.isArray(doc.packages) && doc.packages.length > 0) {
       // As the notebook's owner, with their package cache: the same user its cells run as.
-      const host = await cellHostForOwner(record.owner_id);
+      const host = await cellHostForOwner(record.owner_id, new Set());
       lockedPackages = await resolvePythonLockedPackages(doc.packages, host.spawn);
     }
 
