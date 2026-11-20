@@ -13,6 +13,7 @@ import { notebookRunsService } from "./notebook-runs.service.js";
 import { NotebookRunRecorder } from "./notebook-run-recorder.js";
 import { secretsService } from "./secrets.service.js";
 import { notebookAccessService } from "./notebook-access.service.js";
+import { cellHostForOwner } from "./cell-host.service.js";
 import type { NotebookCallRequest, NotebookCaller } from "../core/notebook-call.js";
 import type { NotebookPlan } from "../core/notebook-compiler.js";
 import type { NotebookJson, NotebookRunTrigger } from "@zaa-tool/shared";
@@ -274,10 +275,10 @@ export class NotebookExecutionService {
     );
     // The callee's owner's, which is not necessarily the caller's: a notebook runs with the
     // credentials of whoever owns *it*.
-    const secrets = await secretsService.getByKeys(
-      await notebookAccessService.ownerOf(found.id),
-      plan.secrets
-    );
+    const calleeOwner = await notebookAccessService.ownerOf(found.id);
+    const secrets = await secretsService.getByKeys(calleeOwner, plan.secrets);
+    // The callee's cells run as the callee's owner, as its secrets are the owner's.
+    const host = await cellHostForOwner(calleeOwner);
 
     // A called notebook is a run in its own right, with its own id and its own history
     // row. It used to be invisible: a callee that failed at 3am left no record anywhere,
@@ -328,6 +329,7 @@ export class NotebookExecutionService {
       // notebook that produced it, however deep in a chain that notebook sits.
       file: notebookFilesService.writerFor(found.id),
       signal: context.signal,
+      host,
     });
     await recorder.drain();
 
@@ -408,6 +410,9 @@ export class NotebookExecutionService {
     // The owner's, whoever pressed Run: an editor's run uses the notebook's secrets, not the
     // editor's own, and the editor never sees them.
     const secrets = await secretsService.getByKeys(record.owner_id, plan.secrets);
+    // Also the owner's: every cell of this notebook runs as their uid. Refused here, before a
+    // run row exists, when there is none to give (no owner, or the uid range is full).
+    const host = await cellHostForOwner(record.owner_id);
 
     const runId = randomUUID();
     await notebookRunsService.start({
@@ -470,6 +475,7 @@ export class NotebookExecutionService {
           ),
           file: notebookFilesService.writerFor(notebookId),
           signal: controller.signal,
+          host,
         });
         // Waiting for the recorder means a caller that reads the run the moment this
         // resolves sees every cell, not whichever writes happened to land first.

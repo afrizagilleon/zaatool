@@ -9,6 +9,7 @@ import { stampAuthors } from "../core/notebook-provenance.js";
 import { toolNameFor } from "../core/notebook-tool-name.js";
 import { notifyCatalogChanged } from "../core/catalog-events.js";
 import { resolvePythonLockedPackages } from "../core/python-runner.js";
+import { cellHostForOwner } from "./cell-host.service.js";
 import { cronProblem } from "../core/cron.js";
 import { normaliseTags } from "@zaa-tool/shared";
 import { notebookAccessService } from "./notebook-access.service.js";
@@ -292,7 +293,9 @@ export class NotebooksService {
 
     let lockedPackages: string[] | null = null;
     if (record.runtime === "python" && Array.isArray(doc.packages) && doc.packages.length > 0) {
-      lockedPackages = await resolvePythonLockedPackages(doc.packages);
+      // As the notebook's owner, with their package cache: the same user its cells run as.
+      const host = await cellHostForOwner(record.owner_id);
+      lockedPackages = await resolvePythonLockedPackages(doc.packages, host.spawn);
     }
 
     const versionId = uuidv4();

@@ -5,6 +5,7 @@ import { runPythonNode } from "./python-runner.js";
 import { selectOutputs } from "./notebook-contract.js";
 import { abortMessage } from "./run-abort.js";
 import type { NotebookCaller } from "./notebook-call.js";
+import type { CellHost } from "./cell-workspace.js";
 import type { FileWriter } from "./notebook-files.js";
 import type { NotebookPlan, PlanCell, PlanLane, PlanParallel, PlanStep } from "./notebook-compiler.js";
 
@@ -29,6 +30,11 @@ export interface RunNotebookOptions {
    * it. Every running cell is stopped and the run fails with the abort reason.
    */
   signal?: AbortSignal;
+  /**
+   * Whose processes these are: the notebook owner's uid and folders. Absent only where there
+   * is no sandbox to speak of (a script, a test), which gets a plain temp folder.
+   */
+  host?: CellHost;
 }
 
 export interface NotebookRunResult {
@@ -65,7 +71,7 @@ export async function runNotebook(
   plan: NotebookPlan,
   options: RunNotebookOptions = {}
 ): Promise<NotebookRunResult> {
-  const { ee, secrets = {}, input, call, file, signal } = options;
+  const { ee, secrets = {}, input, call, file, signal, host } = options;
   const startedAt = Date.now();
   const runCell = runnerFor(plan);
   const rootScope = new NotebookScope();
@@ -105,7 +111,8 @@ export async function runNotebook(
       callFromCell,
       file,
       plan.packages ?? [],
-      signal
+      signal,
+      host
     );
 
     if (result.error) {

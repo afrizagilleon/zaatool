@@ -6,7 +6,8 @@ import { killTree, TREE_SPAWN_OPTIONS } from "./kill-tree.js";
 import type { NotebookCaller } from "./notebook-call.js";
 import type { FileWriter } from "./notebook-files.js";
 import { abortMessage } from "./run-abort.js";
-import { cellIdentity, maxCellMemoryMb } from "../config.js";
+import { maxCellMemoryMb } from "../config.js";
+import { defaultCellHost, type CellHost, type CellWorkspace } from "./cell-workspace.js";
 import { STORAGE_DIR } from "./storage-root.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -59,14 +60,25 @@ export function runJsNode(
   onFile?: FileWriter,
   packages: string[] = [],
   /** Aborted by the run's deadline or a cancel; the cell then ends with the abort reason. */
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  /** Whose process this is: its uid and its folders. Without one, a plain temp folder. */
+  host: CellHost = defaultCellHost()
 ): Promise<RunResult> {
   return new Promise((resolve) => {
     const startTime = Date.now();
     const logs: RunResult["logs"] = [];
     const memoryMb = maxCellMemoryMb();
-    // On Linux with SANDBOX_UID set the child is not root and has its own HOME and TMPDIR.
-    const identity = cellIdentity();
+
+    // This process's own folder, made before it starts and removed when it is over. On Linux
+    // with the sandbox on it belongs to the owner's uid, and so does the process.
+    let workspace: CellWorkspace;
+    try {
+      workspace = host.open();
+    } catch (err) {
+      resolve({ error: err instanceof Error ? err.message : String(err), logs, ms: Date.now() - startTime });
+      return;
+    }
+    const identity = workspace.spawn;
 
     // `process.execPath`, not `process.execArgv`: the engine may be running under `tsx`,
     // and the cell must not inherit its loader (or any other flag of the engine's).
@@ -76,6 +88,7 @@ export function runJsNode(
         "--permission",
         `--allow-fs-read=${CELL_HOST}`,
         `--allow-fs-read=${STORAGE_DIR}`,
+        `--allow-fs-read=${workspace.dir}`,
         ...PACKAGE_DIRS.map((dir) => `--allow-fs-read=${dir}`),
         `--max-old-space-size=${memoryMb}`,
         CELL_HOST,
@@ -111,6 +124,7 @@ export function runJsNode(
           killTree(proc);
         }
       }
+      workspace.dispose();
       resolve({ ...result, logs, ms: Date.now() - startTime });
     };
 
@@ -235,6 +249,8 @@ export function runJsNode(
     // cause is the heap cap. The engine reports it as the cell's failure and carries on.
     proc.on("close", (code, sig) => {
       exited = true;
+      // Again: whatever the process wrote after `finish` took the folder goes with it.
+      workspace.dispose();
       setImmediate(() => {
         if (settled) return;
         const tail = stderr.trim();

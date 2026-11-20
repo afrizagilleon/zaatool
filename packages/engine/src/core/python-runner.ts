@@ -5,7 +5,8 @@ import { abortMessage } from "./run-abort.js";
 import { randomBytes } from "node:crypto";
 import { PY_RPC_PREFIX, pyRpcPrefix, type NotebookCaller } from "./notebook-call.js";
 import type { FileWriter } from "./notebook-files.js";
-import { cellIdentity } from "../config.js";
+import { defaultCellHost, type CellHost, type CellWorkspace } from "./cell-workspace.js";
+import type { CellSpawnIdentity } from "./sandbox-identity.js";
 import { STORAGE_DIR } from "./storage-root.js";
 
 /**
@@ -69,7 +70,14 @@ function uvLockTimeoutMs(): number {
   return (Number.isFinite(seconds) && seconds > 0 ? seconds : 120) * 1000;
 }
 
-export function resolvePythonLockedPackages(packages: string[]): Promise<string[]> {
+/**
+ * `identity` is the notebook owner's (see `CellHost.spawn`): the install runs as them, with
+ * their package cache, exactly as their cells will.
+ */
+export function resolvePythonLockedPackages(
+  packages: string[],
+  identity: CellSpawnIdentity = { options: {}, env: {} }
+): Promise<string[]> {
   if (!Array.isArray(packages) || packages.length === 0) {
     return Promise.resolve([]);
   }
@@ -102,7 +110,6 @@ print(json.dumps(locked))
 
     // Installing declared packages runs arbitrary package code (build scripts, setup.py),
     // so it gets what the cell itself gets: no engine environment, and not root.
-    const identity = cellIdentity();
     const proc = spawn(bin, args, {
       env: { ...buildSandboxEnv({}), ...identity.env },
       ...identity.options,
@@ -163,11 +170,22 @@ export function runPythonNode(
   onFile?: FileWriter,
   packages: string[] = [],
   /** Aborted by the run's deadline or a cancel; the cell then ends with the abort reason. */
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  /** Whose process this is: its uid and its folders. Without one, a plain temp folder. */
+  host: CellHost = defaultCellHost()
 ): Promise<{ output?: Record<string, unknown>; logs: any[]; error?: string; ms: number }> {
   return new Promise((resolve) => {
     const startTime = Date.now();
     const logs: any[] = [];
+
+    // This process's own folder, made before it starts and removed when it is over; see js-runner.
+    let workspace: CellWorkspace;
+    try {
+      workspace = host.open();
+    } catch (err) {
+      resolve({ error: err instanceof Error ? err.message : String(err), logs, ms: Date.now() - startTime });
+      return;
+    }
 
     // wrapper: wrap user's code in def main(inputs), call it, and print output if def main is not defined
     let finalCode = code;
@@ -417,7 +435,7 @@ except Exception as err:
             args: ["-c", wrapper],
           };
 
-    const identity = cellIdentity();
+    const identity = workspace.spawn;
     const proc = spawn(command.bin, command.args, {
       env: { PYTHONIOENCODING: "utf-8", ...buildSandboxEnv(secrets), ...identity.env },
       ...TREE_SPAWN_OPTIONS,
@@ -444,6 +462,7 @@ except Exception as err:
       // Whenever the engine gives up on the run (timeout, spawn error, ...) and the
       // process is still alive, take down the whole tree, not just `uv`.
       if (!exited) killTree(proc);
+      workspace.dispose();
       resolve({ ...result, logs, ms: Date.now() - startTime });
     };
 
@@ -586,6 +605,8 @@ except Exception as err:
 
     proc.on("close", (code) => {
       exited = true;
+      // Again: whatever the process wrote after `finish` took the folder goes with it.
+      workspace.dispose();
       if (finalError) return finish({ error: finalError });
       if (finalOutput !== undefined) return finish({ output: finalOutput });
       if (code !== 0) return finish({ error: stderr.trim() || "Python process failed" });

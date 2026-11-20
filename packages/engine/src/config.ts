@@ -272,8 +272,3 @@ export function configProblems(): string[] {
 
   return problems;
 }
-
-/** Removed in the next commit; keeps the runners compiling until they take the owner's identity. */
-export function cellIdentity(): { options: { uid?: number; gid?: number }; env: Record<string, string> } {
-  return { options: {}, env: {} };
-}
