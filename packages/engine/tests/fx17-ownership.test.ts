@@ -14,6 +14,7 @@ import assert from "node:assert/strict";
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
 import { authService } from "../src/services/auth.service.js";
+import { notebookAccessService } from "../src/services/notebook-access.service.js";
 
 let passed = 0;
 let failed = 0;
@@ -170,6 +171,154 @@ await check("D-8 / D-6: with no creator at all the owner is NULL and no secret i
 
 await clean();
 
+// ── the cast ──────────────────────────────────────────────────────────────────
+//
+// Five people and the notebooks they stand in front of. `owner` made them; `editor` was
+// invited; `other` is a creator with no part in them; `viewer` has a viewer account; and
+// `chosen` is a viewer the owner named for the `selected` app.
+
+interface Person {
+  id: string;
+  username: string;
+  token: string;
+  headers: Record<string, string>;
+}
+
+async function person(name: string, role: "creator" | "viewer"): Promise<Person> {
+  const created = await authService.createUser(`zz-fx17-${name}`, PASSWORD, role);
+  const token = (await authService.login(`zz-fx17-${name}`, PASSWORD)).token;
+  return { id: created.id, username: created.username, token, headers: { Authorization: `Bearer ${token}` } };
+}
+
+const owner = await person("owner", "creator");
+const editor = await person("editor", "creator");
+const other = await person("other", "creator");
+const viewer = await person("viewer", "viewer");
+const chosen = await person("chosen", "viewer");
+
+interface Seed {
+  owner: Person | null;
+  /** A deployed version of the same document, or the notebook stays a draft. */
+  deployed?: boolean;
+  visibility?: "all" | "selected";
+  editors?: Person[];
+  appUsers?: Person[];
+}
+
+/** A notebook made straight in the tables, so the access rule is tested on its own. */
+async function seed(name: string, options: Seed): Promise<string> {
+  const id = `zz-fx17-nb-${name}`;
+  const document = {
+    version: "1.0",
+    id,
+    name: `zz-fx17-${name}`,
+    runtime: "node",
+    outputs: ["answer"],
+    steps: [{ id: `cell-${name}`, kind: "cell", code: `return { answer: '${name}-source-marker' };` }],
+  };
+  await pool.query(
+    "INSERT INTO notebooks (id, name, runtime, document, owner_id, app_visibility) VALUES ($1, $2, 'node', $3, $4, $5)",
+    [id, document.name, JSON.stringify(document), options.owner?.id ?? null, options.visibility ?? "all"]
+  );
+  if (options.deployed) {
+    await pool.query(
+      "INSERT INTO notebook_versions (id, notebook_id, document, deployed_by) VALUES ($1, $2, $3, 'zz-fx17-owner')",
+      [`zz-fx17-v-${name}`, id, JSON.stringify(document)]
+    );
+    await pool.query("UPDATE notebooks SET deployed_version_id = $1 WHERE id = $2", [`zz-fx17-v-${name}`, id]);
+  }
+  for (const who of options.editors ?? []) {
+    await pool.query("INSERT INTO notebook_access (notebook_id, user_id, permission) VALUES ($1, $2, 'editor')", [id, who.id]);
+  }
+  for (const who of options.appUsers ?? []) {
+    await pool.query("INSERT INTO notebook_access (notebook_id, user_id, permission) VALUES ($1, $2, 'app')", [id, who.id]);
+  }
+  return id;
+}
+
+const everyone = await seed("open", { owner, deployed: true, editors: [editor] });
+const picked = await seed("picked", { owner, deployed: true, visibility: "selected", editors: [editor], appUsers: [chosen] });
+const draft = await seed("draft", { owner, editors: [editor], appUsers: [chosen] });
+const ownerless = await seed("ownerless", { owner: null, deployed: true });
+
+// ── the access module (T-02) ──────────────────────────────────────────────────
+
+console.log("\nwhat a person is to a notebook");
+
+const access = notebookAccessService;
+
+await check("an app open to everyone: owner, editor, and everybody else as a page user", async () => {
+  assert.equal(await access.accessFor(owner.id, everyone), "owner");
+  assert.equal(await access.accessFor(editor.id, everyone), "editor");
+  assert.equal(await access.accessFor(other.id, everyone), "app");
+  assert.equal(await access.accessFor(viewer.id, everyone), "app");
+  assert.equal(await access.accessFor(chosen.id, everyone), "app");
+});
+
+await check("an app for selected people: only those named, besides owner and editor", async () => {
+  assert.equal(await access.accessFor(owner.id, picked), "owner");
+  assert.equal(await access.accessFor(editor.id, picked), "editor");
+  assert.equal(await access.accessFor(chosen.id, picked), "app");
+  assert.equal(await access.accessFor(other.id, picked), null);
+  assert.equal(await access.accessFor(viewer.id, picked), null);
+});
+
+await check("a draft is nobody's page: owner and editor reach it, everyone else gets nothing", async () => {
+  assert.equal(await access.accessFor(owner.id, draft), "owner");
+  assert.equal(await access.accessFor(editor.id, draft), "editor");
+  assert.equal(await access.accessFor(other.id, draft), null);
+  assert.equal(await access.accessFor(viewer.id, draft), null);
+  assert.equal(await access.accessFor(chosen.id, draft), null);
+  assert.equal(await access.canUseApp(owner.id, draft), false, "an undeployed notebook has no app to use");
+});
+
+await check("a notebook that does not exist answers exactly like one that is hidden", async () => {
+  assert.equal(await access.accessFor(other.id, picked), await access.accessFor(other.id, "zz-fx17-no-such-notebook"));
+});
+
+await check("only a creator is ever owner or editor: a viewer holding an editor row is not one", async () => {
+  await pool.query("INSERT INTO notebook_access (notebook_id, user_id, permission) VALUES ($1, $2, 'editor')", [draft, viewer.id]);
+  assert.equal(await access.accessFor(viewer.id, draft), null);
+  assert.equal(await access.canEdit(viewer.id, draft), false);
+  await pool.query("DELETE FROM notebook_access WHERE notebook_id = $1 AND user_id = $2", [draft, viewer.id]);
+});
+
+await check("a deactivated account is nothing to anyone", async () => {
+  await authService.setActive(editor.id, false);
+  assert.equal(await access.accessFor(editor.id, everyone), null);
+  await authService.setActive(editor.id, true);
+  assert.equal(await access.accessFor(editor.id, everyone), "editor");
+});
+
+await check("a notebook without an owner is reachable only as a page", async () => {
+  assert.equal(await access.accessFor(owner.id, ownerless), "app");
+  assert.equal(await access.canEdit(owner.id, ownerless), false);
+  assert.equal(await access.ownerOf(ownerless), null);
+});
+
+await check("the lists the screens are built from follow the same rule", async () => {
+  const mine = (await access.editableIds(owner.id)).filter((id) => id.startsWith("zz-fx17-nb-")).sort();
+  assert.deepEqual(mine, [draft, everyone, picked].sort());
+  assert.deepEqual((await access.editableIds(other.id)).filter((id) => id.startsWith("zz-fx17-nb-")), []);
+
+  const apps = (await access.appIds(viewer.id)).filter((id) => id.startsWith("zz-fx17-nb-")).sort();
+  assert.deepEqual(apps, [everyone, ownerless].sort());
+  const chosenApps = (await access.appIds(chosen.id)).filter((id) => id.startsWith("zz-fx17-nb-")).sort();
+  assert.deepEqual(chosenApps, [everyone, ownerless, picked].sort());
+});
+
+await check("run history: the team reads every run, a page user their own, anyone else none", async () => {
+  assert.equal(await access.runScope(owner.id, everyone), "all");
+  assert.equal(await access.runScope(editor.id, everyone), "all");
+  assert.equal(await access.runScope(viewer.id, everyone), "own");
+  assert.equal(await access.runScope(other.id, picked), "none");
+  assert.equal(await access.canSeeRun(viewer.id, { notebook_id: everyone, started_by: viewer.id }), true);
+  assert.equal(await access.canSeeRun(viewer.id, { notebook_id: everyone, started_by: other.id }), false);
+  assert.equal(await access.canSeeRun(viewer.id, { notebook_id: everyone, started_by: null }), false);
+  assert.equal(await access.canSeeRun(owner.id, { notebook_id: everyone, started_by: null }), true);
+});
+
+// ── finish ──
 console.log(`\n${passed} passed, ${failed} failed`);
 await pool.end();
 process.exit(failed === 0 ? 0 : 1);
