@@ -236,9 +236,10 @@ await check("a slow tick cannot make the next one repeat its minutes", async () 
   });
   scheduler.begin(() => {}, new Date(base));
   const first = scheduler.tick(new Date(base + MIN));
-  await scheduler.tick(new Date(base + MIN + 1_000));
+  const second = scheduler.tick(new Date(base + MIN + 1_000));
   release();
   await first;
+  await second;
   assert.deepEqual(fired, [minuteIso(1)]);
 });
 
