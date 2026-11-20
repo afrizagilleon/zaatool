@@ -22,6 +22,7 @@ import { secretsService } from "../src/services/secrets.service.js";
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
 import type { NotebookJson } from "@zaa-tool/shared";
+import { testOwner, dropOwner } from "./owners.js";
 
 let passed = 0;
 let failed = 0;
@@ -49,15 +50,16 @@ async function cleanup(): Promise<void> {
 }
 
 await initDb();
+const OWNER = (await testOwner("fx15triggers")).id;
 await cleanup();
-await secretsService.create(SECRET_KEY, SECRET_VALUE, true);
+await secretsService.create(OWNER, SECRET_KEY, SECRET_VALUE, true);
 
 const server = http.createServer(createApp(() => {}));
 await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
 async function store(document: Omit<NotebookJson, "version">): Promise<string> {
-  const { id } = await notebooksService.save({ version: "1.0", ...document });
+  const { id } = await notebooksService.save({ version: "1.0", ...document }, "test", OWNER);
   return id;
 }
 
@@ -182,6 +184,7 @@ await check("deleting a notebook empties its index rows", async () => {
 });
 
 await cleanup();
+await dropOwner("fx15triggers");
 await pool.end();
 server.close();
 

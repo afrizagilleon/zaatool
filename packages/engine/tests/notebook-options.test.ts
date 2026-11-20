@@ -21,6 +21,7 @@ import { notebooksService } from "../src/services/notebooks.service.js";
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
 import type { NotebookJson, NotebookParam } from "@zaa-tool/shared";
+import { testOwner, dropOwner } from "./owners.js";
 
 let passed = 0;
 let failed = 0;
@@ -213,19 +214,20 @@ await check("an option that is not a value is refused", () => {
 console.log("\nwhat the agent sees");
 
 await initDb();
+const OWNER = (await testOwner("notebookoptions")).id;
 
 const created: string[] = [];
 const opened: Client[] = [];
 
 async function store(document: Omit<NotebookJson, "version">): Promise<string> {
-  const { id } = await notebooksService.save({ version: "1.0", ...document });
+  const { id } = await notebooksService.save({ version: "1.0", ...document }, "test", OWNER);
   if (!created.includes(id)) created.push(id);
   return id;
 }
 
 async function tools(): Promise<{ name: string; description?: string; inputSchema?: unknown }[]> {
   const server = new McpServer({ name: "zaatool", version: "1.0.0" });
-  await registerDeployedNotebooks(server, { publishRunEvent: () => {} });
+  await registerDeployedNotebooks(server, { publishRunEvent: () => {}, userId: OWNER });
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
@@ -285,6 +287,7 @@ await check("the description says the values out loud, where a model reads first
 
 for (const client of opened) await client.close().catch(() => {});
 for (const id of created) await notebooksService.delete(id).catch(() => {});
+await dropOwner("notebookoptions");
 await pool.end();
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

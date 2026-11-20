@@ -18,6 +18,7 @@ import { agentTokensService } from "../src/services/agent-tokens.service.js";
 import { notebooksService } from "../src/services/notebooks.service.js";
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
+import { testOwner, dropOwner } from "./owners.js";
 
 let passed = 0;
 let failed = 0;
@@ -35,15 +36,16 @@ async function check(name: string, run: () => Promise<void>): Promise<void> {
 }
 
 await initDb();
+const OWNER = (await testOwner("mcphttp")).id;
 
 const server = http.createServer(createApp(() => {}));
 await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 const { port } = server.address() as AddressInfo;
 const endpoint = new URL(`http://127.0.0.1:${port}/mcp`);
 
-const authorToken = (await agentTokensService.issue("zz-http-author", "author")).token;
-const readerToken = (await agentTokensService.issue("zz-http-reader", "reader")).token;
-const revoked = await agentTokensService.issue("zz-http-revoked", "author");
+const authorToken = (await agentTokensService.issue(OWNER, "zz-http-author", "author")).token;
+const readerToken = (await agentTokensService.issue(OWNER, "zz-http-reader", "reader")).token;
+const revoked = await agentTokensService.issue(OWNER, "zz-http-revoked", "author");
 await agentTokensService.revoke(revoked.record.id);
 
 async function connect(headers: Record<string, string>): Promise<Client> {
@@ -141,6 +143,7 @@ await check("the notebook it wrote is a normal notebook in the database", async 
 for (const client of opened) await client.close().catch(() => {});
 for (const id of created) await notebooksService.delete(id).catch(() => {});
 await pool.query("DELETE FROM agent_tokens WHERE label LIKE 'zz-http-%'");
+await dropOwner("mcphttp");
 await pool.end();
 server.close();
 

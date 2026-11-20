@@ -32,6 +32,7 @@ import { OUTPUT_RENDERS } from "../src/core/notebook-outputs.js";
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
 import type { NotebookPage } from "@zaa-tool/shared";
+import { testOwner, dropOwner } from "./owners.js";
 
 let passed = 0;
 let failed = 0;
@@ -49,6 +50,7 @@ async function check(name: string, run: () => Promise<void> | void): Promise<voi
 }
 
 await initDb();
+const OWNER = (await testOwner("notebookfiles")).id;
 
 const server = http.createServer(createApp(() => {}));
 await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -60,7 +62,9 @@ const token = (await authService.login("zz-files-user", "zz-files-password")).to
 const auth = { Authorization: `Bearer ${token}` };
 
 async function store(text: string, deploy = true): Promise<string> {
-  const saved = await notebooksService.save(fromMarkdown(text), "test");
+  const saved = await notebooksService.save(fromMarkdown(text), "test", OWNER);
+  // A fixed id left by an earlier run keeps its old owner, who is gone.
+  await pool.query("UPDATE notebooks SET owner_id = $1 WHERE id = $2", [OWNER, saved.id]);
   if (deploy) await notebooksService.deploy(saved.id, "test");
   return saved.id;
 }
@@ -243,7 +247,7 @@ await check("a file that is not a file is refused before anything runs", async (
 console.log("\na photograph, posted to a webhook");
 
 await pool.query("DELETE FROM secrets WHERE key = 'ZZ_FILES_HOOK'").catch(() => {});
-await secretsService.create("ZZ_FILES_HOOK", "zz-files-hook-secret", true);
+await secretsService.create(OWNER, "ZZ_FILES_HOOK", "zz-files-hook-secret", true);
 
 const GUARDED_SLUG = "zz-files-guarded-slug";
 const OPEN_SLUG = "zz-files-open-webhook-slug";
@@ -370,6 +374,7 @@ check("video and audio are things an output may declare", () => {
 });
 
 await pool.query("DELETE FROM users WHERE username = 'zz-files-user'").catch(() => {});
+await dropOwner("notebookfiles");
 await pool.end();
 server.close();
 

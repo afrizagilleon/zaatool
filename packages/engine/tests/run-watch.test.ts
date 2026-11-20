@@ -18,6 +18,9 @@ import { WebSocketManager } from "../src/server/websocket-manager.js";
 import { notifyCatalogChanged } from "../src/core/catalog-events.js";
 import { jwtSecret } from "../src/config.js";
 import jwt from "jsonwebtoken";
+import { initDb } from "../src/db/initializer.js";
+import { pool } from "../src/db/connection.js";
+import { authService } from "../src/services/auth.service.js";
 import type { RunEvent } from "@zaa-tool/shared";
 
 let passed = 0;
@@ -35,6 +38,30 @@ async function check(name: string, run: () => Promise<void>): Promise<void> {
   }
 }
 
+/**
+ * Since FX-17 a socket only hears about runs and notebooks its account could see over REST,
+ * so the account has to exist and the runs and notebooks it is told about have to be real
+ * rows: `nb1` and `nb9` belong to it, and `r1`..`r8` are runs of `nb1` that nobody
+ * started, which is the team's to read.
+ */
+await initDb();
+await pool.query("DELETE FROM notebook_runs WHERE id ~ '^r[0-9]$'");
+await pool.query("DELETE FROM notebooks WHERE id IN ('nb1', 'nb9')");
+await pool.query("DELETE FROM users WHERE username = 'zz-watch'");
+const watcherAccount = await authService.createUser("zz-watch", "zz-watch-password-long", "creator");
+for (const id of ["nb1", "nb9"]) {
+  await pool.query(
+    "INSERT INTO notebooks (id, name, runtime, document, owner_id) VALUES ($1, $2, 'node', '{}', $3)",
+    [id, `zz-watch-${id}`, watcherAccount.id]
+  );
+}
+for (let n = 1; n <= 8; n += 1) {
+  await pool.query(
+    "INSERT INTO notebook_runs (id, notebook_id, status, trigger_source) VALUES ($1, 'nb1', 'running', 'cron')",
+    [`r${n}`]
+  );
+}
+
 const server = http.createServer();
 const hub = new RunEventHub();
 const manager = new WebSocketManager(server, hub);
@@ -44,7 +71,7 @@ await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 const url = `ws://127.0.0.1:${(server.address() as AddressInfo).port}/ws`;
 
 /** A real session, signed the way a sign-in signs one. */
-const session = jwt.sign({ id: "zz-watch", username: "zz-watch", role: "creator" }, jwtSecret(), {
+const session = jwt.sign({ id: watcherAccount.id, username: "zz-watch", role: "creator" }, jwtSecret(), {
   expiresIn: "5m",
 });
 
@@ -240,6 +267,10 @@ await check("a token that is nobody's closes the socket", async () => {
 
 manager.close();
 server.close();
+await pool.query("DELETE FROM notebook_runs WHERE id ~ '^r[0-9]$'");
+await pool.query("DELETE FROM notebooks WHERE id IN ('nb1', 'nb9')");
+await pool.query("DELETE FROM users WHERE username = 'zz-watch'");
+await pool.end();
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed === 0 ? 0 : 1);

@@ -21,6 +21,7 @@ import { agentTokensService, type AgentScope } from "../src/services/agent-token
 import { notebooksService } from "../src/services/notebooks.service.js";
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
+import { testOwner, dropOwner } from "./owners.js";
 
 let passed = 0;
 let failed = 0;
@@ -38,11 +39,12 @@ async function check(name: string, run: () => Promise<void>): Promise<void> {
 }
 
 await initDb();
+const OWNER = (await testOwner("mcpintegration")).id;
 
 /** A client wired to a server with the given scope, exactly as the route builds it. */
 async function connect(scope: AgentScope): Promise<Client> {
   const server = new McpServer({ name: "zaatool", version: "1.0.0" });
-  registerNotebookTools(server, { publishRunEvent: () => {}, writer: "test-agent" }, scope);
+  registerNotebookTools(server, { publishRunEvent: () => {}, writer: "test-agent", userId: OWNER }, scope);
   registerConventions(server);
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -364,9 +366,9 @@ console.log("\nguard rails");
 
 await check("secret_list_names returns names and no values", async () => {
   await pool.query(
-    `INSERT INTO secrets (id, key, value, is_secret) VALUES ($1, $2, $3, TRUE)
-     ON CONFLICT (key) DO NOTHING`,
-    ["zz-mcp-secret-id", "ZZ_MCP_SECRET", "super-secret-value"]
+    `INSERT INTO secrets (id, key, value, is_secret, owner_id) VALUES ($1, $2, $3, TRUE, $4)
+     ON CONFLICT (owner_id, key) DO NOTHING`,
+    ["zz-mcp-secret-id", "ZZ_MCP_SECRET", "super-secret-value", OWNER]
   );
 
   const listed = textOf(await call(author, "secret_list_names"));
@@ -399,7 +401,7 @@ console.log("\napproval");
 /** A client that can be asked, answering every elicitation the same way. */
 async function connectAnswering(answer: boolean | "decline" | "accept-only"): Promise<Client> {
   const server = new McpServer({ name: "zaatool", version: "1.0.0" });
-  registerNotebookTools(server, { publishRunEvent: () => {}, writer: "test-agent" }, "author");
+  registerNotebookTools(server, { publishRunEvent: () => {}, writer: "test-agent", userId: OWNER }, "author");
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
@@ -514,7 +516,7 @@ await check("reading them returns the skills stored in the workspace", async () 
 console.log("\ntokens");
 
 await check("a token verifies once, and never again after it is revoked", async () => {
-  const { token, record } = await agentTokensService.issue("zz-mcp-test", "reader");
+  const { token, record } = await agentTokensService.issue(OWNER, "zz-mcp-test", "reader");
 
   const verified = await agentTokensService.verify(token);
   assert.equal(verified?.id, record.id);
@@ -525,7 +527,7 @@ await check("a token verifies once, and never again after it is revoked", async 
 });
 
 await check("the token itself is never stored", async () => {
-  const { token, record } = await agentTokensService.issue("zz-mcp-test-2", "author");
+  const { token, record } = await agentTokensService.issue(OWNER, "zz-mcp-test-2", "author");
   const { rows } = await pool.query("SELECT token_hash FROM agent_tokens WHERE id = $1", [record.id]);
   assert.notEqual(rows[0].token_hash, token, "the raw token is in the database");
   assert.equal(rows[0].token_hash.length, 64, "expected a sha256 hash");
@@ -545,6 +547,7 @@ for (const id of created) {
 await pool.query("DELETE FROM agent_tokens WHERE label LIKE 'zz-mcp-%'");
 await author.close();
 await reader.close();
+await dropOwner("mcpintegration");
 await pool.end();
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

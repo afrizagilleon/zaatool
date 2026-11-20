@@ -29,6 +29,7 @@ import { runNotebook } from "../src/core/notebook-runner.js";
 import { runJsNode } from "../src/core/js-runner.js";
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
+import { testOwner, dropOwner } from "./owners.js";
 
 let passed = 0;
 let failed = 0;
@@ -46,9 +47,10 @@ async function check(name: string, run: () => Promise<void> | void): Promise<voi
 }
 
 await initDb();
+const OWNER = (await testOwner("mcpdiscoverability")).id;
 
 const server = new McpServer({ name: "zaatool", version: "1.0.0" });
-registerNotebookTools(server, { publishRunEvent: () => {}, writer: "test-agent" }, "author");
+registerNotebookTools(server, { publishRunEvent: () => {}, writer: "test-agent", userId: OWNER }, "author");
 registerConventions(server);
 
 const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -548,6 +550,7 @@ await check("the resource is described by what it answers, not just its name", a
 });
 
 await client.close().catch(() => {});
+await dropOwner("mcpdiscoverability");
 await pool.end();
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

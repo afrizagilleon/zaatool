@@ -140,7 +140,8 @@ await check("D-6: every existing secret was copied to every creator", async () =
   const { rows } = await pool.query(
     "SELECT key, value, is_secret, owner_id FROM secrets WHERE key LIKE 'zz-fx17-%' ORDER BY key, owner_id"
   );
-  assert.equal(rows.length, 4);
+  const mineOnly = rows.filter((row) => row.owner_id === firstCreator || row.owner_id === secondCreator);
+  assert.equal(mineOnly.length, 4);
   for (const owner of [firstCreator, secondCreator]) {
     const mine = rows.filter((row) => row.owner_id === owner);
     assert.deepEqual(mine.map((row) => [row.key, row.value, row.is_secret]), [
@@ -661,9 +662,15 @@ async function reporter(name: string, who: Person, key: string, extra: Record<st
 
 async function gotFrom(notebookId: string, runId: string): Promise<unknown> {
   await finished(notebookId, runId);
-  const { rows } = await pool.query("SELECT cell_results FROM notebook_runs WHERE id = $1", [runId]);
-  const cell = Object.values(rows[0].cell_results as Record<string, { output?: { got?: unknown } }>)[0];
-  return cell?.output?.got;
+  // The run is marked finished a moment before its last cell's result is written, so on a
+  // busy machine the first read can be of a run with no results yet. Wait for one.
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const { rows } = await pool.query("SELECT cell_results FROM notebook_runs WHERE id = $1", [runId]);
+    const cell = Object.values(rows[0].cell_results as Record<string, { output?: { got?: unknown } }>)[0];
+    if (cell?.output !== undefined) return cell.output.got;
+    await sleep(100);
+  }
+  return undefined;
 }
 
 await check("each account lists only its own secrets, and the same key may exist once per account", async () => {
@@ -782,7 +789,7 @@ await check("D-12: an app for selected people that does not include the caller's
 
   await notebooksService.deploy(from, "test");
   const pageRun = (await (await call(viewer, "POST", `/api/notebooks/${from}/run`, {})).json()) as { runId: string };
-  assert.match(String(await gotFrom(from, pageRun.runId)), /^ERR:.*not found/i, "the page run reached a callee its owner cannot");
+  { const got = String(await gotFrom(from, pageRun.runId)); assert.match(got, /^ERR:.*not found/i, `the page run reached a callee its owner cannot: ${got}`); }
 
   await setVisibility(callee, "selected", [owner]);
   const allowed = (await (await call(viewer, "POST", `/api/notebooks/${from}/run`, {})).json()) as { runId: string };

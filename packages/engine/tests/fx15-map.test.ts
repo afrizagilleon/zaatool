@@ -176,7 +176,7 @@ async function cleanup(): Promise<void> {
 
 await initDb();
 await cleanup();
-await authService.createUser(USER, "zz-fx15-mp-password", "creator");
+const OWNER = (await authService.createUser(USER, "zz-fx15-mp-password", "creator")).id;
 const token = (await authService.login(USER, "zz-fx15-mp-password")).token;
 
 const server = http.createServer(createApp(() => {}));
@@ -193,7 +193,7 @@ await check("the map's triggers follow a deploy, not a save", async () => {
       runtime: "node",
       triggers: [live],
       steps: [],
-    })
+    }, "test", OWNER)
   ).id;
   await notebooksService.deploy(id, "test");
   await notebooksService.save({
@@ -203,7 +203,7 @@ await check("the map's triggers follow a deploy, not a save", async () => {
     runtime: "node",
     triggers: [{ ...live, cron: "30 6 * * *" }],
     steps: [],
-  });
+  }, "test", OWNER);
 
   const res = await fetch(`${base}/api/notebooks/map`, {
     headers: { Authorization: `Bearer ${token}` },

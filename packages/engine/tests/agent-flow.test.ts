@@ -24,6 +24,7 @@ import { notebooksService } from "../src/services/notebooks.service.js";
 import { fromMarkdown, toMarkdown } from "../src/core/notebook-text.js";
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
+import { testOwner, dropOwner } from "./owners.js";
 
 let passed = 0;
 let failed = 0;
@@ -41,9 +42,10 @@ async function check(name: string, run: () => Promise<void> | void): Promise<voi
 }
 
 await initDb();
+const OWNER = (await testOwner("agentflow")).id;
 
 const server = new McpServer({ name: "zaatool", version: "1.0.0" });
-registerNotebookTools(server, { publishRunEvent: () => {}, writer: "zz-flow-agent" }, "author");
+registerNotebookTools(server, { publishRunEvent: () => {}, writer: "zz-flow-agent", userId: OWNER }, "author");
 
 const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 await server.connect(serverTransport);
@@ -98,7 +100,9 @@ const SOURCE = [
   "```",
 ].join("\n");
 
-await notebooksService.save(fromMarkdown(SOURCE), "test");
+await notebooksService.save(fromMarkdown(SOURCE), "test", OWNER);
+// Kept between runs, so the owner from the last run is gone: put it back on this run's.
+await pool.query("UPDATE notebooks SET owner_id = $1 WHERE name = $2", [OWNER, NAME]);
 
 // Fixtures are kept between runs — so this file has to put the notebook back to the state
 // it assumes, or the second run reads the first run's deployment and the diff checks below
@@ -368,6 +372,7 @@ await check("a rewrite that changed only a declaration points at edit_setup", as
 });
 
 await client.close().catch(() => {});
+await dropOwner("agentflow");
 await pool.end();
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

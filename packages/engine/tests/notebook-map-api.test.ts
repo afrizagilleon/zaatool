@@ -58,7 +58,7 @@ const token = jwt.sign(
 const created: string[] = [];
 
 async function store(document: Omit<NotebookJson, "version">): Promise<string> {
-  const { id } = await notebooksService.save({ version: "1.0", ...document });
+  const { id } = await notebooksService.save({ version: "1.0", ...document }, "test", testUser.id);
   created.push(id);
   return id;
 }
