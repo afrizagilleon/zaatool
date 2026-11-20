@@ -13,6 +13,7 @@ export function Login() {
   const [password, setPassword] = useState('');
   const [email, setEmail] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [setupCode, setSetupCode] = useState('');
 
   const login = useAuthStore((s) => s.login);
   const registerUser = useAuthStore((s) => s.registerUser);
@@ -68,7 +69,18 @@ export function Login() {
       return;
     }
 
-    const success = await registerUser(username.trim(), password, email.trim() || undefined);
+    // The code only exists while there are no accounts; the field is only shown then.
+    if (policy?.firstUser && !setupCode.trim()) {
+      setLocalError('Enter the setup code from the server log.');
+      return;
+    }
+
+    const success = await registerUser(
+      username.trim(),
+      password,
+      email.trim() || undefined,
+      policy?.firstUser ? setupCode.trim() : undefined
+    );
     if (success) {
       setRegisterSuccess(true);
       // Reset registration form
@@ -76,6 +88,7 @@ export function Login() {
       setPassword('');
       setConfirmPassword('');
       setEmail('');
+      setSetupCode('');
       setTimeout(() => {
         setRegisterSuccess(false);
         setIsRegister(false);
@@ -280,6 +293,30 @@ export function Login() {
                   />
                 </div>
               </div>
+
+              {policy?.firstUser && (
+                <div className="space-y-2">
+                  <Label htmlFor="reg-setup-code" className="text-xs text-muted-foreground">Setup code *</Label>
+                  <div className="relative">
+                    <Key className="absolute left-3 top-3 h-4.5 w-4.5 text-muted-foreground" />
+                    <Input
+                      id="reg-setup-code"
+                      type="text"
+                      required
+                      autoComplete="off"
+                      spellCheck={false}
+                      placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX"
+                      value={setupCode}
+                      onChange={(e) => setSetupCode(e.target.value)}
+                      className="pl-10 h-10 bg-background border-border font-mono"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    The server printed it to its log when it started. On the server, run{' '}
+                    <code className="font-mono">docker compose logs engine | grep -i setup</code>.
+                  </p>
+                </div>
+              )}
 
               <DialogFooter className="mt-6">
                 <Button
