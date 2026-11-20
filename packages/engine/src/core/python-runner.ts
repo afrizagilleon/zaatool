@@ -6,7 +6,7 @@ import { randomBytes } from "node:crypto";
 import { PY_RPC_PREFIX, pyRpcPrefix, type NotebookCaller } from "./notebook-call.js";
 import type { FileWriter } from "./notebook-files.js";
 import { cellIdentity } from "../config.js";
-import { STORAGE_DIR } from "../services/storage.service.js";
+import { STORAGE_DIR } from "./storage-root.js";
 
 export function resolvePythonLockedPackages(packages: string[]): Promise<string[]> {
   if (!Array.isArray(packages) || packages.length === 0) {

@@ -1,11 +1,10 @@
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
 import { resolveInside, safeFilename, safeSubPath } from "../core/storage-paths.js";
 import { signStorageLink } from "../core/storage-links.js";
+import { STORAGE_DIR } from "../core/storage-root.js";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-export const STORAGE_DIR = path.resolve(__dirname, "../../../storage");
+export { STORAGE_DIR };
 
 /**
  * A path that pointed outside the storage folder.

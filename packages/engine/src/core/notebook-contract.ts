@@ -1,6 +1,6 @@
 import type { NotebookParam } from "@zaa-tool/shared";
 import { safeSubPath } from "./storage-paths.js";
-import { STORAGE_DIR } from "../services/storage.service.js";
+import { STORAGE_DIR } from "./storage-root.js";
 
 /**
  * Enforcement of the reuse boundary: what a caller must supply, and what it gets back.
