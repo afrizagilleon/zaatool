@@ -5,6 +5,87 @@ followed a year from now by someone who has forgotten all of this — which is p
 
 ---
 
+## Behind Caddy, on a server that already runs other things
+
+This is the path for a machine that has a reverse proxy (Caddy) and other services on it.
+zaatool is a guest there: it opens **one** port, on the loopback address only, publishes no
+database port at all, and caps the engine's CPU and memory. Nothing in this procedure
+touches Caddy or any other service for you.
+
+1. **Get the code and write `.env`.** `scripts/install.sh` fills in a random
+   `JWT_SECRET` and `POSTGRES_PASSWORD`, and asks whether a proxy runs on this host:
+
+   ```bash
+   git clone <your remote> zaatool && cd zaatool
+   ./scripts/install.sh --domain zaa.example.com --behind-proxy yes --web-port 8080 --tz Asia/Jakarta
+   ```
+
+   Leave the flags out and it asks. It never overwrites an existing `.env` (`--force`
+   replaces it, keeping a copy), never runs `docker compose`, never edits a Caddyfile.
+   With `--behind-proxy yes` it sets `WEB_BIND=127.0.0.1` and `TRUST_PROXY=2` (Caddy, then
+   nginx in the web container, then the engine).
+
+2. **Start the stack.**
+
+   ```bash
+   docker compose up -d --build
+   docker compose ps          # postgres (healthy), engine, web
+   ```
+
+   The web container listens on `127.0.0.1:8080` (or the `--web-port` you gave). Only this
+   machine can reach it. Postgres has no host port. The engine is limited to 2 GB of memory
+   and 2 CPUs; change `ENGINE_MEMORY_LIMIT` / `ENGINE_CPU_LIMIT` in `.env` and run
+   `docker compose up -d` again.
+
+3. **Add the block the script printed to your Caddyfile** and reload Caddy yourself:
+
+   ```
+   zaa.example.com {
+       reverse_proxy 127.0.0.1:8080
+   }
+   ```
+
+   Caddy gets the certificate and the session cookie is `Secure`, which is why
+   `COOKIE_SECURE` stays unset in this setup.
+
+4. **Read the setup code.** While no account exists the engine prints a one-time code to
+   its log when it starts. It is in memory only; a restart makes a new one.
+
+   ```bash
+   docker compose logs engine | grep -i setup
+   ```
+
+5. **Create the first account.** Open `https://zaa.example.com`, choose *Create the first
+   one*, enter the setup code with your username and password. That account is the creator.
+   Anyone who opens the URL before you cannot take it: without the code, registration
+   answers 403.
+
+   There is a way that needs no browser and no code, because whoever holds a terminal on
+   the server owns it:
+
+   ```bash
+   docker compose exec engine pnpm create-user <username> --role creator
+   ```
+
+   For automation, set `SETUP_CODE` in `.env` to a value of your own (long and random) and
+   the engine uses it instead of the generated one. It stops meaning anything once there
+   is an account, but remove it from `.env` afterwards anyway.
+
+**Without a proxy** (trying it on a VPS directly): `--behind-proxy no` sets
+`WEB_BIND=0.0.0.0` and `TRUST_PROXY=1`, so the app is open to the whole network over plain
+HTTP, and with no domain it sets `COOKIE_SECURE=false` (a browser never sends a Secure
+cookie back over HTTP). That is a way to look at it, not a way to run it.
+
+**What this does not isolate.** A notebook cell is code you or a creator wrote, and it has
+outbound network access. The cell runs in a container on Docker's network, where the host
+is reachable through the bridge gateway: another service on this machine that listens on
+`0.0.0.0` (an agent, an admin panel, a database) can be called from a cell. Suggestion, not
+something this repository tests: bind such services to `127.0.0.1` (which a container
+cannot reach through the gateway) or protect them with their own authentication, and
+give the creator role only to people you would let run code on this server.
+
+---
+
 ## Two things that bite on the first deploy
 
 **One.** `JWT_SECRET` must be at least 32 characters, and the engine refuses to start in
@@ -55,7 +136,10 @@ docker compose up -d --build
 ```
 
 Three containers come up: `postgres`, `engine`, `web`. Only `web` publishes a port —
-`8080` by default. Open `http://<machine>:8080`.
+`8080` by default, on `127.0.0.1` (this machine only, so a reverse proxy on the same host
+can reach it and nothing else can). Open `http://localhost:8080` on the machine itself. To try
+it from another device without a proxy, set `WEB_BIND=0.0.0.0` and `COOKIE_SECURE=false` in
+`.env` (plain HTTP). Postgres publishes no port; use `docker compose exec postgres psql ...`.
 
 One origin serves everything: `web` is nginx, holding the bundle and proxying `/api`,
 `/hooks`, `/mcp`, `/storage` and `/ws` to the engine. That is what makes a share link a
@@ -133,9 +217,10 @@ docker compose ps
 curl -fsS http://localhost:8080/api/health && echo " ← engine answered"
 ```
 
-Then open `http://<machine>:8080` and **register the first account**. An installation with
-no users at all always accepts the first one, and that account becomes `creator` — no need
-to flip `ALLOW_REGISTRATION`.
+Then open `http://localhost:8080` (or your domain) and **register the first account** with the
+setup code from the engine log: `docker compose logs engine | grep -i setup`. An installation
+with no users at all accepts the first one, and that account becomes `creator` — no need to
+flip `ALLOW_REGISTRATION`.
 
 The test that is easiest to skip and matters most: **create one notebook, deploy it, run
 it.** An installation that can log in but cannot execute anything has proven nothing yet.
@@ -150,10 +235,18 @@ it.** An installation that can log in but cannot execute anything has proven not
 ## The first account
 
 Registration is closed. There is one exception that cannot be configured away: an
-installation with **no users at all** always accepts the first one, and that account
-becomes the creator.
+installation with **no users at all** accepts the first one, and that account becomes the
+creator. It is not open to just anyone who finds the URL first, though: the engine prints a
+random one-time setup code to its log at startup, and the first registration must carry it.
 
-So open the app and register. That is the whole procedure.
+```bash
+docker compose logs engine | grep -i setup
+```
+
+Open the app, choose *Create the first one*, enter the code. A missing or wrong code is a
+403. The code is kept in memory only (a restart makes a new one), and means nothing once an
+account exists. `SETUP_CODE` in `.env` replaces the random code, and
+`pnpm create-user <name> --role creator` inside the engine container needs no code at all.
 
 If somebody beat you to it, or you need a second creator:
 

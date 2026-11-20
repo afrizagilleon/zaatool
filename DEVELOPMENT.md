@@ -101,6 +101,16 @@ Unset in production, only same-origin requests are accepted. Unset outside produ
 origin is — because the LAN address a phone uses is not something anyone can predict, and
 refusing it would make every first attempt fail.
 
+## Postgres from compose
+
+`docker-compose.yml` publishes no database port. If you want the compose Postgres for `pnpm dev`
+(rather than one you installed), add the dev override, which publishes
+`127.0.0.1:${POSTGRES_PORT:-5432}` and nothing else:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
+```
+
 ## Tests
 
 ```bash

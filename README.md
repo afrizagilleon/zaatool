@@ -146,12 +146,14 @@ Two details worth knowing:
 ```bash
 git clone https://github.com/afrizagilleon/zaatool.git
 cd zaatool
-cp .env.example .env    # set POSTGRES_PASSWORD and JWT_SECRET
-docker compose up -d
+cp .env.example .env    # set POSTGRES_PASSWORD and JWT_SECRET (or run ./scripts/install.sh)
+docker compose up -d --build
+docker compose logs engine | grep -i setup    # the one-time setup code
 ```
 
-Open `http://localhost:8080`. **The first account you create becomes the creator** — open
-registration is closed after that by design. Full instructions, backup, restore and upgrade
+Open `http://localhost:8080` (the port listens on this machine only; a server behind Caddy is
+in [DEPLOY.md](DEPLOY.md)). **The first account you create becomes the creator** — you enter
+the setup code from the log to create it, and open registration is closed after that by design. Full instructions, backup, restore and upgrade
 procedures live in [DEPLOY.md](DEPLOY.md).
 
 Running from source instead? See [DEVELOPMENT.md](DEVELOPMENT.md).
@@ -179,8 +181,8 @@ Three packages. `shared` holds the types and is the **only** channel between the
 
 In production that is three containers: `web` (nginx serving the built bundle), `engine`
 (one Node process), and `postgres`. No Redis, no queue, no object store — nothing here is
-shared between machines, so nothing here needs a broker to share it. Postgres binds to
-loopback only.
+shared between machines, so nothing here needs a broker to share it. Postgres
+publishes no port to the host.
 
 Full detail — request lifecycle, execution model, sandboxing, layer rules — in
 [ARCHITECTURE.md](ARCHITECTURE.md).
