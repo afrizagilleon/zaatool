@@ -136,7 +136,8 @@ async function callableBy(ownerId: string | null): Promise<string[]> {
 async function pageOf(
   id: string,
   document: NotebookJson,
-  among: string[]
+  among: string[],
+  canEdit: boolean
 ): Promise<NotebookPage | null> {
   const hasContract = (document.inputs?.length ?? 0) > 0 || (document.outputs?.length ?? 0) > 0;
   // Only when there is nothing else to show, or every existing page would suddenly
@@ -163,6 +164,7 @@ async function pageOf(
       outputSpecs(document.outputs).some((output) => output.name === item.i)
     ),
     actions: await withQuestions(actionSpecs(document.actions), among),
+    canEdit,
   };
 }
 
@@ -250,6 +252,7 @@ export class NotebooksController {
       const pages: NotebookPage[] = [];
       // Each owner's callable set is asked once however many of their pages there are.
       const callable = new Map<string | null, string[]>();
+      const editable = new Set(await notebookAccessService.editableIds(callerOf(req).id));
 
       for (const summary of await notebooksService.getSummary(
         await notebookAccessService.appIds(callerOf(req).id)
@@ -260,7 +263,12 @@ export class NotebooksController {
         const owner = await notebookAccessService.ownerOf(summary.id);
         if (!callable.has(owner)) callable.set(owner, await callableBy(owner));
 
-        const page = await pageOf(summary.id, document, callable.get(owner) ?? []);
+        const page = await pageOf(
+          summary.id,
+          document,
+          callable.get(owner) ?? [],
+          editable.has(summary.id)
+        );
         if (page) pages.push(page);
       }
 
@@ -339,7 +347,8 @@ export class NotebooksController {
       const page = await pageOf(
         id,
         document,
-        await callableBy(await notebookAccessService.ownerOf(id))
+        await callableBy(await notebookAccessService.ownerOf(id)),
+        false
       );
       if (!page) return res.status(404).json({ error: "Nothing deployed" });
       res.json(page);
