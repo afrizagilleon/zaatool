@@ -144,19 +144,23 @@ Two details worth knowing:
 ## Quickstart
 
 ```bash
-git clone https://github.com/afrizagilleon/zaatool.git
-cd zaatool
-cp .env.example .env    # set POSTGRES_PASSWORD, JWT_SECRET and SECRETS_KEY (or run ./scripts/install.sh)
-docker compose up -d --build
-docker compose logs engine | grep -i setup    # the one-time setup code
+curl -fsSL https://github.com/afrizagilleon/zaatool/releases/latest/download/install.sh | bash -s -- --start
 ```
+
+That is the whole install: it makes a `zaatool/` folder, writes `.env` with fresh secrets, pulls
+the released images (nothing is built on your machine), starts them, waits until they are
+healthy and prints the one-time setup code. It needs Docker with the compose plugin,
+`openssl` and `curl`. Add `--help` to see the options (a pinned `--version`, `--domain`,
+`--with-caddy` for a server with no proxy yet). Prefer to read a script before running it?
+Download it first (`curl -fsSLO` the same URL), read it, then `bash install.sh --start`.
 
 Open `http://localhost:8080` (the port listens on this machine only; a server behind Caddy is
 in [DEPLOY.md](DEPLOY.md)). **The first account you create becomes the creator** — you enter
 the setup code from the log to create it, and open registration is closed after that by design. Full instructions, backup, restore and upgrade
 procedures live in [DEPLOY.md](DEPLOY.md).
 
-Running from source instead? See [DEVELOPMENT.md](DEVELOPMENT.md).
+Look at it with `scripts/status.sh`; remove it with `scripts/uninstall.sh` (data stays unless you
+add `--purge`). Running from source instead? See [DEVELOPMENT.md](DEVELOPMENT.md).
 
 ---
 

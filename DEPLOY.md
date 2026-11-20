@@ -5,6 +5,39 @@ followed a year from now by someone who has forgotten all of this — which is p
 
 ---
 
+## Which of the three are you
+
+| You have | Do this | Where |
+|---|---|---|
+| A server that **already runs a reverse proxy** (Caddy, nginx) and other things | the installer with `--behind-proxy yes`, then paste one block into your proxy | [Behind Caddy](#behind-caddy-on-a-server-that-already-runs-other-things) |
+| A **blank VPS** with nothing on ports 80 and 443 | `--with-caddy --domain ...`: zaatool brings its own Caddy | [A blank VPS](#a-blank-vps-zaatool-brings-its-own-caddy) |
+| A **laptop** or a machine to try it on | `--start` alone; open `http://localhost:8080` | [On a laptop](#on-a-laptop) |
+
+Every path pulls prebuilt images from GHCR (`ghcr.io/afrizagilleon/zaatool-engine` and
+`-web`), so the machine builds nothing. Building from source is covered at the end of this page.
+
+### The one-liner
+
+```bash
+curl -fsSL https://github.com/afrizagilleon/zaatool/releases/latest/download/install.sh | bash -s -- [options] --start
+```
+
+The `install.sh` on a release page knows its own version: it downloads the `docker-compose.yml`,
+`.env.example` and helper scripts of that tag, writes `ZAATOOL_VERSION=<tag>` into `.env` and starts
+exactly that release. To install another release, take the script from its raw URL and name it:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/afrizagilleon/zaatool/v1.0.0/scripts/install.sh | bash -s -- --version v1.0.0 --start
+```
+
+Without `--version` the raw script installs `latest` and the files from `main`. Options: `--dir`
+(default `./zaatool`), `--domain`, `--behind-proxy yes|no`, `--web-port`, `--tz`, `--with-caddy`,
+`--force`, `--start`. Without `--start` it stops after writing `.env` and prints what to run.
+`--start` waits up to 120 seconds for postgres, engine and web to report healthy, then prints the
+setup code. It never overwrites an existing `.env`.
+
+---
+
 ## Behind Caddy, on a server that already runs other things
 
 This is the path for a machine that has a reverse proxy (Caddy) and other services on it.
@@ -12,24 +45,26 @@ zaatool is a guest there: it opens **one** port, on the loopback address only, p
 database port at all, and caps the engine's CPU and memory. Nothing in this procedure
 touches Caddy or any other service for you.
 
-1. **Get the code and write `.env`.** `scripts/install.sh` fills in a random
-   `JWT_SECRET` and `POSTGRES_PASSWORD`, and asks whether a proxy runs on this host:
+1. **Write `.env`.** The installer fills in random secrets and asks whether a proxy runs
+   on this host:
 
    ```bash
-   git clone <your remote> zaatool && cd zaatool
-   ./scripts/install.sh --domain zaa.example.com --behind-proxy yes --web-port 8080 --tz Asia/Jakarta
+   curl -fsSL https://github.com/afrizagilleon/zaatool/releases/latest/download/install.sh | \
+     bash -s -- --domain zaa.example.com --behind-proxy yes --web-port 8080 --tz Asia/Jakarta
+   cd zaatool
    ```
 
    Leave the flags out and it asks. It never overwrites an existing `.env` (`--force`
-   replaces it, keeping a copy), never runs `docker compose`, never edits a Caddyfile.
+   replaces it, keeping a copy) and never edits a Caddyfile. Add `--start` to do step 2
+   in the same command. (From a source checkout, `./scripts/install.sh` takes the same flags.)
    With `--behind-proxy yes` it sets `WEB_BIND=127.0.0.1` and `TRUST_PROXY=2` (Caddy, then
    nginx in the web container, then the engine).
 
 2. **Start the stack.**
 
    ```bash
-   docker compose up -d --build
-   docker compose ps          # postgres (healthy), engine, web
+   docker compose pull && docker compose up -d
+   docker compose ps          # postgres, engine, web: all (healthy)
    ```
 
    The web container listens on `127.0.0.1:8080` (or the `--web-port` you gave). Only this
@@ -71,7 +106,7 @@ touches Caddy or any other service for you.
    the engine uses it instead of the generated one. It stops meaning anything once there
    is an account, but remove it from `.env` afterwards anyway.
 
-**Without a proxy** (trying it on a VPS directly): `--behind-proxy no` sets
+**Without a proxy of your own**, see the next two sections. (Trying it on a VPS directly: `--behind-proxy no` sets
 `WEB_BIND=0.0.0.0` and `TRUST_PROXY=1`, so the app is open to the whole network over plain
 HTTP, and with no domain it sets `COOKIE_SECURE=false` (a browser never sends a Secure
 cookie back over HTTP). That is a way to look at it, not a way to run it.
@@ -83,6 +118,44 @@ is reachable through the bridge gateway: another service on this machine that li
 something this repository tests: bind such services to `127.0.0.1` (which a container
 cannot reach through the gateway) or protect them with their own authentication, and
 give the creator role only to people you would let run code on this server.
+
+---
+
+## A blank VPS: zaatool brings its own Caddy
+
+For a machine with nothing on ports 80 and 443. Do **not** use this on a server that already
+has a proxy: the ports would collide, and zaatool does not take over servers (which is why it
+is off unless you ask).
+
+1. **DNS first.** Create an `A` record (and `AAAA` if the machine has IPv6) for the name,
+   pointing at this machine, and wait until it resolves (`dig +short zaa.example.com`).
+   Caddy asks Let's Encrypt for the certificate on its first start; if the name does not
+   resolve to this machine yet the request fails, and Let's Encrypt rate-limits repeated
+   failures. Ports 80 and 443 (TCP, and 443/UDP for HTTP/3) must be open in the firewall.
+2. **Install:**
+
+   ```bash
+   curl -fsSL https://github.com/afrizagilleon/zaatool/releases/latest/download/install.sh | \
+     bash -s -- --with-caddy --domain zaa.example.com --tz Asia/Jakarta --start
+   ```
+
+   `--with-caddy` writes a `Caddyfile` for the domain, sets `COMPOSE_PROFILES=caddy` and
+   `PUBLIC_DOMAIN` in `.env` (so every later `docker compose` in that folder includes Caddy),
+   sets `TRUST_PROXY=2`, and writes a `docker-compose.override.yml` that stops publishing
+   the web port on the host: Caddy reaches `web` over the compose network and is the only
+   thing listening. (`ports: !reset` needs Docker Compose 2.24 or newer.)
+3. Open `https://zaa.example.com` after a minute and create the first account as above.
+
+---
+
+## On a laptop
+
+```bash
+curl -fsSL https://github.com/afrizagilleon/zaatool/releases/latest/download/install.sh | bash -s -- --start
+```
+
+With no domain the installer sets `COOKIE_SECURE=false` and the web port listens on
+`127.0.0.1:8080`; open `http://localhost:8080`. No proxy, no certificate, no DNS.
 
 ---
 
@@ -114,6 +187,8 @@ docker compose exec engine node -e "console.log(JSON.stringify(process.env.NODE_
 
 ## First time
 
+The installer does what follows for you. By hand, from a checkout:
+
 ```bash
 git clone <your remote> zaatool && cd zaatool
 cp .env.example .env
@@ -135,8 +210,10 @@ openssl rand -hex 32
 Then:
 
 ```bash
-docker compose up -d --build
+docker compose pull && docker compose up -d
 ```
+
+(From a source checkout, with changes that are not released: see "Building from source" below.)
 
 Three containers come up: `postgres`, `engine`, `web`. Only `web` publishes a port —
 `8080` by default, on `127.0.0.1` (this machine only, so a reverse proxy on the same host
@@ -322,10 +399,24 @@ Nothing deletes the contents of `backups/`. Prune old ones by hand occasionally.
 
 ## Updating
 
-**Do not `git pull` first.** `./scripts/update.sh` does that itself, and the order is the
-whole point — it takes a backup **before** pulling anything. Pull first and the backup you
-end up with is a backup of the new code; if a new migration is what breaks, you are holding
-a dump of the problem.
+Two modes, same order: **the backup comes first**, because the engine migrates the schema on
+startup and a dump taken afterwards is a dump of the problem.
+
+**Installed from release images (the normal case):**
+
+```bash
+./scripts/update.sh --version v1.1.0     # back up, set ZAATOOL_VERSION in .env, pull, restart
+./scripts/update.sh                      # same release again, e.g. to pick up a re-pushed latest
+```
+
+There is no git involved: the folder holds `docker-compose.yml`, `.env` and the scripts. Pin a
+tag in `ZAATOOL_VERSION` (the installer does) so an update is something you chose; with
+`latest` it is whatever was published last. To go back, put the previous tag in `.env` and run
+`docker compose pull engine web && docker compose up -d`, after restoring the backup if the
+schema changed (the restore procedure below).
+
+**Installed from a source checkout** (`./scripts/update.sh --build`): the rest of this section.
+**Do not `git pull` first.** The script does that itself, after the backup.
 
 **Production should be on `main`** — or whatever branch is checked out in the production
 folder, and that should be `main`. The script uses `git pull --ff-only`, which refuses to
@@ -344,11 +435,12 @@ production, find out why before running the script — `--ff-only` will fail on 
 Then, one command, from the repo root:
 
 ```bash
-./scripts/update.sh
+./scripts/update.sh --build
 ```
 
-In order: back up the database, back up storage, `git pull --ff-only`, `docker compose up
--d --build`, wait up to 30s for the engine to answer healthy.
+In order: back up the database, back up storage, `git pull --ff-only`, `docker compose -f
+docker-compose.yml -f docker-compose.build.yml up -d --build`, wait up to 30s for the engine to
+answer healthy.
 
 **If it stops partway through:** nothing is broken. The backup is taken first, and neither
 `pull` nor `build` touch data. Read the message, fix it, run again.
@@ -459,6 +551,19 @@ normally, files included.
 
 ## Checking what is running
 
+```bash
+./scripts/status.sh
+```
+
+Reads and changes nothing: the version the engine reports, each container's state and health,
+CPU and memory, the size of the data volumes and of `backups/`, the ports published on the
+host, and where `.env` is. Postgres, engine and web all carry a healthcheck, and `web` waits
+for `engine` to be healthy, which waits for `postgres`.
+
+Logs rotate on their own: each container keeps at most 3 files of 10 MB (`LOG_MAX_SIZE`,
+`LOG_MAX_FILE` in `.env`), so they cannot fill the disk. A changed value applies when the
+containers are recreated (`docker compose up -d --force-recreate`).
+
 Open **Resources**. The bottom line names the app's build and the engine's build.
 
 They should match. When they do not, a browser is holding an old bundle — hard-refresh it.
@@ -467,6 +572,52 @@ The engine's own answer is also available without signing in:
 ```bash
 curl http://localhost:8080/api/health
 ```
+
+---
+
+## Removing zaatool
+
+```bash
+./scripts/uninstall.sh                 # containers, images, network of this project; data volumes stay
+./scripts/uninstall.sh --purge         # also the database and stored files; asks you to type the project name
+```
+
+It touches this folder's compose project only: no `docker system prune`, nothing of another
+project, nothing of a proxy you run. `--purge` first offers a last backup in `backups/` (a
+database dump, the storage tar and a copy of `.env`, whose `SECRETS_KEY` opens the stored
+secrets); `--purge --yes` skips the question but still takes the backup (`--no-backup` to
+refuse it). It then prints what it left for you: the block in your Caddyfile, and the folder.
+
+---
+
+## Releasing (for the maintainer)
+
+Images are built by GitHub Actions, not by hand. Once the work is on `main`:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+The `release` workflow builds `linux/amd64` and `linux/arm64` images, pushes
+`ghcr.io/afrizagilleon/zaatool-engine` and `-web` as `:v1.0.0` and `:latest`, and creates the
+GitHub Release with `docker-compose.yml`, `.env.example`, `install.sh` (version embedded) and
+`SHA256SUMS`. The first time, make the two packages public (GitHub profile, Packages, each
+package, Package settings, Change visibility) or an installer on another machine cannot pull
+them. `workflow_dispatch` publishes a test tag without a Release and without moving `latest`.
+
+---
+
+## Building from source
+
+For changes that are not released yet, or to run exactly what is on disk:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
+
+`docker-compose.build.yml` only adds `build:` to engine and web, with the same image names.
+`./scripts/update.sh --build` and `./scripts/install.sh --start --build` do this for you.
 
 ---
 

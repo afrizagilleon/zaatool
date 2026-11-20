@@ -111,6 +111,18 @@ refusing it would make every first attempt fail.
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
 ```
 
+## Docker images
+
+`docker-compose.yml` pulls released images from GHCR. To run your own changes in the compose
+stack instead:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
+
+The release workflow (`.github/workflows/release.yml`) and CI (`ci.yml`) are described in
+DEPLOY.md ("Releasing").
+
 ## Tests
 
 ```bash
