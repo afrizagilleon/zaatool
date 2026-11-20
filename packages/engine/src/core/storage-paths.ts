@@ -67,7 +67,10 @@ export function safeSubPath(raw: unknown, root: string): string | null {
   // A leading separator would make `path.resolve` ignore the root entirely.
   const relative = value.replace(/^[/\\]+/, "");
   if (relative.length === 0) return "";
-  if (path.isAbsolute(relative)) return null;
+  // Absolute on either platform, and a drive-relative `C:foo` too. On Linux `C:\Windows` is
+  // just an odd file name, but a path is data that moves between machines: the same input
+  // must be refused everywhere, not only where the server happens to run (CI found this).
+  if (path.isAbsolute(relative) || path.win32.isAbsolute(relative) || /^[a-zA-Z]:/.test(relative)) return null;
 
   const resolved = path.resolve(root, relative);
   if (!isInside(resolved, root)) return null;

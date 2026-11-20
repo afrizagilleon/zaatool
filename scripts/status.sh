@@ -9,7 +9,7 @@
 
 set -uo pipefail
 
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 
 command -v docker >/dev/null 2>&1 || { echo "status.sh: docker is not installed or not on PATH" >&2; exit 1; }
 
