@@ -2,9 +2,8 @@
 <html lang="en" class="dark">
   <head>
     <meta charset="UTF-8" />
-    <script>
-      window.process = { env: { NODE_ENV: 'development' } };
-    </script>
+    <!-- Not inline: the Content-Security-Policy allows scripts from this origin only. -->
+    <script src="/process-shim.js"></script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>zaa</title>
