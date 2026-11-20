@@ -6,7 +6,9 @@ import { WebSocketManager } from "./server/websocket-manager.js";
 import { RunEventHub } from "./server/run-event-hub.js";
 import { schedulerService } from "./services/scheduler.service.js";
 import { notebookTriggersService } from "./services/notebook-triggers.service.js";
-import { configProblems, isProduction, registrationOpen, secretsKey, usingDevSecret } from "./config.js";
+import { activeSandboxConfig, configProblems, isProduction, registrationOpen, secretsKey, usingDevSecret } from "./config.js";
+import { secureStorageRoot } from "./core/cell-workspace.js";
+import { STORAGE_DIR } from "./core/storage-root.js";
 import { secretsService, SecretsKeyMismatchError } from "./services/secrets.service.js";
 import { authService } from "./services/auth.service.js";
 import { sandboxWarnings } from "./core/sandbox-identity.js";
@@ -42,6 +44,16 @@ export async function startServer(port = 4000) {
     console.warn("⚠️  SECRETS_KEY is not set; secrets are stored in plaintext in the database.");
   }
   for (const warning of sandboxWarnings(process.platform, process.env)) console.warn(`⚠️  ${warning}`);
+  // Cells change uid: the storage folder becomes root's and closed, so what a cell can read is
+  // only what the engine copies into its own folder. Before anything is served.
+  try {
+    if (secureStorageRoot(activeSandboxConfig(), STORAGE_DIR)) {
+      console.log("🔒 Storage folder is root-only; cells run as one user per owner.");
+    }
+  } catch (err: unknown) {
+    console.error("❌ Could not close the storage folder to cells:", (err as Error).message);
+    process.exit(1);
+  }
   if (registrationOpen()) {
     console.warn("⚠️  ALLOW_REGISTRATION is on: anyone who can reach this port can make an account.");
   }

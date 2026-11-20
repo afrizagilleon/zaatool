@@ -554,14 +554,36 @@ Each cell is a process of its own. These settings shape it (all optional; the im
 - **`MAX_CELL_MEMORY_MB`** (default `512`) — heap limit of one JavaScript cell. A cell that
   exceeds it fails; the engine does not. It does not cap Python cells or memory held outside
   the JS heap.
-- **`SANDBOX_UID`, `SANDBOX_GID`, `SANDBOX_HOME`** — the unprivileged user cells (and the
-  `uv` run that installs packages) are spawned as. The image sets `10001`/`10001` and
-  `/home/sandbox`, and creates that user. This needs the engine to run as root, which the
-  image does; if you set `SANDBOX_UID` on an engine that is not root, it refuses to start,
-  because every cell would fail. On Windows it is ignored, with a warning.
+- **`SANDBOX_UID_BASE`, `SANDBOX_UID_COUNT`, `SANDBOX_GID`, `SANDBOX_HOME`** — the
+  unprivileged users cells (and the `uv` run that installs packages) are spawned as, **one
+  per notebook owner**. The first time an account's notebook runs, the engine gives the account
+  the next free uid, starting at `SANDBOX_UID_BASE` (default `20000`) and counting up to
+  `SANDBOX_UID_COUNT` (default `40000`), and keeps it in the database (`users.sandbox_uid`).
+  Every cell of that account's notebooks runs as it, so one owner's cells cannot read another
+  owner's files, package cache or running cells' environment (secrets); the kernel refuses.
+  When the range is used up, a notebook of a new owner fails with a message that names
+  `SANDBOX_UID_COUNT`. `SANDBOX_GID` (default `10001`) is a group shared by all of them and
+  is never what lets one owner into another's folder. `SANDBOX_HOME` (default `/home/sandbox`)
+  holds `owners/<uid>`: each owner's HOME, temp folder, package cache and the folder every
+  cell process is given (removed when it ends), all closed to everyone else. A uid already
+  handed out that no longer fits the range after you change the base or count is replaced by a
+  new one. The image sets these and needs the engine to run as root, which it does; if you set
+  them on an engine that is not root, it refuses to start, because every cell would fail. On
+  Windows they are ignored, with a warning.
+  **`SANDBOX_UID`, the old single-user variable, is no longer read:** an engine that still
+  has it set refuses to start, so remove it from your `.env` and compose file.
+- A notebook **with no owner** does not run where cells change uid (there is no uid to give
+  it); hand it to an account with `transfer-owner`.
+- The **storage folder is closed to cells**: the engine makes it root-only (`0700`) at start,
+  and a JavaScript cell is also refused it by node's permission model on every platform. A cell
+  reads an input file from a copy the engine puts in the cell's own folder, and only if the run
+  was allowed that file: a path into another owner's `notebooks/<id>/` or `uploads/<id>/`
+  folder is refused as "file not found". A file a notebook returns through `notebooks.run` is
+  copied to the caller the same way.
 
 What this does not do: **the network is open** — a cell can connect to anything the server
 can, the database port included (though it cannot read the password). If that matters, put
 the engine on a network where the database is only reachable with credentials a cell does not
-have, and firewall egress. Storage files are readable by every cell, and the engine runs as
-root inside the container. See "Sandboxing, honestly" in ARCHITECTURE.md.
+have, and firewall egress. Cells of the *same* owner share a uid, so they can see each other
+(an owner's notebooks are one domain of trust), and the engine runs as root inside the
+container. See "Sandboxing, honestly" in ARCHITECTURE.md.

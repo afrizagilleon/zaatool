@@ -8,7 +8,6 @@ import type { FileWriter } from "./notebook-files.js";
 import { abortMessage } from "./run-abort.js";
 import { maxCellMemoryMb } from "../config.js";
 import { defaultCellHost, type CellHost, type CellWorkspace } from "./cell-workspace.js";
-import { STORAGE_DIR } from "./storage-root.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -16,7 +15,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CELL_HOST = path.join(__dirname, "cell-host.mjs");
 
 /**
- * The folders a cell may read besides the host script and storage: the engine's own
+ * The folders a cell may read besides the host script and its own folder: the engine's own
  * `node_modules` and the workspace root's. pnpm keeps a package's files under the root's
  * `node_modules/.pnpm` and links them from the engine's, so a declared package needs both.
  * What a cell can `require` is still the declared list (the host enforces it); this only
@@ -43,7 +42,7 @@ export interface RunResult {
  *
  * Cells used to run in a worker thread: same process as the engine, same filesystem, and
  * a scoped `require` that `module._load` walked around. Now the cell is a child that can
- * read its host script, the storage folder and the declared packages, can write nothing,
+ * read its host script, its own folder (the input files the engine copied in) and the declared packages, can write nothing,
  * and cannot start a process, a thread or an addon — the runtime refuses, whatever the
  * cell's code does. Its heap is capped, and it gets its own environment.
  *
@@ -87,7 +86,6 @@ export function runJsNode(
       [
         "--permission",
         `--allow-fs-read=${CELL_HOST}`,
-        `--allow-fs-read=${STORAGE_DIR}`,
         `--allow-fs-read=${workspace.dir}`,
         ...PACKAGE_DIRS.map((dir) => `--allow-fs-read=${dir}`),
         `--max-old-space-size=${memoryMb}`,

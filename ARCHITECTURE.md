@@ -176,8 +176,8 @@ Each cell runs in a process of its own, in layers. What each layer enforces, and
 does not:
 
 **Enforced, every platform: JavaScript.** A JS cell is a child `node` started with
-`--permission`. It can read its host script (`core/cell-host.mjs`), the storage folder and
-the `node_modules` of the packages it declared; it cannot write any file, start a process
+`--permission`. It can read its host script (`core/cell-host.mjs`), its own folder (the input files
+the engine copied in) and the `node_modules` of the packages it declared; it cannot write any file, start a process
 or a thread, or load a native addon. The runtime refuses these, so `module._load` and every
 other route around the `require` list ends in `ERR_ACCESS_DENIED` — the list is only the
 friendly message that comes first. Its environment is a small allow-list plus the secrets
@@ -185,12 +185,27 @@ it declared, never the engine's. Its heap is capped (`MAX_CELL_MEMORY_MB`, defau
 a cell that outgrows it fails and the engine, a different process, carries on. Timeout,
 deadline and cancel kill the whole tree.
 
-**Enforced on Linux/Docker: the user.** The image starts the engine as root and spawns every
-cell — JS, Python, and the `uv` run that installs a notebook's packages — as the unprivileged
-user `sandbox` (uid/gid 10001, `SANDBOX_UID`/`SANDBOX_GID`). That user cannot read the
-engine's environment, cannot read anything root-only, and cannot write to `/app`. Python
-cells, which have no equivalent of the permission model, rely on this layer alone.
-`packages:` for Python is still resolved against an allow-list and pinned to exact versions.
+**Enforced on Linux/Docker: the user, one per owner.** The image starts the engine as root and
+spawns every cell — JS, Python, and the `uv` run that installs a notebook's packages — as the
+uid of the **notebook's owner**. Each account gets its own uid the first time one of its
+notebooks runs (`SANDBOX_UID_BASE` + allocation order, kept in `users.sandbox_uid`), and its
+own home `${SANDBOX_HOME}/owners/<uid>` (0700): HOME, temp folder, `uv` cache. Every cell
+process also gets a folder of its own under it, made before the process starts and removed when
+it ends. So a cell cannot read the engine's environment or anything root-only, cannot write to
+`/app`, and cannot read another owner's files, package cache, or the `/proc/<pid>/environ` of
+another owner's running cell — which is where that owner's secrets are. The kernel enforces
+this; on JS cells node's permission model sits on top. Python cells, which have no equivalent
+of the permission model, rely on this layer alone. `packages:` for Python is still resolved
+against an allow-list and pinned to exact versions.
+
+**Enforced: what a cell can read of storage.** The storage folder is root's and closed (0700) on
+Linux, and a JS cell is refused it by the permission model on every platform. A cell gets only
+copies the engine puts in its own folder before it starts: the run's `file` inputs, and files
+that notebooks it called handed back or that the run itself wrote. A `file` input is admitted
+only if its actor could open that path in the storage browser (the person who started the run,
+or the owner for cron, webhooks and share links; for a nested call, the caller's owner), or if
+it is under the notebook's own `uploads/<id>/` or `notebooks/<id>/`; anything else is refused
+as "file not found".
 
 **Not enforced:**
 
@@ -198,10 +213,14 @@ cells, which have no equivalent of the permission model, rely on this layer alon
   database port. It cannot read the database password (that is in the engine's
   environment, not the cell's), but an unprotected service on the same network is reachable.
   Node's permission model has no switch for the network.
-- **Python on Windows or a dev machine has no isolation.** `SANDBOX_UID` is ignored on
-  Windows and unset in development; a Python cell there runs as the user who started the engine.
-- **Storage is shared.** A cell can read any file under the storage folder, including
-  another notebook's uploads; only the path of its own inputs is derived for it.
+- **Python on Windows or a dev machine has no isolation.** The `SANDBOX_*` variables are
+  ignored on Windows and unset in development; a Python cell there runs as the user who started
+  the engine and can read storage and everything else that user can. (A JS cell is still
+  confined by the permission model there.)
+- **Cells of the same owner share a uid.** Two notebooks of one account can read each other's
+  processes and files while running; the owner is one domain of trust (an editor's code already
+  holds the owner's secrets).
+- **A notebook with no owner does not run** where cells change uid; there is no uid to give it.
 - **The engine itself runs as root in the container.** Switching a child to another uid
   needs it. A flaw in the engine is a root flaw inside the container, not on the host.
 - **Memory is capped on the JS heap only**, and Python cells have no memory cap.
@@ -283,9 +302,9 @@ Consequences that are deliberate, and worth knowing before inviting someone:
   in storage stays shared among creators**, as it always was.
 - **Deployed names stay unique across the installation** (see Draft vs deployed). A refused
   deploy can therefore reveal that somebody else's app already uses a name.
-- **Not closed here:** a cell's sandbox can still read the whole storage directory, so a notebook's
-  *code* can read another owner's files (K-19, K-02). The rules above govern the app, the API
-  and agents, not what arbitrary code does inside a cell.
+- **A notebook's code cannot read another owner's files either** (closes K-19, FX-20): cells run as
+  the owner's own uid and cannot enter storage; see "Sandboxing, honestly". On Windows or a dev
+  machine a *Python* cell is the exception, because there is no uid to drop to.
 
 There is no administrator in the app. Recovery is on the server:
 `pnpm --filter @zaa-tool/engine transfer-owner <from-username> <to-username> [--notebook <id>]`

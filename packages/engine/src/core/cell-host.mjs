@@ -3,7 +3,7 @@
 // Plain JavaScript on purpose: this file is the entry point of a child process that the
 // engine starts under node's permission model (see js-runner.ts), and that child has no
 // `tsx` loader and no business needing one. It is also the whole of what the cell can
-// reach on this disk besides the storage folder and the declared packages, so it stays
+// reach on this disk besides its own folder and the declared packages, so it stays
 // small and self-contained.
 //
 // It does what `worker-boot.ts` and `code-wrappers.ts` did while cells ran in a worker
@@ -265,7 +265,7 @@ async function run(init) {
      *
      * Node's own built-ins stay: a cell that wants `crypto` or `fs` is doing ordinary work.
      * What it can do with `fs` is bounded by the permission model this process runs under:
-     * it reads its declared packages and the storage folder and writes nothing.
+     * it reads its declared packages and its own folder (the files staged for it) and writes nothing.
      */
     const allowed = new Set(Array.isArray(packages) ? packages : []);
 

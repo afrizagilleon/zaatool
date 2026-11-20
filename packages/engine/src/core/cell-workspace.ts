@@ -245,3 +245,21 @@ function descriptorPaths(value: unknown): string[] {
 export function defaultCellHost(): CellHost {
   return createCellHost({});
 }
+
+/**
+ * Makes the storage folder root's and closed (0700) when cells change uid, so that no cell
+ * can enter it at all: what a cell may read is what the engine copied into its own folder.
+ * The files inside keep their modes; it is the folder that is shut. Does nothing without a
+ * sandbox, where there is no other user to shut it against.
+ */
+export function secureStorageRoot(
+  config: SandboxConfig | undefined,
+  storageDir: string,
+  wfs: Pick<WorkspaceFs, "mkdirSync" | "chmodSync" | "chownSync"> = fs
+): boolean {
+  if (!config) return false;
+  wfs.mkdirSync(storageDir, { recursive: true });
+  wfs.chownSync(storageDir, 0, 0);
+  wfs.chmodSync(storageDir, PRIVATE);
+  return true;
+}
