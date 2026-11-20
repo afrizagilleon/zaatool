@@ -58,6 +58,8 @@ services:
       # production. Set `false` only to try the stack over plain HTTP; a browser will not
       # send a Secure cookie back over HTTP, so sign-in appears to work and nothing sticks.
       COOKIE_SECURE: ${COOKIE_SECURE:-}
+      # The one time zone cron triggers are read in. See DEPLOY.md.
+      CRON_TZ: ${CRON_TZ:-UTC}
       # Read by the login and webhook limiters to tell clients apart behind nginx. One hop:
       # nginx, and nobody behind it. Not the engine's own default (private networks), because
       # nginx can see a client on a private address too (Docker Desktop, rootless Docker, a

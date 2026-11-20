@@ -85,6 +85,12 @@ a private address under Docker Desktop, rootless Docker, or a proxy on the same 
 That client then picks its own address and is never limited (K-28, tested on Docker
 Desktop).
 
+**Cron runs in one time zone.** Every notebook schedule is read in `CRON_TZ` (an IANA
+name such as `Asia/Jakarta`; default `UTC`), not in the server's or the browser's zone, so
+`0 9 * * *` means 09:00 there. An unknown name makes the engine refuse to start. Each
+minute fires once; schedules that fell due while the engine was down are not replayed, and
+the log says when the scheduler started. Compose passes `CRON_TZ` through from `.env`.
+
 **Put TLS in front of it.** Caddy, nginx, a cloud load balancer, whatever you already run.
 Not optional: the session cookie and share tokens travel with every request, and the
 microphone in a notebook's page will not work at all without HTTPS. The session cookie is
