@@ -54,12 +54,16 @@ const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 // rather than through `register`, which is now closed once an installation has anybody in
 // it — that refusal is `access.test.ts`'s business, not this file's.
 await pool.query("DELETE FROM users WHERE username = 'zz-act-user'").catch(() => {});
-await authService.createUser("zz-act-user", "zz-act-password", "creator");
+const actUser = await authService.createUser("zz-act-user", "zz-act-password", "creator");
 const token = (await authService.login("zz-act-user", "zz-act-password")).token;
 const auth = { Authorization: `Bearer ${token}` };
 
 async function store(text: string, deploy = true): Promise<string> {
-  const saved = await notebooksService.save(fromMarkdown(text), "test");
+  // Owned by the account that presses the buttons: a button reaches what its page's owner may
+  // use (FX-17), and a notebook nobody owns reaches nothing. The ids are fixed and the rows
+  // outlive a run, so the owner is set again each time rather than trusted from the last one.
+  const saved = await notebooksService.save(fromMarkdown(text), "test", actUser.id);
+  await pool.query("UPDATE notebooks SET owner_id = $1 WHERE id = $2", [actUser.id, saved.id]);
   if (deploy) await notebooksService.deploy(saved.id, "test");
   return saved.id;
 }

@@ -311,6 +311,10 @@ await check("a deactivated account is nothing to anyone", async () => {
   assert.equal(await access.accessFor(editor.id, everyone), null);
   await authService.setActive(editor.id, true);
   assert.equal(await access.accessFor(editor.id, everyone), "editor");
+  // Switching an account off ends its sessions (FX-18), and switching it back on does not
+  // bring them back: the editor signs in again, as a person would.
+  editor.token = (await authService.login(editor.username, PASSWORD)).token;
+  editor.headers = { Authorization: `Bearer ${editor.token}` };
 });
 
 await check("a notebook without an owner is reachable only as a page", async () => {

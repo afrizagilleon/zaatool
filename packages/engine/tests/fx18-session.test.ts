@@ -54,6 +54,9 @@ const PASSWORD = "zz-fx18-password-1";
 const USERS = ["zz-fx18-revoke", "zz-fx18-all", "zz-fx18-pw", "zz-fx18-off", "zz-fx18-cli", "zz-fx18-cookie", "zz-fx18-csrf", "zz-fx18-ws"];
 
 async function clean(): Promise<void> {
+  await pool.query("DELETE FROM notebook_runs WHERE id IN ('zz-fx18', 'zz-fx18-run')");
+  await pool.query("DELETE FROM notebook_shares WHERE notebook_id = 'zz-fx18-nb'");
+  await pool.query("DELETE FROM notebooks WHERE id = 'zz-fx18-nb'");
   await pool.query("DELETE FROM users WHERE username LIKE 'zz-fx18-%'");
   await pool.query("DELETE FROM notebook_shares WHERE created_by = 'zz-fx18'");
   fs.rmSync(path.join(STORAGE_DIR, "zz-fx18"), { recursive: true, force: true });
@@ -346,9 +349,30 @@ function connect(headers: Record<string, string>): Promise<Opened> {
 const settle = (ms = 80) => new Promise((resolve) => setTimeout(resolve, ms));
 const origin = `http://127.0.0.1:${port}`;
 
+/**
+ * The socket only delivers runs, and lets a link follow runs, that exist and that the caller
+ * may see (FX-17), so the events below are about real rows: a notebook the socket's user
+ * owns, and two runs of it that nobody started — the owner's to read.
+ */
+async function ownedRows(ownerId: string): Promise<void> {
+  await pool.query("DELETE FROM notebook_runs WHERE id IN ('zz-fx18', 'zz-fx18-run')");
+  await pool.query("DELETE FROM notebook_shares WHERE notebook_id = 'zz-fx18-nb'");
+  await pool.query("DELETE FROM notebooks WHERE id = 'zz-fx18-nb'");
+  await pool.query(
+    "INSERT INTO notebooks (id, name, runtime, document, owner_id) VALUES ('zz-fx18-nb', 'zz-fx18-nb', 'node', '{}', $1)",
+    [ownerId]
+  );
+  for (const id of ["zz-fx18", "zz-fx18-run"]) {
+    await pool.query(
+      "INSERT INTO notebook_runs (id, notebook_id, status, trigger_source) VALUES ($1, 'zz-fx18-nb', 'running', 'cron')",
+      [id]
+    );
+  }
+}
+
 async function wsSession(): Promise<string> {
   await pool.query("DELETE FROM users WHERE username = $1", [USERS[7]]);
-  await authService.createUser(USERS[7], PASSWORD, "creator");
+  await ownedRows((await authService.createUser(USERS[7], PASSWORD, "creator")).id);
   return (sessionSetCookie(await loginRaw(USERS[7])) ?? "").split(";")[0];
 }
 
@@ -431,6 +455,7 @@ await check("behind a rewriting proxy the original host comes from X-Forwarded-H
 });
 
 await check("a share token still opens a stream: it can follow a run but not watch the workspace", async () => {
+  await wsSession();
   const share = await notebookSharesService.create("zz-fx18-nb", "zz-fx18");
   const opened = await connect({ Origin: origin });
   assert.ok(opened.ok);
