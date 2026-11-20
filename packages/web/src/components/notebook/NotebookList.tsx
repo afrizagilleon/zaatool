@@ -376,7 +376,17 @@ export function NotebookList({ onOpen, onCreate }: NotebookListProps) {
                   key={notebook.id}
                   // 44px tall, which is the smallest target a thumb hits reliably.
                   className="flex min-h-11 items-center gap-3 border border-border px-3 py-2 hover:border-primary/50 cursor-pointer"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => (selecting ? toggle(notebook.id) : onOpen(notebook.id))}
+                  onKeyDown={(event) => {
+                    // Only the row itself: a key pressed on the checkbox or a button inside is theirs.
+                    if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+                      event.preventDefault();
+                      if (selecting) toggle(notebook.id);
+                      else onOpen(notebook.id);
+                    }
+                  }}
                 >
                   {selecting ? (
                     <Checkbox

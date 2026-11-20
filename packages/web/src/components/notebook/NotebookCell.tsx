@@ -296,7 +296,16 @@ export function NotebookCell({
           ) : (
             <div
               className="px-2 py-1.5 cursor-text prose prose-sm dark:prose-invert max-w-none"
+              role="button"
+              tabIndex={0}
               onClick={() => setIsEditingNote(true)}
+              onKeyDown={(event) => {
+                // Only the note itself: Enter on a link inside it must still follow the link.
+                if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+                  event.preventDefault();
+                  setIsEditingNote(true);
+                }
+              }}
               title="Click to edit the note"
             >
               {hasNote ? (

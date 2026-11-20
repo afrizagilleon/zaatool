@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useId, useState, useRef } from 'react';
 import Editor, { type OnMount } from '@monaco-editor/react';
 
 type EditorInstance = Parameters<OnMount>[0];
@@ -31,6 +31,7 @@ interface SkillEditorDialogProps {
 }
 
 export function SkillEditorDialog({ open, onOpenChange, skill, onSave }: SkillEditorDialogProps) {
+  const fieldId = useId();
   const isDarkMode = useUiStore((s) => s.isDarkMode);
 
   const [name, setName] = useState('');
@@ -113,8 +114,9 @@ export function SkillEditorDialog({ open, onOpenChange, skill, onSave }: SkillEd
 
           <div className="flex gap-4">
             <div className="flex-1 space-y-1">
-              <label className="text-[10px] uppercase font-bold text-muted-foreground">Skill Name</label>
+              <label htmlFor={`${fieldId}-name`} className="text-[10px] uppercase font-bold text-muted-foreground">Skill Name</label>
               <Input
+                id={`${fieldId}-name`}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g. Code Review Persona"
@@ -122,8 +124,9 @@ export function SkillEditorDialog({ open, onOpenChange, skill, onSave }: SkillEd
               />
             </div>
             <div className="flex-[2] space-y-1">
-              <label className="text-[10px] uppercase font-bold text-muted-foreground">Description</label>
+              <label htmlFor={`${fieldId}-description`} className="text-[10px] uppercase font-bold text-muted-foreground">Description</label>
               <Input
+                id={`${fieldId}-description`}
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Brief summary of what this skill does..."
@@ -165,8 +168,10 @@ export function SkillEditorDialog({ open, onOpenChange, skill, onSave }: SkillEd
               </div>
             </div>
 
-            <div 
+            <div
               className="flex-1 relative overflow-hidden"
+              // Not a control: it only keeps editor keystrokes from reaching the dialog's own shortcuts.
+              role="presentation"
               onKeyDown={(e) => e.stopPropagation()}
               onKeyUp={(e) => e.stopPropagation()}
             >

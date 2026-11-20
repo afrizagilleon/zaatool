@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -20,6 +20,7 @@ interface SecretsTabProps {
 }
 
 export function SecretsTab({ secrets, onAdd, onDelete }: SecretsTabProps) {
+  const fieldId = useId();
   const [isOpen, setIsOpen] = useState(false);
   const [form, setForm] = useState({ key: '', value: '', is_secret: true });
   const [query, setQuery] = useState('');
@@ -115,8 +116,9 @@ export function SecretsTab({ secrets, onAdd, onDelete }: SecretsTabProps) {
 
           <div className="space-y-4 py-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-muted-foreground uppercase">Key Name</label>
+              <label htmlFor={`${fieldId}-key`} className="text-xs font-bold text-muted-foreground uppercase">Key Name</label>
               <Input
+                id={`${fieldId}-key`}
                 value={form.key}
                 onChange={(e) => setForm({ ...form, key: e.target.value })}
                 placeholder="e.g. GEMINI_API_KEY"
@@ -124,8 +126,9 @@ export function SecretsTab({ secrets, onAdd, onDelete }: SecretsTabProps) {
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-muted-foreground uppercase">Value</label>
+              <label htmlFor={`${fieldId}-value`} className="text-xs font-bold text-muted-foreground uppercase">Value</label>
               <Input
+                id={`${fieldId}-value`}
                 type="password"
                 value={form.value}
                 onChange={(e) => setForm({ ...form, value: e.target.value })}

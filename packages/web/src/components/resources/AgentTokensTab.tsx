@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import type { AgentTokenRecord } from '../../hooks/useAgentTokens';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Button } from '../ui/button';
@@ -23,6 +23,7 @@ export function AgentTokensTab({
   onIssue,
   onRevoke,
 }: AgentTokensTabProps) {
+  const fieldId = useId();
   const [isOpen, setIsOpen] = useState(false);
   const [form, setForm] = useState<{ label: string; scope: 'author' | 'reader' }>({
     label: '',
@@ -176,8 +177,9 @@ export function AgentTokensTab({
 
           <div className="space-y-4 py-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-muted-foreground uppercase">Label / Name</label>
+              <label htmlFor={`${fieldId}-label`} className="text-xs font-bold text-muted-foreground uppercase">Label / Name</label>
               <Input
+                id={`${fieldId}-label`}
                 value={form.label}
                 onChange={(e) => setForm({ ...form, label: e.target.value })}
                 placeholder="e.g. Hermes Bot"
@@ -185,8 +187,9 @@ export function AgentTokensTab({
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-muted-foreground uppercase">Scope</label>
+              <label htmlFor={`${fieldId}-scope`} className="text-xs font-bold text-muted-foreground uppercase">Scope</label>
               <select
+                id={`${fieldId}-scope`}
                 value={form.scope}
                 onChange={(e) => setForm({ ...form, scope: e.target.value as 'author' | 'reader' })}
                 className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"

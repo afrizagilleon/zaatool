@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import type { AccountUser, Role } from '@zaa-tool/shared';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { Button } from '../ui/button';
@@ -15,6 +15,7 @@ interface AccountsTabProps {
 }
 
 export function AccountsTab({ accounts, error, onCreate, onSetActive }: AccountsTabProps) {
+  const fieldId = useId();
   const currentUser = useAuthStore((s) => s.user);
   const [isOpen, setIsOpen] = useState(false);
   const [form, setForm] = useState<{ username: string; email: string; passwordPlain: string; role: Role }>({
@@ -156,8 +157,9 @@ export function AccountsTab({ accounts, error, onCreate, onSetActive }: Accounts
 
           <div className="space-y-4 py-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-muted-foreground uppercase">Username</label>
+              <label htmlFor={`${fieldId}-username`} className="text-xs font-bold text-muted-foreground uppercase">Username</label>
               <Input
+                id={`${fieldId}-username`}
                 value={form.username}
                 onChange={(e) => setForm({ ...form, username: e.target.value })}
                 placeholder="e.g. johndoe"
@@ -165,8 +167,9 @@ export function AccountsTab({ accounts, error, onCreate, onSetActive }: Accounts
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-muted-foreground uppercase">Email (Optional)</label>
+              <label htmlFor={`${fieldId}-email`} className="text-xs font-bold text-muted-foreground uppercase">Email (Optional)</label>
               <Input
+                id={`${fieldId}-email`}
                 type="email"
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
@@ -175,8 +178,9 @@ export function AccountsTab({ accounts, error, onCreate, onSetActive }: Accounts
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-muted-foreground uppercase">Password</label>
+              <label htmlFor={`${fieldId}-password`} className="text-xs font-bold text-muted-foreground uppercase">Password</label>
               <Input
+                id={`${fieldId}-password`}
                 type="password"
                 value={form.passwordPlain}
                 onChange={(e) => setForm({ ...form, passwordPlain: e.target.value })}
@@ -185,8 +189,9 @@ export function AccountsTab({ accounts, error, onCreate, onSetActive }: Accounts
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-muted-foreground uppercase">Role</label>
+              <label htmlFor={`${fieldId}-role`} className="text-xs font-bold text-muted-foreground uppercase">Role</label>
               <select
+                id={`${fieldId}-role`}
                 value={form.role}
                 onChange={(e) => setForm({ ...form, role: e.target.value as Role })}
                 className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"

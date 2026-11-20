@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ArrowsMerge,
   ArrowsSplit,
@@ -48,6 +48,13 @@ export function ParallelGroup({
 }: ParallelGroupProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [renamingLaneId, setRenamingLaneId] = useState<string | null>(null);
+  const renameInput = useRef<HTMLInputElement>(null);
+
+  // The name box takes focus the moment it appears — the same behaviour `autoFocus` gave,
+  // done where the page can see it happen.
+  useEffect(() => {
+    if (renamingLaneId !== null) renameInput.current?.focus();
+  }, [renamingLaneId]);
 
   // Removing a lane can leave the index past the end.
   const maxIndex = Math.max(0, group.lanes.length - 1);
@@ -105,6 +112,7 @@ export function ParallelGroup({
 
           {renamingLaneId === activeLane.id ? (
             <input
+              ref={renameInput}
               value={activeLane.label ?? ''}
               onChange={(e) => onRenameLane(activeLane.id, e.target.value)}
               onBlur={() => setRenamingLaneId(null)}
@@ -112,7 +120,6 @@ export function ParallelGroup({
                 if (e.key === 'Enter' || e.key === 'Escape') setRenamingLaneId(null);
               }}
               className="h-5 w-28 px-1 text-[11px] font-semibold bg-background border border-border outline-none"
-              autoFocus
             />
           ) : (
             <button
