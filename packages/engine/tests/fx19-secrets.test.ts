@@ -370,6 +370,88 @@ await check("the stored (encrypted) secret opens a webhook; a wrong, missing or 
 server.close();
 
 
+// ── transfer-owner and key rotation (T-04) ────────────────────────────────────
+
+function cli(script: string, env: Record<string, string>, ...args: string[]): { code: number; out: string } {
+  const result = spawnSync(process.execPath, ["--import", "tsx", path.join(engineDir, "scripts", script), ...args], {
+    cwd: engineDir,
+    encoding: "utf8",
+    env: { ...process.env, ...env },
+  });
+  return { code: result.status ?? 1, out: `${result.stdout}${result.stderr}` };
+}
+
+console.log("\ntransfer-owner");
+
+await check("a transferred notebook's secret is re-encrypted for the new owner and opens for them", async () => {
+  const carol = await testOwner("fx19c");
+  await secretsService.create(alice.id, "ZZ_FX19_MOVED", "moved-value", true);
+  const saved = await notebooksService.save(
+    {
+      version: "1.0",
+      id: "",
+      name: "zz-fx19-moved",
+      runtime: "node",
+      secrets: ["ZZ_FX19_MOVED"],
+      outputs: ["got"],
+      steps: [{ id: "c1", kind: "cell", code: "return { got: process.env.ZZ_FX19_MOVED ?? null };" }],
+    } as NotebookJson,
+    "test",
+    alice.id
+  );
+  const result = cli("transfer-owner.ts", { SECRETS_KEY: KEY_A }, alice.username, carol.username, "--notebook", saved.id);
+  assert.equal(result.code, 0, result.out);
+  assert.match(result.out, /ZZ_FX19_MOVED/);
+
+  const theirs = await rawValue(carol.id, "ZZ_FX19_MOVED");
+  assert.ok(theirs.startsWith("enc:v1:"), "the copy is not encrypted");
+  assert.notEqual(theirs, await rawValue(alice.id, "ZZ_FX19_MOVED"));
+  assert.equal(await secretsService.getValueByKey(carol.id, "ZZ_FX19_MOVED"), "moved-value");
+  assert.equal(await secretsService.getValueByKey(alice.id, "ZZ_FX19_MOVED"), "moved-value", "the old owner lost theirs");
+
+  const outcome = await (await notebookExecutionService.start(saved.id, () => {}, {})).completed;
+  assert.equal((outcome.outputs as { got: unknown }).got, "moved-value");
+});
+
+console.log("\nkey rotation");
+
+await check("rotate-secrets-key re-encrypts every row: the new key opens them, the old one does not", async () => {
+  const before = await rawValue(alice.id, "ZZ_FX19_RUN");
+  const result = cli("rotate-secrets-key.ts", { SECRETS_KEY: KEY_A, NEW_SECRETS_KEY: KEY_B });
+  assert.equal(result.code, 0, result.out);
+  assert.match(result.out, /SECRETS_KEY/);
+  assert.notEqual(await rawValue(alice.id, "ZZ_FX19_RUN"), before);
+  await withEnv({ SECRETS_KEY: KEY_B }, async () => {
+    assert.equal(await secretsService.getValueByKey(alice.id, "ZZ_FX19_RUN"), "value-for-the-cell");
+    assert.equal(await secretsService.getValueByKey(bob.id, "ZZ_FX19_RENAMED"), "bobs-value");
+  });
+  await assert.rejects(secretsService.getValueByKey(alice.id, "ZZ_FX19_RUN"));
+});
+
+await check("a wrong old key rotates nothing, and so does a malformed or identical new one", async () => {
+  const snapshot = async () => JSON.stringify((await pool.query("SELECT id, value FROM secrets ORDER BY id")).rows);
+  const before = await snapshot();
+  assert.notEqual(cli("rotate-secrets-key.ts", { SECRETS_KEY: KEY_A, NEW_SECRETS_KEY: KEY_B }).code, 0, "old key A should not open rows under B");
+  assert.notEqual(cli("rotate-secrets-key.ts", { SECRETS_KEY: KEY_B, NEW_SECRETS_KEY: "short" }).code, 0);
+  assert.notEqual(cli("rotate-secrets-key.ts", { SECRETS_KEY: KEY_B, NEW_SECRETS_KEY: KEY_B }).code, 0);
+  assert.equal(await snapshot(), before);
+});
+
+await check("rotation is all or none: one row the old key cannot open undoes the rest", async () => {
+  await pool.query(
+    "INSERT INTO secrets (id, key, value, is_secret, owner_id) VALUES ('zz-fx19-bad', 'ZZ_FX19_BAD', $1, true, $2)",
+    [sealFor(alice.id, "ZZ_FX19_BAD", "x", KEY_A), alice.id]
+  );
+  const before = JSON.stringify((await pool.query("SELECT id, value FROM secrets ORDER BY id")).rows);
+  const result = cli("rotate-secrets-key.ts", { SECRETS_KEY: KEY_B, NEW_SECRETS_KEY: KEY_A });
+  assert.notEqual(result.code, 0, result.out);
+  assert.equal(JSON.stringify((await pool.query("SELECT id, value FROM secrets ORDER BY id")).rows), before);
+  await pool.query("DELETE FROM secrets WHERE id = 'zz-fx19-bad'");
+  // Put the database back under the key the rest of this file's process uses.
+  assert.equal(cli("rotate-secrets-key.ts", { SECRETS_KEY: KEY_B, NEW_SECRETS_KEY: KEY_A }).code, 0);
+  assert.equal(await secretsService.getValueByKey(alice.id, "ZZ_FX19_RUN"), "value-for-the-cell");
+});
+
 await clean();
 await pool.end();
 

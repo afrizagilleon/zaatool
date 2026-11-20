@@ -1,4 +1,6 @@
 import { pool } from "../db/connection.js";
+import { v4 as uuidv4 } from "uuid";
+import { openSecret, sealSecret } from "./secrets.service.js";
 
 /**
  * The one place that decides who may touch a notebook.
@@ -473,16 +475,30 @@ export class NotebookAccessService {
         ...new Set([...secretKeysOf(notebook.document), ...secretKeysOf(notebook.deployed_document)]),
       ];
       if (keys.length > 0 && notebook.owner_id) {
-        const { rows } = await pool.query<{ key: string }>(
-          `INSERT INTO secrets (id, key, value, is_secret, created_at, owner_id)
-           SELECT md5(random()::text || clock_timestamp()::text || s.id), s.key, s.value, s.is_secret, s.created_at, $2
-           FROM secrets s
-           WHERE s.owner_id = $1 AND s.key = ANY($3)
-           ON CONFLICT (owner_id, key) DO NOTHING
-           RETURNING key`,
-          [notebook.owner_id, target[0].id, keys]
+        // Read and written through the secrets service's cipher, not copied as stored: a
+        // value is encrypted for its owner and name, so the old owner's ciphertext would not
+        // open under the new one.
+        const { rows: theirs } = await pool.query<{ key: string; value: string; is_secret: boolean; created_at: string }>(
+          "SELECT key, value, is_secret, created_at FROM secrets WHERE owner_id = $1 AND key = ANY($2)",
+          [notebook.owner_id, keys]
         );
-        for (const row of rows) copied.add(row.key);
+        for (const secret of theirs) {
+          const { rows } = await pool.query<{ key: string }>(
+            `INSERT INTO secrets (id, key, value, is_secret, created_at, owner_id)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (owner_id, key) DO NOTHING
+             RETURNING key`,
+            [
+              uuidv4(),
+              secret.key,
+              sealSecret(target[0].id, secret.key, openSecret(notebook.owner_id, secret.key, secret.value)),
+              secret.is_secret,
+              secret.created_at,
+              target[0].id,
+            ]
+          );
+          for (const row of rows) copied.add(row.key);
+        }
       }
       await pool.query("UPDATE notebooks SET owner_id = $1 WHERE id = $2", [target[0].id, notebook.id]);
       // The new owner is not also their own editor.
