@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { AuthInputError, authService, isRole, RegistrationClosedError } from "../services/auth.service.js";
+import { AuthInputError, authService, isRole, RegistrationClosedError, SetupCodeError } from "../services/auth.service.js";
 import { cronTimezone, registrationOpen } from "../config.js";
 import { pool } from "../db/connection.js";
 import { clearSessionCookie, setSessionCookie } from "../middleware/session-cookie.js";
@@ -43,14 +43,14 @@ export class AuthController {
 
   async register(req: Request, res: Response) {
     try {
-      const { username, password, email } = req.body;
+      const { username, password, email, setupCode } = req.body;
       if (!username || !password) {
         return res.status(400).json({ error: "Username and password are required" });
       }
-      const user = await authService.register(username, password, email);
+      const user = await authService.register(username, password, email, setupCode);
       res.status(201).json({ success: true, user });
     } catch (err) {
-      if (err instanceof RegistrationClosedError) {
+      if (err instanceof RegistrationClosedError || err instanceof SetupCodeError) {
         return res.status(403).json({ error: err.message });
       }
       refuse(res, err, "Register error");
