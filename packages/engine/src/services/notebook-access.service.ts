@@ -430,8 +430,11 @@ export class NotebookAccessService {
    */
   async transferOwner(
     toUsername: string,
-    from: { username?: string; notebookId?: string }
+    from: { username?: string; orphaned?: boolean; notebookId?: string }
   ): Promise<{ notebooks: string[]; copiedSecrets: string[] }> {
+    if (from.username === undefined && !from.orphaned) {
+      throw new AccessInputError("Say whose notebooks to move: an account name, or the ones nobody owns.");
+    }
     const { rows: target } = await pool.query<{ id: string; role: string | null }>(
       "SELECT id, role FROM users WHERE username = $1",
       [toUsername]
@@ -460,8 +463,8 @@ export class NotebookAccessService {
        FROM notebooks n LEFT JOIN notebook_versions v ON v.id = n.deployed_version_id
        WHERE ($1::text IS NULL OR n.owner_id = $1)
          AND ($2::text IS NULL OR n.id = $2)
-         AND ($1::text IS NOT NULL OR $2::text IS NOT NULL OR n.owner_id IS NULL)`,
-      [source, from.notebookId ?? null]
+         AND ($3::boolean IS NOT TRUE OR n.owner_id IS NULL)`,
+      [source, from.notebookId ?? null, from.orphaned === true]
     );
 
     const copied = new Set<string>();

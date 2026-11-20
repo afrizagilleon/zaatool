@@ -463,6 +463,65 @@ export class NotebooksController {
     }
   };
 
+  /**
+   * Who a notebook is shared with: its owner, its editors, and who may use the app.
+   *
+   * The owner's alone. An editor knows the notebook exists, so they are told this is not
+   * theirs to read (403); anyone else is told there is no such notebook (404).
+   */
+  private ownerOnly = async (req: Request, res: Response): Promise<string | null> => {
+    const id = String(req.params.id);
+    const access = await notebookAccessService.accessFor(callerOf(req).id, id);
+    if (!isEditAccess(access)) {
+      res.status(404).json(NOT_FOUND);
+      return null;
+    }
+    if (access !== "owner") {
+      res.status(403).json({ error: "Only the owner can change who has access to a notebook." });
+      return null;
+    }
+    return id;
+  };
+
+  getAccess = async (req: Request, res: Response) => {
+    try {
+      const id = await this.ownerOnly(req, res);
+      if (id === null) return;
+      res.json(await notebookAccessService.describe(id));
+    } catch (err: unknown) {
+      respondWithError(res, err);
+    }
+  };
+
+  /**
+   * Replaces the lists it is given and keeps the rest. A username that does not exist, or a
+   * viewer named as an editor, is a 400 that says which — nothing is half-applied.
+   */
+  putAccess = async (req: Request, res: Response) => {
+    try {
+      const id = await this.ownerOnly(req, res);
+      if (id === null) return;
+
+      // A list is names, or objects with a `username` — what `GET` hands out can be sent back.
+      const names = (value: unknown): string[] | undefined => {
+        if (value === undefined) return undefined;
+        if (!Array.isArray(value)) throw new AccessInputError("Expected a list of usernames.");
+        return value.map((entry) =>
+          typeof entry === "string" ? entry : String((entry as { username?: unknown })?.username ?? "")
+        );
+      };
+
+      await notebookAccessService.update(id, {
+        editors: names(req.body?.editors),
+        appVisibility: req.body?.appVisibility,
+        appUsers: names(req.body?.appUsers),
+      });
+      res.json(await notebookAccessService.describe(id));
+    } catch (err: unknown) {
+      respondWithError(res, err);
+    }
+  };
+
   /** Links that let someone without an account use this notebook's page. */
   listShares = async (req: Request, res: Response) => {
     try {

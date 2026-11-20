@@ -14,6 +14,8 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { AddressInfo } from "node:net";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -1220,6 +1222,145 @@ await check("nobody can rename, delete, upload into or create folders inside som
 });
 
 for (const folder of [...ownersFolders, othersFolder, sharedFolder]) fs.rmSync(folder, { recursive: true, force: true });
+
+// ── managing access, and the way back (T-09) ──────────────────────────────────
+
+console.log("\nwho decides who has access");
+
+const sharing = await seed("sharing", { owner, deployed: true, editors: [editor] });
+const accessOf = async (who: Person, id = sharing) => (await call(who, "GET", `/api/notebooks/${id}/access`)).status;
+
+await check("only the owner may read or change the access list: an editor is told it is not theirs, anyone else that there is no such notebook", async () => {
+  assert.equal(await accessOf(owner), 200);
+  assert.equal(await accessOf(editor), 403);
+  for (const who of [other, viewer, chosen]) assert.equal(await accessOf(who), 404);
+  assert.equal(await accessOf(other, "zz-fx17-no-such-notebook"), 404);
+  const hidden = await call(other, "GET", `/api/notebooks/${picked}/access`);
+  const missing = await call(other, "GET", `/api/notebooks/zz-fx17-no-such-notebook/access`);
+  assert.equal(await hidden.text(), await missing.text());
+
+  const before = await (await call(owner, "GET", `/api/notebooks/${sharing}/access`)).json();
+  assert.equal((await call(editor, "PUT", `/api/notebooks/${sharing}/access`, { editors: [], appVisibility: "selected" })).status, 403);
+  assert.equal((await call(other, "PUT", `/api/notebooks/${sharing}/access`, { editors: [other.username] })).status, 404);
+  assert.deepEqual(await (await call(owner, "GET", `/api/notebooks/${sharing}/access`)).json(), before, "a refused change was applied");
+});
+
+await check("the owner sees owner, editors, visibility and app users", async () => {
+  const body = await (await call(owner, "GET", `/api/notebooks/${sharing}/access`)).json();
+  assert.deepEqual(body, {
+    owner: { id: owner.id, username: owner.username },
+    editors: [{ id: editor.id, username: editor.username }],
+    appVisibility: "all",
+    appUsers: [],
+  });
+});
+
+await check("the owner adds and removes editors, and the change is felt at once", async () => {
+  assert.equal((await call(other, "GET", `/api/notebooks/${sharing}`)).status, 404);
+  const added = await call(owner, "PUT", `/api/notebooks/${sharing}/access`, { editors: [editor.username, other.username] });
+  assert.equal(added.status, 200);
+  assert.deepEqual(((await added.json()) as { editors: { username: string }[] }).editors.map((entry) => entry.username).sort(), [editor.username, other.username].sort());
+  assert.equal((await call(other, "GET", `/api/notebooks/${sharing}`)).status, 200);
+
+  await call(owner, "PUT", `/api/notebooks/${sharing}/access`, { editors: [editor.username] });
+  assert.equal((await call(other, "GET", `/api/notebooks/${sharing}`)).status, 404);
+});
+
+await check("the owner chooses who may use the app, and the Apps list follows", async () => {
+  const pagesOf = async (who: Person) => ((await (await call(who, "GET", "/api/notebooks/pages")).json()) as { id: string }[]).map((page) => page.id);
+  assert.ok((await pagesOf(viewer)).includes(sharing), "open to everybody to begin with");
+
+  const res = await call(owner, "PUT", `/api/notebooks/${sharing}/access`, { appVisibility: "selected", appUsers: [chosen.username] });
+  assert.equal(res.status, 200);
+  assert.ok(!(await pagesOf(viewer)).includes(sharing), "still listed for somebody not named");
+  assert.ok(!(await pagesOf(other)).includes(sharing));
+  assert.ok((await pagesOf(chosen)).includes(sharing));
+  assert.ok((await pagesOf(editor)).includes(sharing), "an editor reaches the app without being named");
+  assert.equal((await call(viewer, "POST", `/api/notebooks/${sharing}/run`, {})).status, 404);
+
+  // Keeps what it was not told about.
+  const kept = await (await call(owner, "GET", `/api/notebooks/${sharing}/access`)).json();
+  assert.equal(kept.editors.length, 1);
+  await call(owner, "PUT", `/api/notebooks/${sharing}/access`, { appVisibility: "all" });
+  assert.ok((await pagesOf(viewer)).includes(sharing));
+});
+
+await check("an unknown username, a viewer as editor or a bad visibility is a 400 that says which, and nothing is applied", async () => {
+  const before = await (await call(owner, "GET", `/api/notebooks/${sharing}/access`)).json();
+
+  const ghost = await call(owner, "PUT", `/api/notebooks/${sharing}/access`, { editors: [other.username, "zz-fx17-ghost"] });
+  assert.equal(ghost.status, 400);
+  assert.match(((await ghost.json()) as { error: string }).error, /zz-fx17-ghost/);
+
+  const viewerAsEditor = await call(owner, "PUT", `/api/notebooks/${sharing}/access`, { editors: [viewer.username] });
+  assert.equal(viewerAsEditor.status, 400);
+  assert.match(((await viewerAsEditor.json()) as { error: string }).error, /creator/);
+
+  assert.equal((await call(owner, "PUT", `/api/notebooks/${sharing}/access`, { appVisibility: "friends" })).status, 400);
+  assert.equal((await call(owner, "PUT", `/api/notebooks/${sharing}/access`, { appUsers: ["zz-fx17-ghost"] })).status, 400);
+
+  assert.deepEqual(await (await call(owner, "GET", `/api/notebooks/${sharing}/access`)).json(), before, "a refused change was partly applied");
+});
+
+await check("naming the owner as an editor adds nothing", async () => {
+  await call(owner, "PUT", `/api/notebooks/${sharing}/access`, { editors: [owner.username, editor.username] });
+  const body = await (await call(owner, "GET", `/api/notebooks/${sharing}/access`)).json();
+  assert.deepEqual(body.editors.map((entry: { username: string }) => entry.username), [editor.username]);
+});
+
+console.log("\ntransfer-owner");
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+function transfer(...args: string[]): { code: number; out: string } {
+  const result = spawnSync(process.execPath, ["--import", "tsx", path.join(here, "../scripts/transfer-owner.ts"), ...args], {
+    cwd: path.resolve(here, ".."),
+    encoding: "utf8",
+  });
+  return { code: result.status ?? 1, out: `${result.stdout}${result.stderr}` };
+}
+
+await check("the CLI moves one notebook, and copies the secrets it names to the new owner", async () => {
+  const id = await reporter("transferred", other, "ZZ_FX17_ONLY_OTHER");
+  const second = await reporter("stays", other, "ZZ_FX17_ONLY_OTHER");
+  const result = transfer(other.username, editor.username, "--notebook", id);
+  assert.equal(result.code, 0, result.out);
+  assert.equal(await access.ownerOf(id), editor.id);
+  assert.equal(await access.ownerOf(second), other.id, "a notebook that was not named moved");
+  assert.match(result.out, /ZZ_FX17_ONLY_OTHER/);
+
+  const run = (await (await call(editor, "POST", `/api/notebooks/${id}/run`, {})).json()) as { runId: string };
+  assert.equal(await gotFrom(id, run.runId), "other-value", "the new owner's run did not have the secret the notebook names");
+  const still = await pool.query("SELECT value FROM secrets WHERE owner_id = $1 AND key = 'ZZ_FX17_ONLY_OTHER'", [other.id]);
+  assert.equal(still.rows[0].value, "other-value", "the old owner lost theirs");
+});
+
+await check("the CLI keeps a secret the new owner already has", async () => {
+  const id = await reporter("transfer-conflict", other, "ZZ_FX17_TOKEN");
+  await putSecret(other, "ZZ_FX17_TOKEN", "other-token");
+  assert.equal(transfer(other.username, editor.username, "--notebook", id).code, 0);
+  const mine = await pool.query("SELECT value FROM secrets WHERE owner_id = $1 AND key = 'ZZ_FX17_TOKEN'", [editor.id]);
+  assert.equal(mine.rows[0].value, "editor-value", "the new owner's own secret was overwritten");
+});
+
+await check("the CLI moves everything an account owns, or the notebooks nobody owns", async () => {
+  const orphan = await seed("orphan", { owner: null, deployed: true });
+  const result = transfer("--orphaned", owner.username);
+  assert.equal(result.code, 0, result.out);
+  assert.equal(await access.ownerOf(orphan), owner.id);
+  assert.equal(await access.ownerOf(ownerless), owner.id);
+
+  const all = transfer(other.username, editor.username);
+  assert.equal(all.code, 0, all.out);
+  assert.equal((await pool.query("SELECT count(*)::int AS n FROM notebooks WHERE owner_id = $1", [other.id])).rows[0].n, 0);
+});
+
+await check("the CLI refuses an account that cannot own, and one that does not exist", async () => {
+  assert.notEqual(transfer(owner.username, viewer.username).code, 0);
+  assert.match(transfer(owner.username, viewer.username).out, /creator/);
+  assert.notEqual(transfer(owner.username, "zz-fx17-ghost").code, 0);
+  assert.notEqual(transfer("zz-fx17-ghost", owner.username).code, 0);
+  assert.equal(await access.ownerOf(sharing), owner.id);
+});
 
 // ── next ──
 manager.close();

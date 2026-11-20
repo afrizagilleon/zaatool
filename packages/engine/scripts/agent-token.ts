@@ -25,7 +25,8 @@ async function main(): Promise<void> {
   if (command === "issue") {
     const userFlag = rest.indexOf("--user");
     const username = userFlag === -1 ? undefined : rest[userFlag + 1];
-    const positional = rest.filter((_, index) => index !== userFlag && index !== userFlag + 1);
+    const positional =
+      userFlag === -1 ? rest : rest.filter((_, index) => index !== userFlag && index !== userFlag + 1);
     const label = positional[0];
     const scope = (positional[1] ?? "author") as AgentScope;
 

@@ -52,6 +52,11 @@ export function createNotebooksRouter(publishRunEvent: RunEventSink): Router {
   router.get("/:id/deployed", controller.deployedDocument);
   router.post("/:id/deploy", creator, controller.deploy);
   router.delete("/:id/deploy", creator, controller.undeploy);
+  // Not behind `creator`: who may ask is decided against the notebook — the owner gets in, an
+  // editor is told it is the owner's to change, and everyone else is told there is no such
+  // notebook, which a role check in front would turn into a different answer for viewers.
+  router.get("/:id/access", controller.getAccess);
+  router.put("/:id/access", controller.putAccess);
   router.get("/:id/shares", creator, controller.listShares);
   router.post("/:id/shares", creator, controller.createShare);
   router.delete("/:id/shares/:shareId", creator, controller.revokeShare);

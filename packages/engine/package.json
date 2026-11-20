@@ -10,7 +10,8 @@
     "build": "tsc",
     "reset-password": "tsx scripts/reset-password.ts",
     "create-user": "tsx scripts/create-user.ts",
-    "agent-token": "tsx scripts/agent-token.ts"
+    "agent-token": "tsx scripts/agent-token.ts",
+    "transfer-owner": "tsx scripts/transfer-owner.ts"
 
   },
   "keywords": [],
