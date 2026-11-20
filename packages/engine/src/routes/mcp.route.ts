@@ -47,6 +47,10 @@ function rpcError(res: Response, status: number, message: string): void {
  * and Hermes send, `X-API-Key` is what Perplexity's connector sends. One token, two
  * spellings, rather than two ways in.
  */
+export function agentTokenOf(req: Request): string | null {
+  return presentedToken(req);
+}
+
 function presentedToken(req: Request): string | null {
   const header = req.headers.authorization;
   if (typeof header === "string" && header.startsWith("Bearer ")) {
