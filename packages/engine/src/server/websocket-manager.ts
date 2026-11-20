@@ -10,6 +10,8 @@ import type {
 import type { RunEventHub } from "./run-event-hub.js";
 import { onCatalogChanged } from "../core/catalog-events.js";
 import { authService } from "../services/auth.service.js";
+import { wsOriginAllowed } from "../middleware/ws-origin.js";
+import { readCookie, SESSION_COOKIE } from "../middleware/session-cookie.js";
 import { notebookSharesService } from "../services/notebook-shares.service.js";
 
 /** Guards against a single socket holding open an unbounded number of channels. */
@@ -54,7 +56,14 @@ function parseMessage(raw: unknown): RunClientMessage | null {
 type Caller = "session" | "share";
 
 async function identify(token: string): Promise<Caller | null> {
-  if (authService.verifyToken(token)) return "session";
+  // Asked of the database, not just the signature: an ended session or a switched-off
+  // account must not be able to open a stream because its token has not expired yet.
+  try {
+    if ((await authService.authenticate(token)).status === "ok") return "session";
+  } catch (err) {
+    console.error("WebSocket session check failed:", err);
+    return null;
+  }
   const share = await notebookSharesService.resolve(token);
   return share ? "share" : null;
 }
@@ -98,13 +107,23 @@ export class WebSocketManager {
     // `/` — which behind the deployed nginx is the single-page app, so the socket was
     // answered with `index.html` and the run stream could not connect at all. A named
     // path is also what lets a dev server proxy it, since the root belongs to the app.
-    this.wss = new WebSocketServer({ server, path: "/ws" });
+    //
+    // `verifyClient` runs before the upgrade is accepted, so a page on another site is
+    // answered with a plain 403 and never gets a socket. See `wsOriginAllowed`.
+    this.wss = new WebSocketServer({
+      server,
+      path: "/ws",
+      verifyClient: ({ req }, done) => {
+        if (wsOriginAllowed(req)) return done(true);
+        done(false, 403, "Origin not allowed");
+      },
+    });
 
     this.wss.on("error", (err) => {
       console.error("❌ WebSocket server error:", err.message);
     });
 
-    this.wss.on("connection", (ws) => {
+    this.wss.on("connection", (ws, req) => {
       const unsubscribes = new Map<string, () => void>();
       let caller: Caller | null = null;
 
@@ -126,6 +145,17 @@ export class WebSocketManager {
        * behind it instead, in the order it arrived.
        */
       let checking: Promise<void> | null = null;
+
+      // A browser's session arrives with the upgrade request itself, as a cookie, so it
+      // needs no `auth` message — and has no token it could hand to one, since the page's
+      // script cannot read it. `auth` is still accepted afterwards, for a share token or
+      // a client sending a Bearer token.
+      const cookie = readCookie(req.headers.cookie, SESSION_COOKIE);
+      if (cookie) {
+        checking = identify(cookie).then((identified) => {
+          if (identified) caller = identified;
+        });
+      }
 
       const handle = (message: Exclude<RunClientMessage, { action: "auth" }>) => {
         if (!caller) {
@@ -181,7 +211,9 @@ export class WebSocketManager {
         if (!message) return;
 
         if (message.action === "auth") {
-          checking = identify(message.token).then((identified) => {
+          // Behind whatever check is already running (the cookie's), so the later word
+          // is the one that stands.
+          checking = (checking ?? Promise.resolve()).then(() => identify(message.token)).then((identified) => {
             if (!identified) return deny("That token was not accepted.", true);
             caller = identified;
           });

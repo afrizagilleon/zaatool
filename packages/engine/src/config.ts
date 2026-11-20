@@ -47,6 +47,14 @@ export function usingDevSecret(): boolean {
   return jwtSecret() === DEV_JWT_SECRET;
 }
 
+/** `CORS_ORIGINS` as a list: the origins a browser may call this engine from, and open its socket from. */
+export function declaredCorsOrigins(): string[] {
+  return (process.env.CORS_ORIGINS ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter((origin) => origin !== "");
+}
+
 /**
  * Whether the session cookie is marked `Secure` (sent over HTTPS only).
  *

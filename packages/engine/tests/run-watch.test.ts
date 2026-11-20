@@ -16,8 +16,9 @@ import WebSocket from "ws";
 import { RunEventHub } from "../src/server/run-event-hub.js";
 import { WebSocketManager } from "../src/server/websocket-manager.js";
 import { notifyCatalogChanged } from "../src/core/catalog-events.js";
-import { jwtSecret } from "../src/config.js";
-import jwt from "jsonwebtoken";
+import { authService } from "../src/services/auth.service.js";
+import { initDb } from "../src/db/initializer.js";
+import { pool } from "../src/db/connection.js";
 import type { RunEvent } from "@zaa-tool/shared";
 
 let passed = 0;
@@ -35,6 +36,8 @@ async function check(name: string, run: () => Promise<void>): Promise<void> {
   }
 }
 
+await initDb();
+
 const server = http.createServer();
 const hub = new RunEventHub();
 const manager = new WebSocketManager(server, hub);
@@ -43,10 +46,14 @@ await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 // and a socket mounted there was answered with `index.html`.
 const url = `ws://127.0.0.1:${(server.address() as AddressInfo).port}/ws`;
 
-/** A real session, signed the way a sign-in signs one. */
-const session = jwt.sign({ id: "zz-watch", username: "zz-watch", role: "creator" }, jwtSecret(), {
-  expiresIn: "5m",
-});
+/**
+ * A real session: an account that exists, signed in the way a sign-in signs one. The
+ * socket now asks the database whether the account is still there and still switched on,
+ * so a token for an invented user no longer passes.
+ */
+await pool.query("DELETE FROM users WHERE username = 'zz-watch'");
+await authService.createUser("zz-watch", "zz-watch-password-1", "creator");
+const session = (await authService.login("zz-watch", "zz-watch-password-1")).token;
 
 /** Opens a socket and identifies it, which every client must now do before asking. */
 async function open(): Promise<{ socket: WebSocket; messages: Record<string, unknown>[] }> {
@@ -240,6 +247,8 @@ await check("a token that is nobody's closes the socket", async () => {
 
 manager.close();
 server.close();
+await pool.query("DELETE FROM users WHERE username = 'zz-watch'");
+await pool.end();
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed === 0 ? 0 : 1);

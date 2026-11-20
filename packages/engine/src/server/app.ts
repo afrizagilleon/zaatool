@@ -16,7 +16,7 @@ import { csrfGuard } from "../middleware/csrf.middleware.js";
 
 import { storageAccess } from "../middleware/storage-access.js";
 import { storageHeaders } from "../middleware/storage-headers.js";
-import { trustProxy, jsonBodyLimit, notebookJsonBodyLimit } from "../config.js";
+import { trustProxy, jsonBodyLimit, notebookJsonBodyLimit, declaredCorsOrigins } from "../config.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 
 /** When this process came up. Restarts are the thing you are usually checking for. */
@@ -41,10 +41,7 @@ const STARTED_AT = new Date().toISOString();
  * correct deployment already is.
  */
 export function corsPolicy(): cors.CorsOptions {
-  const declared = (process.env.CORS_ORIGINS ?? "")
-    .split(",")
-    .map((origin) => origin.trim())
-    .filter((origin) => origin !== "");
+  const declared = declaredCorsOrigins();
 
   if (declared.length > 0) return { origin: declared, credentials: true };
   if (process.env.NODE_ENV === "production") return { origin: false };

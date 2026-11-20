@@ -17,6 +17,11 @@ import { authService } from "../src/services/auth.service.js";
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
 import { STORAGE_DIR } from "../src/services/storage.service.js";
+import { notebookSharesService } from "../src/services/notebook-shares.service.js";
+import { RunEventHub } from "../src/server/run-event-hub.js";
+import { WebSocketManager } from "../src/server/websocket-manager.js";
+import WebSocket from "ws";
+import type { RunEvent } from "@zaa-tool/shared";
 
 let passed = 0;
 let failed = 0;
@@ -39,14 +44,18 @@ process.env.LOGIN_RATE_LIMIT_MAX = "1000";
 await initDb();
 
 const server = http.createServer(createApp(() => {}));
+const hub = new RunEventHub();
+const sockets = new WebSocketManager(server, hub);
 await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+const port = (server.address() as AddressInfo).port;
+const base = `http://127.0.0.1:${port}`;
 
 const PASSWORD = "zz-fx18-password-1";
-const USERS = ["zz-fx18-revoke", "zz-fx18-all", "zz-fx18-pw", "zz-fx18-off", "zz-fx18-cli", "zz-fx18-cookie", "zz-fx18-csrf"];
+const USERS = ["zz-fx18-revoke", "zz-fx18-all", "zz-fx18-pw", "zz-fx18-off", "zz-fx18-cli", "zz-fx18-cookie", "zz-fx18-csrf", "zz-fx18-ws"];
 
 async function clean(): Promise<void> {
   await pool.query("DELETE FROM users WHERE username LIKE 'zz-fx18-%'");
+  await pool.query("DELETE FROM notebook_shares WHERE created_by = 'zz-fx18'");
   fs.rmSync(path.join(STORAGE_DIR, "zz-fx18"), { recursive: true, force: true });
 }
 
@@ -313,9 +322,135 @@ await check("a multipart upload with the cookie and the header gets through the 
   fs.rmSync(path.join(STORAGE_DIR, "zz-fx18-up.txt"), { force: true });
 });
 
+console.log("\nWebSocket (Origin and cookie)");
+
+type Opened =
+  | { ok: true; socket: WebSocket; messages: Record<string, unknown>[] }
+  | { ok: false; status: number };
+
+/** Opens `/ws` with the given headers, or reports the status the upgrade was refused with. */
+function connect(headers: Record<string, string>): Promise<Opened> {
+  return new Promise((resolve) => {
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers });
+    const messages: Record<string, unknown>[] = [];
+    socket.on("message", (raw) => messages.push(JSON.parse(raw.toString())));
+    socket.on("open", () => resolve({ ok: true, socket, messages }));
+    socket.on("unexpected-response", (_req, res) => {
+      resolve({ ok: false, status: res.statusCode ?? 0 });
+      res.resume();
+    });
+    socket.on("error", () => undefined);
+  });
+}
+
+const settle = (ms = 80) => new Promise((resolve) => setTimeout(resolve, ms));
+const origin = `http://127.0.0.1:${port}`;
+
+async function wsSession(): Promise<string> {
+  await pool.query("DELETE FROM users WHERE username = $1", [USERS[7]]);
+  await authService.createUser(USERS[7], PASSWORD, "creator");
+  return (sessionSetCookie(await loginRaw(USERS[7])) ?? "").split(";")[0];
+}
+
+/** Watches with whatever identity the socket arrived with; true if a run's activity reached it. */
+async function hearsActivity(opened: Opened): Promise<{ heard: boolean; messages: Record<string, unknown>[] }> {
+  assert.ok(opened.ok, "the socket was refused");
+  opened.socket.send(JSON.stringify({ action: "watch" }));
+  await settle();
+  hub.publish({ type: "cell:start", runId: "zz-fx18", notebookId: "zz-fx18-nb", cellId: "c1" } as RunEvent);
+  await settle();
+  opened.socket.close();
+  return { heard: opened.messages.some((m) => m.type === "run:activity"), messages: opened.messages };
+}
+
+await check("a foreign Origin is refused at the upgrade, cookie or not", async () => {
+  const cookie = await wsSession();
+  assert.deepEqual(await connect({ Origin: "https://evil.example", Cookie: cookie }), { ok: false, status: 403 });
+  assert.deepEqual(await connect({ Origin: "https://evil.example" }), { ok: false, status: 403 });
+  assert.deepEqual(await connect({ Origin: "null", Cookie: cookie }), { ok: false, status: 403 });
+});
+
+await check("the same origin is accepted, and the cookie alone is a session (no auth message)", async () => {
+  const cookie = await wsSession();
+  const result = await hearsActivity(await connect({ Origin: origin, Cookie: cookie }));
+  assert.equal(result.heard, true, JSON.stringify(result.messages));
+});
+
+await check("no Origin (a script) is accepted; a Bearer token still works through the auth message", async () => {
+  await wsSession();
+  const { token } = await authService.login(USERS[7], PASSWORD);
+  const opened = await connect({});
+  assert.ok(opened.ok);
+  opened.socket.send(JSON.stringify({ action: "auth", token }));
+  const result = await hearsActivity(opened);
+  assert.equal(result.heard, true);
+});
+
+await check("a cookie that has been ended is not a session", async () => {
+  const cookie = await wsSession();
+  await fetch(`${base}/api/auth/logout-all`, { method: "POST", headers: { Cookie: cookie, ...XHR } });
+  const result = await hearsActivity(await connect({ Origin: origin, Cookie: cookie }));
+  assert.equal(result.heard, false);
+  assert.ok(result.messages.some((m) => m.type === "run:denied"), "expected a refusal");
+});
+
+await check("the dev origin passes outside production, and only while CORS_ORIGINS is unset", async () => {
+  const cookie = await wsSession();
+  try {
+    delete process.env.NODE_ENV;
+    delete process.env.CORS_ORIGINS;
+    const dev = await connect({ Origin: "http://localhost:5173", Cookie: cookie });
+    assert.ok(dev.ok, "dev origin refused outside production");
+    if (dev.ok) dev.socket.close();
+
+    process.env.CORS_ORIGINS = "https://app.example.com";
+    assert.deepEqual(await connect({ Origin: "http://localhost:5173", Cookie: cookie }), { ok: false, status: 403 });
+    const declared = await connect({ Origin: "https://app.example.com", Cookie: cookie });
+    assert.ok(declared.ok, "an origin named in CORS_ORIGINS was refused");
+    if (declared.ok) declared.socket.close();
+
+    delete process.env.CORS_ORIGINS;
+    process.env.NODE_ENV = "production";
+    assert.deepEqual(await connect({ Origin: "http://localhost:5173", Cookie: cookie }), { ok: false, status: 403 });
+    const same = await connect({ Origin: origin, Cookie: cookie });
+    assert.ok(same.ok, "same origin refused in production");
+    if (same.ok) same.socket.close();
+  } finally {
+    delete process.env.NODE_ENV;
+    delete process.env.CORS_ORIGINS;
+  }
+});
+
+await check("behind a rewriting proxy the original host comes from X-Forwarded-Host", async () => {
+  const cookie = await wsSession();
+  const proxied = await connect({ Origin: "https://zaa.example.com", "X-Forwarded-Host": "zaa.example.com", Cookie: cookie });
+  assert.ok(proxied.ok);
+  if (proxied.ok) proxied.socket.close();
+  const lying = await connect({ Origin: "https://evil.example", "X-Forwarded-Host": "zaa.example.com", Cookie: cookie });
+  assert.deepEqual(lying, { ok: false, status: 403 });
+});
+
+await check("a share token still opens a stream: it can follow a run but not watch the workspace", async () => {
+  const share = await notebookSharesService.create("zz-fx18-nb", "zz-fx18");
+  const opened = await connect({ Origin: origin });
+  assert.ok(opened.ok);
+  opened.socket.send(JSON.stringify({ action: "auth", token: share.token }));
+  opened.socket.send(JSON.stringify({ action: "subscribe", runId: "zz-fx18-run" }));
+  await settle();
+  hub.publish({ type: "cell:start", runId: "zz-fx18-run", notebookId: "zz-fx18-nb", cellId: "c1" } as RunEvent);
+  await settle();
+  assert.ok(opened.messages.some((m) => m.runId === "zz-fx18-run"), JSON.stringify(opened.messages));
+
+  opened.socket.send(JSON.stringify({ action: "watch" }));
+  await settle();
+  assert.ok(opened.messages.some((m) => m.type === "run:denied"), "a share token must not watch");
+  opened.socket.close();
+});
+
 // ── end ───────────────────────────────────────────────────────────────────────
 
 await clean();
+sockets.close();
 server.close();
 await pool.end();
 
