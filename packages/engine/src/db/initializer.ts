@@ -255,6 +255,16 @@ export async function initDb() {
       END $$;
     `);
 
+    // The highest sandbox uid ever handed out, per range. It never goes down: the highest uid
+    // still on `users` would drop when its account is deleted, and the next owner would then
+    // get that uid — and every file the old owner's cells left in its home folder.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS sandbox_uid_highwater (
+        uid_base INTEGER PRIMARY KEY,
+        last_uid INTEGER NOT NULL
+      );
+    `);
+
     // ── Who owns what (FX17) ─────────────────────────────────────────────────────
     //
     // Each block adds its column and backfills it in the same `DO`, so the backfill runs

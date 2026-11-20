@@ -32,6 +32,17 @@ for (const label of labels) await dropOwner(label);
 // A range nobody else uses: the real one may already be handed out on this database.
 const config: SandboxConfig = { uidBase: 3_000_000, uidCount: 2, gid: 10001, home: "/home/sandbox" };
 
+/**
+ * Starts the test range over. The high-water mark never goes down in real use, so checks
+ * that hand the same uids out again after clearing `users` must clear it too.
+ */
+async function resetRange(ids: string[]): Promise<void> {
+  await pool.query("UPDATE users SET sandbox_uid = NULL WHERE id = ANY($1)", [ids]);
+  await pool.query("DELETE FROM sandbox_uid_highwater WHERE uid_base = $1", [config.uidBase]);
+  forgetSandboxUids();
+}
+await pool.query("DELETE FROM sandbox_uid_highwater WHERE uid_base = $1", [config.uidBase]);
+
 try {
   const a = await testOwner("fx20u-a");
   const b = await testOwner("fx20u-b");
@@ -54,16 +65,14 @@ try {
   });
 
   await check("two first runs at once never share a uid", async () => {
-    await pool.query("UPDATE users SET sandbox_uid = NULL WHERE id = ANY($1)", [[a.id, b.id, c.id]]);
-    forgetSandboxUids();
+    await resetRange([a.id, b.id, c.id]);
     const wide = { ...config, uidCount: 10 };
     const got = await Promise.all([a.id, b.id, c.id].map((id) => sandboxUidFor(id, wide)));
     assert.equal(new Set(got).size, 3, `got ${got.join(",")}`);
   });
 
   await check("a full range fails with a message that names SANDBOX_UID_COUNT", async () => {
-    await pool.query("UPDATE users SET sandbox_uid = NULL WHERE id = ANY($1)", [[a.id, b.id, c.id]]);
-    forgetSandboxUids();
+    await resetRange([a.id, b.id, c.id]);
     await sandboxUidFor(a.id, config);
     await sandboxUidFor(b.id, config);
     await assert.rejects(
@@ -77,8 +86,20 @@ try {
   await check("the column is UNIQUE: the database refuses a shared uid", async () => {
     await assert.rejects(() => pool.query("UPDATE users SET sandbox_uid = 3000000 WHERE id = $1", [c.id]));
   });
+
+  await check("deleting the newest owner does not hand its uid to the next one", async () => {
+    await resetRange([a.id, b.id, c.id]);
+    const wide = { ...config, uidCount: 10 };
+    assert.equal(await sandboxUidFor(a.id, wide), 3_000_000);
+    assert.equal(await sandboxUidFor(b.id, wide), 3_000_001);
+    await dropOwner("fx20u-b");
+    forgetSandboxUids();
+    const next = await testOwner("fx20u-d");
+    assert.equal(await sandboxUidFor(next.id, wide), 3_000_002, "the deleted owner's uid was given out again");
+  });
 } finally {
-  for (const label of labels) await dropOwner(label);
+  for (const label of [...labels, "fx20u-d"]) await dropOwner(label);
+  await pool.query("DELETE FROM sandbox_uid_highwater WHERE uid_base = $1", [config.uidBase]);
   await pool.end();
 }
 

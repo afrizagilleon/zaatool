@@ -23,10 +23,11 @@ const known = new Map<string, number>();
  * `uidBase .. uidBase + uidCount - 1`, recorded in `users.sandbox_uid`.
  *
  * Lazy on purpose. An account that never runs a notebook never takes a uid, and nothing
- * has to be provisioned when an account is made. The next one is the highest in use plus
- * one, so a gap left by a deleted account is not refilled; the UNIQUE column is the
- * backstop under the advisory lock. (Deleting the newest account does free its uid, and the
- * next owner then inherits whatever that uid left in its home folder.)
+ * has to be provisioned when an account is made. The next one is one past the highest ever
+ * handed out in this range (`sandbox_uid_highwater`, which never goes down) or in use on
+ * `users`, whichever is higher, so a uid freed by a deleted account — even the newest one —
+ * is never given to someone else, who would otherwise inherit whatever it left in its home
+ * folder. The UNIQUE column is the backstop under the advisory lock.
  */
 export async function sandboxUidFor(userId: string, config: SandboxConfig): Promise<number> {
   const cached = known.get(userId);
@@ -51,13 +52,21 @@ export async function sandboxUidFor(userId: string, config: SandboxConfig): Prom
     }
 
     const { rows: top } = await client.query<{ next: number }>(
-      "SELECT COALESCE(MAX(sandbox_uid) + 1, $1::int) AS next FROM users WHERE sandbox_uid >= $1",
+      `SELECT GREATEST(
+         COALESCE((SELECT last_uid + 1 FROM sandbox_uid_highwater WHERE uid_base = $1), $1::int),
+         COALESCE((SELECT MAX(sandbox_uid) + 1 FROM users WHERE sandbox_uid >= $1), $1::int)
+       ) AS next`,
       [config.uidBase]
     );
     const next = Math.max(top[0].next, config.uidBase);
     if (next > lastSandboxUid(config)) throw new SandboxUidExhaustedError(config);
 
     await client.query("UPDATE users SET sandbox_uid = $1 WHERE id = $2", [next, userId]);
+    await client.query(
+      `INSERT INTO sandbox_uid_highwater (uid_base, last_uid) VALUES ($1, $2)
+       ON CONFLICT (uid_base) DO UPDATE SET last_uid = GREATEST(sandbox_uid_highwater.last_uid, EXCLUDED.last_uid)`,
+      [config.uidBase, next]
+    );
     await client.query("COMMIT");
     known.set(userId, next);
     return next;
