@@ -60,9 +60,13 @@ vols="$(docker volume ls -q --filter "label=com.docker.compose.project=$PROJECT"
 if [ -z "$vols" ]; then
   echo "none"
 else
-  # `docker system df -v` is the one place Docker reports a volume's size.
-  docker system df -v --format '{{range .Volumes}}{{.Name}}  {{.Size}}{{"\n"}}{{end}}' 2>/dev/null | grep -F "$vols" \
-    || echo "$vols"
+  # `docker system df -v` is the one place Docker reports a volume's size; its volume rows
+  # are "NAME LINKS SIZE".
+  df="$(docker system df -v 2>/dev/null)"
+  while IFS= read -r v; do
+    size="$(printf '%s\n' "$df" | awk -v v="$v" '$1 == v { print $3 }')"
+    echo "$v  ${size:-size unknown}"
+  done <<< "$vols"
 fi
 
 section "Backups"

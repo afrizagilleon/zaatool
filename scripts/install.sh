@@ -405,7 +405,9 @@ if [ "$BUILD" = "yes" ]; then
   "${COMPOSE[@]}" build
 else
   echo "==> Pulling the images ($VERSION)"
-  "${COMPOSE[@]}" pull
+  # A fresh install only needs what is not here yet (and a tag that exists only on this machine
+  # must not be looked up on the registry); update.sh is what refreshes images.
+  "${COMPOSE[@]}" pull --policy missing
 fi
 echo "==> Starting"
 "${COMPOSE[@]}" up -d

@@ -89,6 +89,11 @@ if [ "$PURGE" = "yes" ]; then
       fi
       echo "==> backups/storage-final-$STAMP.tar"
       "${COMPOSE[@]}" exec -T engine tar -cf - -C /app/packages storage > "backups/storage-final-$STAMP.tar"
+      if [ ! -s "backups/storage-final-$STAMP.tar" ]; then
+        rm -f "backups/storage-final-$STAMP.tar"
+        echo "uninstall.sh: the storage archive is empty; nothing was changed." >&2
+        exit 1
+      fi
     else
       echo "The database container is not running, so it cannot be dumped. Start it (docker compose up -d postgres)" >&2
       echo "and run this again, or use --no-backup if you really want no copy." >&2
