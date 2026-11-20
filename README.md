@@ -146,7 +146,7 @@ Two details worth knowing:
 ```bash
 git clone https://github.com/afrizagilleon/zaatool.git
 cd zaatool
-cp .env.example .env    # set POSTGRES_PASSWORD and JWT_SECRET
+cp .env.example .env    # set POSTGRES_PASSWORD, JWT_SECRET and SECRETS_KEY
 docker compose up -d
 ```
 

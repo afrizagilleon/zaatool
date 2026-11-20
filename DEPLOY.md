@@ -38,11 +38,14 @@ git clone <your remote> zaatool && cd zaatool
 cp .env.example .env
 ```
 
-Fill in the two values that have no default:
+Fill in the three values that have no default:
 
 ```bash
 # JWT_SECRET — sessions, share links and file links are all signed with this
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+
+# SECRETS_KEY — encrypts the secrets in the database; read "The secrets key" below
+openssl rand -hex 32
 
 # POSTGRES_PASSWORD — anything long. Changing it later means changing it in the
 # database volume too, so pick it now.
@@ -216,7 +219,7 @@ A `pg_dump` that failed still leaves a file, and an empty file looks exactly lik
 right up until you need it. Zero bytes or a few hundred = not a backup. Yours should be
 tens of KB or more.
 
-Both are required. The database holds notebooks, runs, secrets, and accounts; `storage`
+Both are required. The database holds notebooks, runs, secrets (encrypted, see below), and accounts; `storage`
 holds uploaded and notebook-written files. Restoring only one leaves database rows pointing
 at files that no longer exist.
 
@@ -295,6 +298,34 @@ says why: a notebook cannot be deployed while another deployed notebook has the 
 one name would be ambiguous), and a webhook with no `secretKey` needs a slug of at least 22
 letters, digits, `-` or `_`. A notebook that is already deployed keeps running until you
 next deploy it; it is only that deploy that can be refused.
+
+---
+
+## The secrets key
+
+The values in the Secrets page are stored encrypted (AES-256-GCM) in the database, with the
+key in `SECRETS_KEY` — 64 hex characters, made with `openssl rand -hex 32`. A `pg_dump` that
+leaks does not open them.
+
+- **Lose the key and every secret is gone.** There is no recovery. Keep a copy of `.env` (or
+  just that line) somewhere other than where the database backups live: a backup next to its
+  own key protects nothing, and a key that is only on the machine dies with the machine.
+- The engine refuses to start in production without a valid key, and refuses to start with a
+  key that does not open the secrets already in the database
+  (`SECRETS_KEY tidak cocok dengan secret di database`). It never overwrites an encrypted
+  secret. Restoring a backup therefore needs the `SECRETS_KEY` from when it was taken.
+- Upgrading an installation that already has secrets: set `SECRETS_KEY` in `.env` and start.
+  Secrets stored in plaintext are encrypted on that start (the log says how many).
+- **Changing the key** is not an edit of `.env`. Re-encrypt first, in one transaction (all or
+  nothing), then switch:
+
+```bash
+docker compose exec -e SECRETS_KEY=<old> -e NEW_SECRETS_KEY=$(openssl rand -hex 32) engine   pnpm rotate-secrets-key
+# it prints the next step: put the new key in .env as SECRETS_KEY, then
+docker compose up -d
+```
+
+  Note the new key before running it; the command does not store it anywhere.
 
 ---
 
@@ -393,6 +424,11 @@ Two refusals are deliberate and will look like failures the first time you meet 
 
 - **`Refusing to start: JWT_SECRET is not set`** — production will not fall back to the
   development secret, because that secret is in the repository. Set it in `.env`.
+- **`Refusing to start: SECRETS_KEY is not set`** (or `not 64 hex characters`) — see
+  "The secrets key". Generate one with `openssl rand -hex 32`.
+- **`Refusing to start: SECRETS_KEY tidak cocok dengan secret di database`** — the key in
+  `.env` is not the one the secrets were encrypted with. Put the right one back; do not
+  generate a new one.
 - **A notebook that declares `packages:` fails with a message about `uv`** — only possible
   if you are not using the provided image. `uv` is baked into it.
 

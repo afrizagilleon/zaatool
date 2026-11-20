@@ -9,7 +9,7 @@
 # nothing here is shared between processes. The scheduler is one process and the run gate
 # is one process, so a second engine would break on cron long before it needed a cache.
 #
-#   cp .env.example .env      # then fill in JWT_SECRET and POSTGRES_PASSWORD
+#   cp .env.example .env      # then fill in JWT_SECRET, POSTGRES_PASSWORD and SECRETS_KEY
 #   docker compose up -d --build
 #
 # See DEPLOY.md.
@@ -47,6 +47,8 @@ services:
       # No default, on purpose. The engine refuses to start in production without it —
       # see packages/engine/src/config.ts.
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      # Encrypts the secrets table. No default either: see DEPLOY.md before changing it.
+      SECRETS_KEY: ${SECRETS_KEY:?set SECRETS_KEY in .env}
       POSTGRES_HOST: postgres
       POSTGRES_USER: ${POSTGRES_USER:-zaa_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
