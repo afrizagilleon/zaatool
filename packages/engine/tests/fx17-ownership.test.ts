@@ -1373,6 +1373,8 @@ await check("the CLI refuses an account that cannot own, and one that does not e
 manager.close();
 server.close();
 
+await clean();
+
 // ── finish ──
 console.log(`\n${passed} passed, ${failed} failed`);
 await pool.end();

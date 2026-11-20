@@ -163,6 +163,7 @@ await check("notebook_edit_setup refuses a stale stamp too", async () => {
 });
 
 await pool.query("DELETE FROM notebooks WHERE name = $1", [NAME]);
+await dropOwner("notebooktools");
 await client.close();
 
 console.log(`\n${passed} passed, ${failed} failed`);
