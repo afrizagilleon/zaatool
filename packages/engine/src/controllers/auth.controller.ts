@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { AuthInputError, authService, isRole, RegistrationClosedError } from "../services/auth.service.js";
 import { registrationOpen } from "../config.js";
 import { pool } from "../db/connection.js";
+import { clearSessionCookie, setSessionCookie } from "../middleware/session-cookie.js";
 
 /**
  * The one place that decides what a failure is allowed to say out loud.
@@ -84,6 +85,9 @@ export class AuthController {
         return res.status(400).json({ error: "Username and password are required" });
       }
       const result = await authService.login(username, password);
+      // The cookie is what the browser uses; the token in the body is for everything that
+      // is not a browser (the `curl` examples in DEPLOY.md, scripts) and the web app drops it.
+      setSessionCookie(res, result.token);
       res.json({ success: true, ...result });
     } catch (err) {
       refuse(res, err, "Login error", 401);
@@ -134,6 +138,12 @@ export class AuthController {
     }
   }
 
+  /** Signs this browser out: the cookie goes, sessions on other devices stay. */
+  async logout(_req: Request, res: Response) {
+    clearSessionCookie(res);
+    res.json({ success: true });
+  }
+
   /**
    * "Sign out everywhere": outdates every token this account holds, including the one
    * that made the request. The caller is expected to be signed out afterwards.
@@ -145,6 +155,7 @@ export class AuthController {
     }
     try {
       await authService.revokeSessions(user.id);
+      clearSessionCookie(res);
       res.json({ success: true });
     } catch (err) {
       refuse(res, err, "Logout all error");
@@ -166,6 +177,9 @@ export class AuthController {
       // did it is handed a fresh token so they are not signed out of the screen they are
       // looking at; everyone else, on every other device, is.
       const token = await authService.reissueSession(user.id);
+      if (token && (req as Request & { sessionVia?: string }).sessionVia === "cookie") {
+        setSessionCookie(res, token);
+      }
       res.json({ success: true, token });
     } catch (err) {
       refuse(res, err, "Change password error");

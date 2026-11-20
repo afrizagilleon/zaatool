@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { authService } from "../services/auth.service.js";
+import { credentialOf } from "./session-cookie.js";
 
 /**
  * Who is asking.
@@ -17,6 +18,9 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
   const isAuthRoute =
     path.startsWith("/auth/login") ||
     path.startsWith("/auth/register") ||
+    // Clearing a cookie needs no proof of who you are, and a browser whose session already
+    // ended should still be able to get rid of the cookie it is holding.
+    path === "/auth/logout" ||
     // Whether the door is open at all. Public because the login screen has to be able to
     // stop offering a sign-up form that will be refused.
     path === "/auth/policy";
@@ -26,12 +30,13 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     return next();
   }
 
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+  // A Bearer token, or failing that the session cookie. Either is the same JWT.
+  const credential = credentialOf(req);
+  if (!credential) {
     return res.status(401).json({ error: "Unauthorized: Missing token" });
   }
 
-  const token = authHeader.split(" ")[1];
+  const token = credential.token;
 
   try {
     const session = await authService.authenticate(token);
@@ -48,6 +53,7 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
       return res.status(401).json({ error: "Unauthorized: this session was ended" });
     }
 
+    (req as Request & { user?: unknown; sessionVia?: string }).sessionVia = credential.via;
     (req as Request & { user?: unknown }).user = {
       id: session.user.id,
       username: session.user.username,

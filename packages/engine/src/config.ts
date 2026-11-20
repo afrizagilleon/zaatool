@@ -48,6 +48,23 @@ export function usingDevSecret(): boolean {
 }
 
 /**
+ * Whether the session cookie is marked `Secure` (sent over HTTPS only).
+ *
+ * On by default in production, off elsewhere, and `COOKIE_SECURE=true|false` overrides
+ * either. It is a setting rather than "whatever the request looks like" because behind
+ * Caddy and then nginx the `X-Forwarded-Proto` that reaches the engine is `http` — nginx
+ * overwrites it — so the engine cannot see that the visitor is on HTTPS. Trying out a
+ * production build over plain HTTP needs `COOKIE_SECURE=false`, or the browser will
+ * accept the cookie and then never send it back.
+ */
+export function cookieSecure(): boolean {
+  const raw = (process.env.COOKIE_SECURE ?? "").trim().toLowerCase();
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  return isProduction();
+}
+
+/**
  * Closed unless told otherwise — with one exception the caller owns: an installation with
  * no users at all always accepts the first one, or there would be no way in.
  */
