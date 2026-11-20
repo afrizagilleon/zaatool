@@ -34,6 +34,20 @@ import { notebookAccessService } from "../src/services/notebook-access.service.j
 import { notebooksService } from "../src/services/notebooks.service.js";
 import { notebookExecutionService } from "../src/services/notebook-execution.service.js";
 import type { NotebookJson } from "@zaa-tool/shared";
+import { secretsKey } from "../src/config.js";
+import { decryptValue } from "../src/core/secrets-crypto.js";
+
+/**
+ * A secret value as its owner would read it. Since FX-19 the column holds ciphertext whenever
+ * SECRETS_KEY is set (production), so a raw SELECT is only the plaintext in development.
+ */
+async function storedSecret(where: string, params: unknown[]): Promise<string | undefined> {
+  const { rows } = await pool.query(`SELECT value, owner_id, key FROM secrets WHERE ${where}`, params);
+  const row = rows[0] as { value: string; owner_id: string; key: string } | undefined;
+  if (!row) return undefined;
+  const key = secretsKey();
+  return key ? decryptValue(key, row.owner_id, row.key, row.value) : row.value;
+}
 
 let passed = 0;
 let failed = 0;
@@ -694,8 +708,7 @@ await check("an editor cannot read, change or delete the owner's secret through 
   assert.equal(ownerRow.value, "******");
   assert.equal((await call(editor, "PUT", `/api/resources/secrets/${ownerRow.id}`, { key: "ZZ_FX17_TOKEN", value: "stolen", is_secret: true })).status, 404);
   await call(editor, "DELETE", `/api/resources/secrets/${ownerRow.id}`);
-  const { rows } = await pool.query("SELECT value FROM secrets WHERE id = $1", [ownerRow.id]);
-  assert.equal(rows[0]?.value, "owner-value", "the owner's secret was changed or deleted by somebody else");
+  assert.equal(await storedSecret("id = $1", [ownerRow.id]), "owner-value", "the owner's secret was changed or deleted by somebody else");
 });
 
 await check("D-6/D-7: a notebook runs with its owner's secret, whoever presses Run — an editor's own value is not used", async () => {
@@ -1341,16 +1354,14 @@ await check("the CLI moves one notebook, and copies the secrets it names to the 
 
   const run = (await (await call(editor, "POST", `/api/notebooks/${id}/run`, {})).json()) as { runId: string };
   assert.equal(await gotFrom(id, run.runId), "other-value", "the new owner's run did not have the secret the notebook names");
-  const still = await pool.query("SELECT value FROM secrets WHERE owner_id = $1 AND key = 'ZZ_FX17_ONLY_OTHER'", [other.id]);
-  assert.equal(still.rows[0].value, "other-value", "the old owner lost theirs");
+  assert.equal(await storedSecret("owner_id = $1 AND key = 'ZZ_FX17_ONLY_OTHER'", [other.id]), "other-value", "the old owner lost theirs");
 });
 
 await check("the CLI keeps a secret the new owner already has", async () => {
   const id = await reporter("transfer-conflict", other, "ZZ_FX17_TOKEN");
   await putSecret(other, "ZZ_FX17_TOKEN", "other-token");
   assert.equal(transfer(other.username, editor.username, "--notebook", id).code, 0);
-  const mine = await pool.query("SELECT value FROM secrets WHERE owner_id = $1 AND key = 'ZZ_FX17_TOKEN'", [editor.id]);
-  assert.equal(mine.rows[0].value, "editor-value", "the new owner's own secret was overwritten");
+  assert.equal(await storedSecret("owner_id = $1 AND key = 'ZZ_FX17_TOKEN'", [editor.id]), "editor-value", "the new owner's own secret was overwritten");
 });
 
 await check("the CLI moves everything an account owns, or the notebooks nobody owns", async () => {
