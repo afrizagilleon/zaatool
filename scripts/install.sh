@@ -227,7 +227,7 @@ fi
 case "$WEB_PORT" in
   ''|*[!0-9]*) die "--web-port must be a number, not '$WEB_PORT'" ;;
 esac
-if [[ 10#$WEB_PORT -lt 1 ]] || [[ 10#$WEB_PORT -gt 65535 ]]; then
+if (( 10#$WEB_PORT < 1 || 10#$WEB_PORT > 65535 )); then
   die "--web-port must be between 1 and 65535"
 fi
 if [[ -z "$TZ_NAME" ]]; then
