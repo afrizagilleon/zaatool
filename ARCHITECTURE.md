@@ -217,13 +217,14 @@ to contain a determined author.
 
 | Table | Holds |
 |---|---|
-| `notebooks` | the draft document, name, runtime, tags, `updated_at` |
+| `notebooks` | the draft document, name, runtime, tags, `updated_at`, `owner_id`, `app_visibility` |
 | `notebook_versions` | deployed snapshots |
-| `notebook_runs` | run history, logs, outputs |
+| `notebook_access` | who a notebook is shared with: `editor` or `app` rows |
+| `notebook_runs` | run history, logs, outputs, `started_by` |
 | `notebook_triggers` | index of triggers, rebuilt from the document on every save |
 | `notebook_shares` | shared page links and password hashes |
-| `secrets` | secret values, referenced by name from notebooks |
-| `agent_tokens` | scoped MCP tokens |
+| `secrets` | secret values, referenced by name from notebooks; each belongs to one account (`owner_id`) |
+| `agent_tokens` | scoped MCP tokens, each acting as one account (`user_id`) |
 | `users` | accounts (`creator` / `viewer`) |
 | `files` | uploaded files |
 | `skills` | reusable snippets |
@@ -233,7 +234,63 @@ from the document on every save rather than edited alongside it, because two thi
 must agree, edited separately, eventually will not.
 
 `db/initializer.ts` creates tables and columns. It never inserts rows — a fixture planted in
-schema creation runs on every installation of the tool, forever.
+schema creation runs on every installation of the tool, forever. (The one allowed exception is
+backfilling a column it has just added, in the same block that adds it, so the backfill runs
+once: owners, and each existing secret copied to every creator.)
+
+### Who sees what
+
+A notebook has **one owner** and any number of **editors** the owner invites. *Editor* is a
+permission on one notebook, not a kind of account: accounts stay `creator` or `viewer`, and only
+a creator can own or edit anything. The deployed version is an **app**, used by everybody
+(the default) or by people the owner names, who never see its source.
+
+Every door — REST, MCP, the WebSocket, nested `notebooks.run`, webhooks, storage — asks the same
+module, `services/notebook-access.service.ts`. None of them writes its own version of the
+question. A notebook the caller may not see is answered **404, word for word the answer for a
+notebook that does not exist**; nothing about it, not even that it is there, is theirs to know.
+
+| | owner | editor | app user | anyone else |
+|---|---|---|---|---|
+| in the notebook list; read source and draft; save; run the draft; deploy and undeploy; share links; triggers; every run; cancel a run | yes | yes | no | 404 |
+| delete the notebook; change who has access (editors, app visibility) | yes | no (403) | no | 404 |
+| in the Apps list; run the deployed version with `args`; upload for the page | yes | yes | yes | 404 |
+| runs they can read | all | all | only those they started | 404 |
+
+An app user receives the **page** — name, description, inputs, outputs, layout, buttons — and never
+a cell, the setup, secret names, triggers or packages. A run nobody started (a schedule, a
+webhook, a share link) is the team's to read.
+
+Consequences that are deliberate, and worth knowing before inviting someone:
+
+- **Secrets belong to whoever made them, and a notebook runs with its owner's.** That holds for
+  an editor's run, a webhook, a schedule, a share link, and a notebook called from another
+  notebook (the *callee's* owner's). So an editor writes code that runs with the owner's
+  credentials: inviting an editor trusts them with whatever those secrets reach. What is
+  guaranteed is that an editor cannot read the values through the app or the API, and cannot use
+  the owner's secrets in a notebook of their own.
+- **A notebook reaches only what its owner could use.** `notebooks.run` and page buttons resolve
+  their target among the notebooks the *calling notebook's owner* may use as an app (or open, in
+  a draft run). Anything else is "not found". A notebook with no owner calls nothing.
+- **Agent tokens act as the account that made them.** An agent sees exactly what that person sees;
+  `author` writes only while that person is still a creator and active. Tokens are listed and
+  revoked by their owner only.
+- **The WebSocket follows the same rule.** `watch` delivers only runs the account could read over
+  REST, and catalog changes it could see (a save only to the team); `subscribe` to a run needs the
+  right to read that run; a share link follows only runs of its own notebook.
+- **Storage:** `notebooks/<id>/` and `uploads/<id>/` are hidden from, and unreadable by bearer
+  path to, anyone who cannot edit that notebook. Signed links are unchanged. **Every other folder
+  in storage stays shared among creators**, as it always was.
+- **Deployed names stay unique across the installation** (see Draft vs deployed). A refused
+  deploy can therefore reveal that somebody else's app already uses a name.
+- **Not closed here:** a cell's sandbox can still read the whole storage directory, so a notebook's
+  *code* can read another owner's files (K-19, K-02). The rules above govern the app, the API
+  and agents, not what arbitrary code does inside a cell.
+
+There is no administrator in the app. Recovery is on the server:
+`pnpm --filter @zaa-tool/engine transfer-owner <from-username> <to-username> [--notebook <id>]`
+(or `--orphaned` for notebooks nobody owns) moves notebooks and copies the secrets they name to the
+new owner.
 
 ---
 
