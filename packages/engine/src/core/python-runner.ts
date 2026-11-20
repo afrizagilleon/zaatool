@@ -60,12 +60,21 @@ export function definesMain(code: string): boolean {
   return false;
 }
 
+/**
+ * How long a deploy waits for `uv` to resolve a notebook's packages. A cold install of a
+ * large package can take a while, but a hung network must not hang the deploy forever.
+ */
+function uvLockTimeoutMs(): number {
+  const seconds = Number(process.env.UV_LOCK_TIMEOUT_SECONDS);
+  return (Number.isFinite(seconds) && seconds > 0 ? seconds : 120) * 1000;
+}
+
 export function resolvePythonLockedPackages(packages: string[]): Promise<string[]> {
   if (!Array.isArray(packages) || packages.length === 0) {
     return Promise.resolve([]);
   }
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const pyScript = `import json, importlib.metadata, re
 reqs = ${JSON.stringify(packages)}
 locked = []
@@ -103,11 +112,30 @@ print(json.dumps(locked))
       stdout += chunk.toString();
     });
 
+    // Unlike every other failure here, a timeout is not swallowed: falling back to the
+    // unlocked requirements would hide that nothing was resolved, so the deploy says so.
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killTree(proc);
+    }, uvLockTimeoutMs());
+
     proc.on("error", () => {
+      clearTimeout(timer);
       resolve(packages);
     });
 
     proc.on("close", (code) => {
+      clearTimeout(timer);
+      if (timedOut) {
+        reject(
+          new Error(
+            `Resolving the Python packages timed out after ${uvLockTimeoutMs() / 1000}s ` +
+              "(set UV_LOCK_TIMEOUT_SECONDS to allow longer)."
+          )
+        );
+        return;
+      }
       if (code === 0) {
         try {
           const parsed = JSON.parse(stdout.trim());
