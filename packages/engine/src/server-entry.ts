@@ -6,7 +6,8 @@ import { WebSocketManager } from "./server/websocket-manager.js";
 import { RunEventHub } from "./server/run-event-hub.js";
 import { schedulerService } from "./services/scheduler.service.js";
 import { notebookTriggersService } from "./services/notebook-triggers.service.js";
-import { configProblems, isProduction, registrationOpen, usingDevSecret } from "./config.js";
+import { configProblems, isProduction, registrationOpen, secretsKey, usingDevSecret } from "./config.js";
+import { secretsService, SecretsKeyMismatchError } from "./services/secrets.service.js";
 import { sandboxWarnings } from "./core/sandbox-identity.js";
 
 /**
@@ -36,6 +37,9 @@ export async function startServer(port = 4000) {
   if (!isProduction() && usingDevSecret()) {
     console.warn("⚠️  JWT_SECRET is not set; using the development secret.");
   }
+  if (secretsKey() === null) {
+    console.warn("⚠️  SECRETS_KEY is not set; secrets are stored in plaintext in the database.");
+  }
   for (const warning of sandboxWarnings(process.platform, process.env)) console.warn(`⚠️  ${warning}`);
   if (registrationOpen()) {
     console.warn("⚠️  ALLOW_REGISTRATION is on: anyone who can reach this port can make an account.");
@@ -46,6 +50,24 @@ export async function startServer(port = 4000) {
     await initDb();
   } catch (err: unknown) {
     console.error("❌ Failed to initialize database:", (err as Error).message);
+    process.exit(1);
+  }
+
+  // After the tables exist and before anything is served: secrets written before encryption
+  // existed are encrypted, and a key that does not open what is already encrypted stops the
+  // engine rather than letting it write new secrets nobody could read back. Not in
+  // `initDb()`, which creates tables and never touches rows.
+  try {
+    const encrypted = await secretsService.protectAtStart();
+    if (encrypted > 0) console.log(`🔐 Encrypted ${encrypted} secret(s) that were stored in plaintext.`);
+  } catch (err: unknown) {
+    if (err instanceof SecretsKeyMismatchError) {
+      console.error(`
+❌ Refusing to start: ${err.message}. Restore the SECRETS_KEY these secrets were written with, or run rotate-secrets-key. See DEPLOY.md.
+`);
+    } else {
+      console.error("❌ Failed to protect secrets:", (err as Error).message);
+    }
     process.exit(1);
   }
 
