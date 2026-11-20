@@ -144,7 +144,7 @@ export function DataTable<T extends Record<string, unknown> = DataRow>({
           <Select
             value={pageSize.toString()}
             onValueChange={(val) => {
-              setPageSize(parseInt(val, 10));
+              setPageSize(Number.parseInt(val, 10));
               setCurrentPage(1);
             }}
           >

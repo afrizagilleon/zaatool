@@ -139,7 +139,7 @@ export class AuthService {
   /** How many accounts exist — the one question that decides whether the door is open. */
   async userCount(): Promise<number> {
     const { rows } = await pool.query("SELECT COUNT(*) FROM users");
-    return parseInt(rows[0].count, 10);
+    return Number.parseInt(rows[0].count, 10);
   }
 
   /**

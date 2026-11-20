@@ -56,7 +56,7 @@ export function NameInputDialog({
             value={value}
             onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && value.trim()) handleConfirm();
+              if (e.key === 'Enter' && value.trim()) void handleConfirm();
             }}
             className="h-9 bg-background"
             autoFocus

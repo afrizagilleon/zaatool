@@ -8,6 +8,9 @@ import type { FileWriter } from "./notebook-files.js";
 import { defaultCellHost, type CellHost, type CellWorkspace } from "./cell-workspace.js";
 import type { CellSpawnIdentity } from "./sandbox-identity.js";
 
+/** What a cell runs as when there is no sandbox: no uid switch, nothing added to the environment. */
+const NO_IDENTITY: CellSpawnIdentity = { options: {}, env: {} };
+
 /**
  * Whether the code defines its own top-level `main` (`def main(` or `async def main(` at
  * column 0), ignoring anything inside comments and strings. A plain substring test was
@@ -75,7 +78,7 @@ function uvLockTimeoutMs(): number {
  */
 export function resolvePythonLockedPackages(
   packages: string[],
-  identity: CellSpawnIdentity = { options: {}, env: {} }
+  identity: CellSpawnIdentity = NO_IDENTITY
 ): Promise<string[]> {
   if (!Array.isArray(packages) || packages.length === 0) {
     return Promise.resolve([]);

@@ -65,10 +65,10 @@ export class Table {
     return row ? row[columnKey] : null;
   }
   filter(callback) {
-    return new Table(this.rows.filter(callback));
+    return new Table(this.rows.filter((row, index, rows) => callback(row, index, rows)));
   }
   map(callback) {
-    return this.rows.map(callback);
+    return this.rows.map((row, index, rows) => callback(row, index, rows));
   }
   count() {
     return this.rows.length;

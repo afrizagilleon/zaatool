@@ -214,6 +214,20 @@ await check("an undeclared package is refused", async () => {
   assert.ok(res.error);
 });
 
+await check("a table input: filter and map hand the callback the row, its index and the rows", async () => {
+  const rows = [{ n: 1 }, { n: 2 }, { n: 3 }];
+  const res = await runJsNode(
+    "return { kept: inputs.t.filter((row, i, all) => i > 0 && all.length === 3).count(), mapped: inputs.t.map((row, i) => row.n * 10 + i) };",
+    { t: rows },
+    20000,
+    undefined,
+    {},
+    [{ name: "t", type: "table" }]
+  );
+  assert.equal(res.error, undefined);
+  assert.deepEqual(res.output, { kept: 2, mapped: [10, 21, 32] });
+});
+
 await check("the engine is still running", () => {
   assert.equal(typeof process.pid, "number");
 });
