@@ -25,13 +25,14 @@ export function connectRunSocket(
  * Identifies the socket.
  *
  * `token` is given for a shared page, whose reader has no account and whose credential is
- * the token in the link. Left out everywhere else, where it is the session.
+ * the token in the link. Left out everywhere else, where the session is the cookie the
+ * browser attached to the upgrade request: there is nothing to send, and nothing this code
+ * could send, because the page's script cannot read that cookie.
  */
 export function authenticateSocket(ws: WebSocket, token?: string): void {
   if (ws.readyState !== WebSocket.OPEN) return;
-  const credential = token ?? localStorage.getItem('zaatool_token');
-  if (!credential) return;
-  const message: RunAuthMessage = { action: "auth", token: credential };
+  if (!token) return;
+  const message: RunAuthMessage = { action: "auth", token };
   ws.send(JSON.stringify(message));
 }
 

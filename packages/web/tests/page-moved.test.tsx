@@ -19,6 +19,7 @@ import userEvent from '@testing-library/user-event';
 import type { NotebookPage } from '@zaa-tool/shared';
 import { AppsPage } from '../src/components/pages/AppsPage';
 import { notebooksApi } from '../src/lib/notebooks-api';
+import { useAuthStore } from '../src/store/authStore';
 
 let sockets: FakeSocket[] = [];
 
@@ -71,7 +72,7 @@ beforeEach(() => {
   vi.restoreAllMocks();
   vi.stubGlobal('WebSocket', FakeSocket);
   window.localStorage.clear();
-  window.localStorage.setItem('zaatool_token', 'zz-token');
+  useAuthStore.setState({ user: { id: 'u1', username: 'zz', email: null, role: 'creator' } });
 });
 
 afterEach(() => {

@@ -48,6 +48,7 @@ async function login(base: string, forwardedFor?: string): Promise<number> {
     method: "POST",
     headers: {
       "content-type": "application/json",
+      "x-zaatool-request": "1",
       ...(forwardedFor ? { "x-forwarded-for": forwardedFor } : {}),
     },
     body: JSON.stringify({ username: "zz-k09-nobody", password: "wrong-password-1" }),

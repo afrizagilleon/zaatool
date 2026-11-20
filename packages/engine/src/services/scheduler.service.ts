@@ -1,113 +1,132 @@
 import type { RunEventSink } from "../core/run-emitter.js";
-import { notebookTriggersService } from "./notebook-triggers.service.js";
+import { matchCron } from "../core/cron.js";
+import { cronTimezone } from "../config.js";
+import { notebookTriggersService, type TriggerRecord } from "./notebook-triggers.service.js";
 import { notebookExecutionService } from "./notebook-execution.service.js";
 
-function matchCronField(pattern: string, value: number): boolean {
-  if (pattern === "*") return true;
-
-  if (pattern.includes(",")) {
-    return pattern.split(",").some((p) => matchCronField(p, value));
-  }
-
-  if (pattern.includes("/")) {
-    const [range, stepStr] = pattern.split("/");
-    const step = parseInt(stepStr, 10);
-    if (range === "*") {
-      return value % step === 0;
-    }
-    if (range.includes("-")) {
-      const [start, end] = range.split("-").map(Number);
-      return value >= start && value <= end && (value - start) % step === 0;
-    }
-  }
-
-  if (pattern.includes("-")) {
-    const [start, end] = pattern.split("-").map(Number);
-    return value >= start && value <= end;
-  }
-
-  return parseInt(pattern, 10) === value;
-}
-
-export function matchCron(cronStr: string, date: Date): boolean {
-  const parts = cronStr.trim().split(/\s+/);
-  if (parts.length !== 5) return false;
-
-  const min = date.getMinutes();
-  const hour = date.getHours();
-  const dom = date.getDate();
-  const mon = date.getMonth() + 1; // 1-12
-  const dow = date.getDay(); // 0-6 (Sunday-Saturday)
-
-  return (
-    matchCronField(parts[0], min) &&
-    matchCronField(parts[1], hour) &&
-    matchCronField(parts[2], dom) &&
-    matchCronField(parts[3], mon) &&
-    matchCronField(parts[4], dow)
-  );
-}
+const MINUTE_MS = 60_000;
 
 /**
- * Fires notebook cron triggers, once a minute.
+ * The most minutes one tick will catch up on. A busy event loop delays a tick by seconds,
+ * occasionally a few minutes; anything longer than this is treated as the process having
+ * been down, and those minutes are not replayed.
+ */
+export const MAX_CATCH_UP_MINUTES = 5;
+
+interface SchedulerDeps {
+  listCron: () => Promise<TriggerRecord[]>;
+  startRun: (
+    notebookId: string,
+    publish: RunEventSink,
+    options: { triggerSource: "cron"; input: Record<string, unknown> }
+  ) => Promise<{ runId: string }>;
+}
+
+const defaultDeps: SchedulerDeps = {
+  listCron: () => notebookTriggersService.listEnabledCron(),
+  startRun: (notebookId, publish, options) => notebookExecutionService.start(notebookId, publish, options),
+};
+
+/**
+ * Fires notebook cron triggers, each wall-clock minute exactly once.
  *
  * Reads the trigger index rather than the notebooks themselves. That distinction used to
  * matter a great deal: the canvas expressed a schedule as a `trigger:cron` *node*, so
  * finding out what was due meant loading every saved graph and walking its nodes — every
  * minute, forever. Triggers are notebook metadata now, and metadata can be indexed.
+ *
+ * The clock is a series of one-shot timers aimed at the next minute boundary, recomputed
+ * after every tick, rather than an interval that inherits whatever drift the first tick had.
+ * What makes a minute fire once is `lastMinute`, not the timer: a tick that arrives early,
+ * twice or late is judged against it.
  */
 export class SchedulerService {
   private timer: NodeJS.Timeout | null = null;
   private publishRunEvent: RunEventSink | null = null;
+  /** The last minute (whole minutes since the epoch) that has been evaluated. */
+  private lastMinute: number | null = null;
+
+  constructor(private readonly deps: SchedulerDeps = defaultDeps) {}
 
   start(publishRunEvent: RunEventSink) {
-    this.publishRunEvent = publishRunEvent;
     if (this.timer) return;
+    this.begin(publishRunEvent, new Date());
+    this.arm();
+  }
 
-    console.log("⏰ Background Scheduler Service started.");
+  /**
+   * Takes the sink and marks `now`'s minute as already passed. Minutes before the start
+   * are never run: a schedule missed while the engine was down is not replayed.
+   */
+  begin(publishRunEvent: RunEventSink, now: Date) {
+    this.publishRunEvent = publishRunEvent;
+    this.lastMinute = Math.floor(now.getTime() / MINUTE_MS);
+    console.log(
+      `⏰ Background Scheduler Service started at ${now.toISOString()} (cron time zone ${cronTimezone()}); ` +
+        "schedules missed while the engine was down are not replayed."
+    );
+  }
 
-    // Calculate ms until the start of the next minute to sync tick perfectly
-    const nextTickMs = 60000 - (Date.now() % 60000);
+  private arm() {
+    const wait = MINUTE_MS - (Date.now() % MINUTE_MS);
     this.timer = setTimeout(() => {
-      void this.tick();
-      // Then tick every 60 seconds
-      this.timer = setInterval(() => void this.tick(), 60000);
-    }, nextTickMs);
+      void this.tick(new Date());
+      this.arm();
+    }, wait);
   }
 
   stop() {
     if (this.timer) {
-      clearInterval(this.timer);
+      clearTimeout(this.timer);
       this.timer = null;
     }
   }
 
-  private async tick() {
+  /** Evaluates every minute not yet evaluated, up to the minute containing `now`. */
+  async tick(now: Date) {
     const publish = this.publishRunEvent;
-    if (!publish) return;
+    if (!publish || this.lastMinute === null) return;
 
-    const now = new Date();
+    const current = Math.floor(now.getTime() / MINUTE_MS);
+    if (current <= this.lastMinute) return;
 
+    let first = this.lastMinute + 1;
+    if (current - this.lastMinute > MAX_CATCH_UP_MINUTES) {
+      console.warn(
+        `⏰ Scheduler tick is ${current - this.lastMinute} minutes after the last one; ` +
+          `treating the gap as downtime and not replaying minutes ` +
+          `${new Date(first * MINUTE_MS).toISOString()} to ${new Date((current - 1) * MINUTE_MS).toISOString()}.`
+      );
+      first = current;
+    }
+    // Claimed before the first await, so a slow database cannot let the next tick see
+    // these minutes again.
+    this.lastMinute = current;
+
+    const zone = cronTimezone();
     try {
-      const triggers = await notebookTriggersService.listEnabledCron();
+      const triggers = await this.deps.listCron();
 
-      for (const trigger of triggers) {
-        if (!trigger.cron || !matchCron(trigger.cron, now)) continue;
+      for (let minute = first; minute <= current; minute += 1) {
+        const at = new Date(minute * MINUTE_MS);
+        for (const trigger of triggers) {
+          if (!trigger.cron || !matchCron(trigger.cron, at, zone)) continue;
 
-        try {
-          const { runId } = await notebookExecutionService.start(trigger.notebook_id, publish, {
-            triggerSource: "cron",
-            input: { trigger: { kind: "cron", cron: trigger.cron, firedAt: now.toISOString() } },
-          });
-          console.log(`⏰ Notebook ${trigger.notebook_id} started run ${runId} ('${trigger.cron}')`);
-        } catch (err: unknown) {
-          // One misbehaving notebook must not stop the others from firing this minute. A full
-          // gate does not land here until even the scheduled-run queue is full: until then a
-          // cron run waits its turn rather than being dropped.
-          console.error(
-            `Failed to start notebook ${trigger.notebook_id} from cron '${trigger.cron}':`,
-            (err as Error).message
-          );
+          try {
+            const { runId } = await this.deps.startRun(trigger.notebook_id, publish, {
+              triggerSource: "cron",
+              input: { trigger: { kind: "cron", cron: trigger.cron, firedAt: at.toISOString() } },
+            });
+            console.log(`⏰ Notebook ${trigger.notebook_id} started run ${runId} ('${trigger.cron}')`);
+          } catch (err: unknown) {
+            // One misbehaving notebook must not stop the others from firing this minute. A full
+            // gate does not land here until even the scheduled-run queue is full: until then a
+            // cron run waits its turn rather than being dropped.
+            console.error(
+              `Failed to start notebook ${trigger.notebook_id} from cron '${trigger.cron}':`,
+              (err as Error).message
+            );
+          }
         }
       }
     } catch (err) {

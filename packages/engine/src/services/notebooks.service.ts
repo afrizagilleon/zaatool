@@ -9,6 +9,7 @@ import { stampAuthors } from "../core/notebook-provenance.js";
 import { toolNameFor } from "../core/notebook-tool-name.js";
 import { notifyCatalogChanged } from "../core/catalog-events.js";
 import { resolvePythonLockedPackages } from "../core/python-runner.js";
+import { cronProblem } from "../core/cron.js";
 import { normaliseTags } from "@zaa-tool/shared";
 import { notebookAccessService } from "./notebook-access.service.js";
 
@@ -367,6 +368,18 @@ export class NotebooksService {
               : `the trigger id "${clash.id}"`) +
             ` is already used by the deployed notebook ${clash.notebook_id}. ` +
             `Give this trigger a new slug or id (a duplicated notebook keeps its original's).`
+        );
+      }
+    }
+
+    // A cron that does not parse never fires, and nothing says so. Refused here, where the
+    // author is looking, rather than discovered when the 9am report does not arrive.
+    for (const trigger of doc.triggers ?? []) {
+      if (trigger.kind !== "cron" || !trigger.cron?.trim()) continue;
+      const problem = cronProblem(trigger.cron);
+      if (problem) {
+        throw new DeployRefusedError(
+          `Cannot deploy "${doc.name}": the cron schedule "${trigger.cron.trim()}" is not valid (${problem}).`
         );
       }
     }

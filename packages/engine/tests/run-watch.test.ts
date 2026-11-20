@@ -16,8 +16,6 @@ import WebSocket from "ws";
 import { RunEventHub } from "../src/server/run-event-hub.js";
 import { WebSocketManager } from "../src/server/websocket-manager.js";
 import { notifyCatalogChanged } from "../src/core/catalog-events.js";
-import { jwtSecret } from "../src/config.js";
-import jwt from "jsonwebtoken";
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
 import { authService } from "../src/services/auth.service.js";
@@ -70,10 +68,9 @@ await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 // and a socket mounted there was answered with `index.html`.
 const url = `ws://127.0.0.1:${(server.address() as AddressInfo).port}/ws`;
 
-/** A real session, signed the way a sign-in signs one. */
-const session = jwt.sign({ id: watcherAccount.id, username: "zz-watch", role: "creator" }, jwtSecret(), {
-  expiresIn: "5m",
-});
+/** A real session: the account signs in the way a person does, so its token carries the
+ * session version the socket now checks against the database. */
+const session = (await authService.login("zz-watch", "zz-watch-password-long")).token;
 
 /** Opens a socket and identifies it, which every client must now do before asking. */
 async function open(): Promise<{ socket: WebSocket; messages: Record<string, unknown>[] }> {

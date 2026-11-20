@@ -11,6 +11,7 @@ import {
   type Schedule,
   type ScheduleMode,
 } from '../../lib/cron-schedule';
+import { useCronTimezone } from '../../lib/cron-timezone';
 
 interface ScheduleEditorProps {
   /** The cron expression being edited. */
@@ -33,6 +34,7 @@ const MODES: { id: ScheduleMode; label: string }[] = [
  */
 export function ScheduleEditor({ value, onChange }: ScheduleEditorProps) {
   const [schedule, setSchedule] = useState<Schedule>(() => parseCron(value));
+  const zone = useCronTimezone();
 
   /**
    * What we last handed to `onChange`. An expression arriving from outside (a different
@@ -176,6 +178,7 @@ export function ScheduleEditor({ value, onChange }: ScheduleEditorProps) {
           saved, and hiding it would make a hand-written cron unverifiable. */}
       <p className="flex items-baseline gap-1.5 text-[10px] text-muted-foreground">
         <span className="text-foreground/80">{describeCron(compileSchedule(schedule))}</span>
+        {zone && <span className="text-[10px] text-muted-foreground">({zone})</span>}
         <span className="font-mono text-[9px] text-muted-foreground/60">
           {compileSchedule(schedule)}
         </span>

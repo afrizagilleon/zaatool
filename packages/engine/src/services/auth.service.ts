@@ -50,6 +50,20 @@ export class RegistrationClosedError extends Error {
   }
 }
 
+/**
+ * What a session token amounts to once it has been checked against the account behind it.
+ *
+ * `inactive` is kept apart from `revoked` because the two are told to the caller
+ * differently — a deactivated account is a 403 with a sentence, a dead session is a plain 401
+ * — and because the first has always been that way.
+ */
+export type SessionCheck =
+  | { status: "ok"; user: { id: string; username: string; role: Role } }
+  | { status: "invalid" }
+  | { status: "gone" }
+  | { status: "inactive" }
+  | { status: "revoked" };
+
 export class AuthService {
   /** How many accounts exist — the one question that decides whether the door is open. */
   async userCount(): Promise<number> {
@@ -103,9 +117,18 @@ export class AuthService {
     return { id: userId, username: name, email, role, active: true };
   }
 
-  async currentUser(id: string): Promise<{ id: string; username: string; email: string | null; role: Role; active: boolean } | null> {
+  async currentUser(
+    id: string
+  ): Promise<{
+    id: string;
+    username: string;
+    email: string | null;
+    role: Role;
+    active: boolean;
+    tokenVersion: number;
+  } | null> {
     const { rows } = await pool.query(
-      "SELECT id, username, email, role, active FROM users WHERE id = $1",
+      "SELECT id, username, email, role, active, token_version FROM users WHERE id = $1",
       [id]
     );
     if (rows.length === 0) return null;
@@ -116,15 +139,76 @@ export class AuthService {
       email: r.email,
       role: isRole(r.role) ? r.role : "viewer",
       active: r.active ?? true,
+      tokenVersion: r.token_version ?? 0,
     };
   }
 
+  /**
+   * Switches an account on or off.
+   *
+   * Switching it off also ends every session it had. The `active` check alone would stop
+   * them for as long as the account stayed off, and then hand them all back the day it was
+   * switched on again — a token minted a month ago working again is not what "deactivated"
+   * promised anyone.
+   */
   async setActive(id: string, active: boolean): Promise<boolean> {
     const { rowCount } = await pool.query(
-      "UPDATE users SET active = $1 WHERE id = $2",
-      [active, id]
+      active
+        ? "UPDATE users SET active = true WHERE id = $1"
+        : "UPDATE users SET active = false, token_version = token_version + 1 WHERE id = $1",
+      [id]
     );
     return (rowCount ?? 0) > 0;
+  }
+
+  /** Ends every session this account has, on every device, by outdating their tokens. */
+  async revokeSessions(id: string): Promise<boolean> {
+    const { rowCount } = await pool.query(
+      "UPDATE users SET token_version = token_version + 1 WHERE id = $1",
+      [id]
+    );
+    return (rowCount ?? 0) > 0;
+  }
+
+  /**
+   * Signs a session token. The `tv` claim is the account's `token_version` at the moment of
+   * signing; {@link authenticate} refuses the token once the account has moved past it.
+   */
+  signSession(user: { id: string; username: string; role: Role; tokenVersion: number }): string {
+    return jwt.sign(
+      { id: user.id, username: user.username, role: user.role, tv: user.tokenVersion },
+      jwtSecret(),
+      { expiresIn: "24h" }
+    );
+  }
+
+  /**
+   * A fresh token for an account as it is right now. Used when something that just ended
+   * every session (a password change) should not also end the one that asked for it.
+   */
+  async reissueSession(id: string): Promise<string | null> {
+    const current = await this.currentUser(id);
+    return current ? this.signSession(current) : null;
+  }
+
+  /**
+   * Turns a token into a person, or says why not.
+   *
+   * The token proves it was signed here; the database says whether it still counts. The
+   * order is the one callers already relied on — an account that is gone is a 401, one that
+   * is switched off is a 403 with its own sentence — and only after those does the version
+   * decide whether a session was ended on purpose.
+   */
+  async authenticate(token: string): Promise<SessionCheck> {
+    const decoded = this.verifyToken(token);
+    if (!decoded) return { status: "invalid" };
+
+    const current = await this.currentUser(decoded.id);
+    if (!current) return { status: "gone" };
+    if (current.active === false) return { status: "inactive" };
+    if (decoded.tv !== current.tokenVersion) return { status: "revoked" };
+
+    return { status: "ok", user: { id: current.id, username: current.username, role: current.role } };
   }
 
   async login(username: string, passwordPlain: string) {
@@ -146,8 +230,11 @@ export class AuthService {
 
     const role: Role = isRole(user.role) ? user.role : "viewer";
 
-    const token = jwt.sign({ id: user.id, username: user.username, role }, jwtSecret(), {
-      expiresIn: "24h",
+    const token = this.signSession({
+      id: user.id,
+      username: user.username,
+      role,
+      tokenVersion: user.token_version ?? 0,
     });
 
     return {
@@ -156,14 +243,20 @@ export class AuthService {
     };
   }
 
-  /** Replaces a password outright. Used by the terminal reset; there is no email path. */
+  /**
+   * Replaces a password outright. Used by the terminal reset; there is no email path.
+   *
+   * Also ends every session: the reset exists for the case where somebody else may have
+   * the old password, and a session they already hold would outlive the thing it was
+   * obtained with.
+   */
   async setPassword(username: string, passwordPlain: string): Promise<boolean> {
     if (String(passwordPlain ?? "").length < MIN_PASSWORD_LENGTH) {
       throw new AuthInputError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
     }
     const passwordHash = await bcrypt.hash(passwordPlain, SALT_ROUNDS);
     const { rowCount } = await pool.query(
-      "UPDATE users SET password_hash = $1 WHERE username = $2",
+      "UPDATE users SET password_hash = $1, token_version = token_version + 1 WHERE username = $2",
       [passwordHash, username]
     );
     return (rowCount ?? 0) > 0;
@@ -184,7 +277,12 @@ export class AuthService {
       throw new AuthInputError("Current password is incorrect");
     }
     const passwordHash = await bcrypt.hash(newPasswordPlain, SALT_ROUNDS);
-    await pool.query("UPDATE users SET password_hash = $1 WHERE id = $2", [passwordHash, userId]);
+    // The version moves with the password: a stolen session should not survive the very
+    // action a person takes to get rid of it.
+    await pool.query(
+      "UPDATE users SET password_hash = $1, token_version = token_version + 1 WHERE id = $2",
+      [passwordHash, userId]
+    );
     return true;
   }
 
@@ -222,10 +320,16 @@ export class AuthService {
         id: string;
         username: string;
         role?: string;
+        tv?: number;
       };
       // A token minted before roles were checked carries whatever was there, or nothing.
-      // The safe reading of "no role" is the one that can do least.
-      return { ...decoded, role: isRole(decoded.role) ? decoded.role : ("viewer" as Role) };
+      // The safe reading of "no role" is the one that can do least. A token minted before
+      // versions existed has none, and an account that has never been revoked is at 0.
+      return {
+        ...decoded,
+        role: isRole(decoded.role) ? decoded.role : ("viewer" as Role),
+        tv: typeof decoded.tv === "number" ? decoded.tv : 0,
+      };
     } catch {
       return null;
     }

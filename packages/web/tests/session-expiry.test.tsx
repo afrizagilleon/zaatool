@@ -25,9 +25,7 @@ function refuses(status: number): typeof fetch {
 
 describe('a session that ends', () => {
   beforeEach(() => {
-    localStorage.setItem('zaatool_token', 'expired-mock-token');
     useAuthStore.setState({
-      token: 'expired-mock-token',
       user: { id: 'u1', username: 'testuser', email: null, role: 'viewer' },
       error: null,
     });
@@ -42,10 +40,8 @@ describe('a session that ends', () => {
     useAuthStore.getState().sessionExpired();
 
     const state = useAuthStore.getState();
-    expect(state.token).toBeNull();
     expect(state.user).toBeNull();
     expect(state.error).toContain('session has expired');
-    expect(localStorage.getItem('zaatool_token')).toBeNull();
   });
 
   it('is noticed by the interceptor when the engine answers 401', async () => {
@@ -53,7 +49,6 @@ describe('a session that ends', () => {
 
     expect(res.status).toBe(401);
     const state = useAuthStore.getState();
-    expect(state.token).toBeNull();
     expect(state.user).toBeNull();
     expect(state.error).toContain('session has expired');
   });
@@ -65,8 +60,25 @@ describe('a session that ends', () => {
     const ok = await useAuthStore.getState().checkAuth();
 
     expect(ok).toBe(false);
-    expect(useAuthStore.getState().token).toBeNull();
+    expect(useAuthStore.getState().user).toBeNull();
     expect(useAuthStore.getState().error).toContain('session has expired');
+  });
+
+  it('says nothing when nobody was signed in to begin with', async () => {
+    useAuthStore.setState({ user: null, error: null });
+    await withSession(refuses(401))('/api/auth/me');
+
+    expect(useAuthStore.getState().error).toBeNull();
+  });
+
+  it('marks every request to the engine with the header and the cookie policy', async () => {
+    const base = refuses(200);
+    await withSession(base)('/api/notebooks', { method: 'POST', body: '{}' });
+
+    const init = (base as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1] as RequestInit;
+    expect(new Headers(init.headers).get('X-Zaatool-Request')).toBe('1');
+    expect(init.credentials).toBe('same-origin');
+    expect(new Headers(init.headers).has('Authorization')).toBe(false);
   });
 
   it('does not claim a session expired when the password was simply wrong', async () => {

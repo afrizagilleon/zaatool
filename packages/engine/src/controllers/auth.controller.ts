@@ -1,7 +1,8 @@
 import { Request, Response } from "express";
 import { AuthInputError, authService, isRole, RegistrationClosedError } from "../services/auth.service.js";
-import { registrationOpen } from "../config.js";
+import { cronTimezone, registrationOpen } from "../config.js";
 import { pool } from "../db/connection.js";
+import { clearSessionCookie, setSessionCookie } from "../middleware/session-cookie.js";
 
 /**
  * The one place that decides what a failure is allowed to say out loud.
@@ -29,7 +30,11 @@ export class AuthController {
   async policy(_req: Request, res: Response) {
     try {
       const count = await authService.userCount();
-      res.json({ registrationOpen: count === 0 || registrationOpen(), firstUser: count === 0 });
+      res.json({
+        registrationOpen: count === 0 || registrationOpen(),
+        firstUser: count === 0,
+        cronTimezone: cronTimezone(),
+      });
     } catch (err) {
       console.error("Auth policy error:", err);
       res.status(500).json({ error: "Something went wrong. Please try again." });
@@ -84,6 +89,9 @@ export class AuthController {
         return res.status(400).json({ error: "Username and password are required" });
       }
       const result = await authService.login(username, password);
+      // The cookie is what the browser uses; the token in the body is for everything that
+      // is not a browser (the `curl` examples in DEPLOY.md, scripts) and the web app drops it.
+      setSessionCookie(res, result.token);
       res.json({ success: true, ...result });
     } catch (err) {
       refuse(res, err, "Login error", 401);
@@ -134,6 +142,30 @@ export class AuthController {
     }
   }
 
+  /** Signs this browser out: the cookie goes, sessions on other devices stay. */
+  async logout(_req: Request, res: Response) {
+    clearSessionCookie(res);
+    res.json({ success: true });
+  }
+
+  /**
+   * "Sign out everywhere": outdates every token this account holds, including the one
+   * that made the request. The caller is expected to be signed out afterwards.
+   */
+  async logoutAll(req: Request, res: Response) {
+    const user = (req as Request & { user?: { id: string } }).user;
+    if (!user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    try {
+      await authService.revokeSessions(user.id);
+      clearSessionCookie(res);
+      res.json({ success: true });
+    } catch (err) {
+      refuse(res, err, "Logout all error");
+    }
+  }
+
   async changePassword(req: Request, res: Response) {
     try {
       const user = (req as Request & { user?: { id: string } }).user;
@@ -145,7 +177,14 @@ export class AuthController {
         return res.status(400).json({ error: "Current password and new password are required" });
       }
       await authService.changePassword(user.id, currentPassword, newPassword);
-      res.json({ success: true });
+      // Changing the password ended every session, this one included. The person who just
+      // did it is handed a fresh token so they are not signed out of the screen they are
+      // looking at; everyone else, on every other device, is.
+      const token = await authService.reissueSession(user.id);
+      if (token && (req as Request & { sessionVia?: string }).sessionVia === "cookie") {
+        setSessionCookie(res, token);
+      }
+      res.json({ success: true, token });
     } catch (err) {
       refuse(res, err, "Change password error");
     }

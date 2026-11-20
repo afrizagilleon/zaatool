@@ -22,12 +22,18 @@ import {
   type CellSpawnIdentity,
   type SandboxIdentity,
 } from "./core/sandbox-identity.js";
+import { isValidTimeZone } from "./core/cron.js";
 
 /** Obvious on sight, and long enough that nothing accidentally depends on its shape. */
 const DEV_JWT_SECRET = "zaatool-development-secret-do-not-deploy";
 
 /** Shortest secret worth having. 32 bytes of anything unguessable clears it. */
 const MIN_SECRET_LENGTH = 32;
+
+/** The one time zone every cron trigger is read in. IANA name; UTC unless `CRON_TZ` says otherwise. */
+export function cronTimezone(): string {
+  return process.env.CRON_TZ?.trim() || "UTC";
+}
 
 export function isProduction(): boolean {
   return process.env.NODE_ENV === "production";
@@ -45,6 +51,31 @@ export function jwtSecret(): string {
 
 export function usingDevSecret(): boolean {
   return jwtSecret() === DEV_JWT_SECRET;
+}
+
+/** `CORS_ORIGINS` as a list: the origins a browser may call this engine from, and open its socket from. */
+export function declaredCorsOrigins(): string[] {
+  return (process.env.CORS_ORIGINS ?? "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter((origin) => origin !== "");
+}
+
+/**
+ * Whether the session cookie is marked `Secure` (sent over HTTPS only).
+ *
+ * On by default in production, off elsewhere, and `COOKIE_SECURE=true|false` overrides
+ * either. It is a setting rather than "whatever the request looks like" because behind
+ * Caddy and then nginx the `X-Forwarded-Proto` that reaches the engine is `http` — nginx
+ * overwrites it — so the engine cannot see that the visitor is on HTTPS. Trying out a
+ * production build over plain HTTP needs `COOKIE_SECURE=false`, or the browser will
+ * accept the cookie and then never send it back.
+ */
+export function cookieSecure(): boolean {
+  const raw = (process.env.COOKIE_SECURE ?? "").trim().toLowerCase();
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  return isProduction();
 }
 
 /**
@@ -196,6 +227,12 @@ export function configProblems(): string[] {
   // Not behind the production check: a half-set sandbox is wrong in development too, and
   // the cost of finding out is every cell failing.
   const problems: string[] = sandboxProblems(process.platform, process.env, process.getuid?.bind(process));
+  if (!isValidTimeZone(cronTimezone())) {
+    problems.push(
+      `CRON_TZ is "${cronTimezone()}", which is not an IANA time zone name. Use a name like ` +
+        "Asia/Jakarta or UTC, or leave it unset for UTC."
+    );
+  }
   if (!isProduction()) return problems;
 
   if (usingDevSecret()) {

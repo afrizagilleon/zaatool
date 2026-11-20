@@ -55,6 +55,7 @@ export function Navbar() {
 
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
+  const logoutEverywhere = useAuthStore((s) => s.logoutEverywhere);
   const changePassword = useAuthStore((s) => s.changePassword);
   const error = useAuthStore((s) => s.error);
   const clearError = useAuthStore((s) => s.clearError);
@@ -190,11 +191,12 @@ export function Navbar() {
               <UserIcon size={14} weight="duotone" />
             </Button>
             <Button
-              onClick={logout}
+              onClick={() => void logout()}
               variant="ghost"
               size="icon"
               className="w-6 h-6 text-destructive hover:bg-destructive/10 rounded-md"
               title="Logout"
+              aria-label="Log out"
             >
               <SignOut size={14} weight="bold" />
             </Button>
@@ -281,7 +283,26 @@ export function Navbar() {
                 </div>
               </div>
 
-              <div className="pt-2 flex justify-end">
+              <div className="pt-2 flex items-center justify-between gap-2">
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void logout()}
+                    className="h-8 text-xs"
+                  >
+                    Log out
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void logoutEverywhere()}
+                    className="h-8 text-xs text-destructive"
+                    title="Ends every session this account has, on every device"
+                  >
+                    Log out of all devices
+                  </Button>
+                </div>
                 <Button size="sm" onClick={() => setIsProfileOpen(false)} className="h-8 text-xs">
                   Close
                 </Button>

@@ -13,7 +13,9 @@ import { notebookAccessService } from "../services/notebook-access.service.js";
  *  - **A signed link**, which is what a page puts in `src` and what a shared page hands to
  *    someone with no account. It names one file and stops working on its own.
  *  - **A bearer token**, for code that can set a header — the file browser fetching a text
- *    file to preview it, a script pulling something down. It opens everything except the
+ *    file to preview it, a script pulling something down. It is checked against the account
+ *    as `/api` checks it: a switched-off account or an ended session is not let in just
+ *    because the signature on the token is still good. It opens everything except the
  *    folders of notebooks its account cannot edit; a signed link is the way to hand those out.
  *
  * There is deliberately no third way, and in particular no session in the query string: a
@@ -39,13 +41,19 @@ export async function storageAccess(req: Request, res: Response, next: NextFunct
   }
 
   const header = req.headers.authorization;
-  const session = header?.startsWith("Bearer ") ? authService.verifyToken(header.slice(7)) : null;
-  if (session) {
-    // A session reaches every folder except the two that belong to a notebook it cannot edit.
-    // Not 403: the folder is named after the notebook's id, so a refusal would confirm it.
-    const hidden = await notebookAccessService.hiddenFromStorage(session.id);
-    if (hidden(relative)) return res.status(404).json({ error: "Not found" });
-    return next();
+  if (header?.startsWith("Bearer ")) {
+    try {
+      const session = await authService.authenticate(header.slice(7));
+      if (session.status === "ok") {
+        // A session reaches every folder except the two that belong to a notebook it cannot edit.
+        // Not 403: the folder is named after the notebook's id, so a refusal would confirm it.
+        const hidden = await notebookAccessService.hiddenFromStorage(session.user.id);
+        if (hidden(relative)) return res.status(404).json({ error: "Not found" });
+        return next();
+      }
+    } catch (err) {
+      return next(err);
+    }
   }
 
   res.status(401).json({
