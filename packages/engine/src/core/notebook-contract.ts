@@ -1,5 +1,6 @@
 import type { NotebookParam } from "@zaa-tool/shared";
 import { safeSubPath } from "./storage-paths.js";
+import { signStorageLink } from "./storage-links.js";
 import { STORAGE_DIR } from "./storage-root.js";
 
 /**
@@ -77,11 +78,13 @@ function coerce(param: NotebookParam, value: unknown): { ok: true; value: unknow
         return { ok: false, reason: "expected a file whose `path` is inside storage" };
       }
 
-      const file: { name: string; path: string; url?: string } = {
+      // The caller's `url` is ignored: it is derived from the validated path, so a
+      // descriptor cannot make the cell's `file.url` point at somewhere it did not earn.
+      const file: { name: string; path: string; url: string } = {
         name: typeof raw.name === "string" ? raw.name : relative.split("/").pop() ?? relative,
         path: (raw.path as string).trim(),
+        url: signStorageLink(relative),
       };
-      if (typeof raw.url === "string") file.url = raw.url;
       return { ok: true, value: file };
     }
   }
