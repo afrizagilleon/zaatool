@@ -24,6 +24,7 @@ import { pool } from "../src/db/connection.js";
 import { authService } from "../src/services/auth.service.js";
 import { notebookAccessService } from "../src/services/notebook-access.service.js";
 import { notebooksService } from "../src/services/notebooks.service.js";
+import { notebookExecutionService } from "../src/services/notebook-execution.service.js";
 import type { NotebookJson } from "@zaa-tool/shared";
 
 let passed = 0;
@@ -715,6 +716,117 @@ await check("a webhook guarded by a secret key is guarded by the notebook owner'
   const ok = await hook("hook-owner");
   assert.equal(ok.status, 200);
   assert.equal(((await ok.json()) as { outputs: { got: string } }).outputs.got, "hook-owner");
+});
+
+// ── nested calls and buttons (T-05) ───────────────────────────────────────────
+
+console.log("\nnotebooks that call notebooks");
+
+async function setVisibility(id: string, visibility: "all" | "selected", appUsers: Person[] = []): Promise<void> {
+  await pool.query("UPDATE notebooks SET app_visibility = $1 WHERE id = $2", [visibility, id]);
+  await pool.query("DELETE FROM notebook_access WHERE notebook_id = $1 AND permission = 'app'", [id]);
+  for (const who of appUsers) {
+    await pool.query("INSERT INTO notebook_access (notebook_id, user_id, permission) VALUES ($1, $2, 'app')", [id, who.id]);
+  }
+}
+
+/** A notebook that calls another by name and reports what came back, or why it did not. */
+async function caller(name: string, who: Person, callee: string, extra: Record<string, unknown> = {}): Promise<string> {
+  const saved = await notebooksService.save(
+    {
+      version: "1.0",
+      id: "",
+      name: `zz-fx17-${name}`,
+      runtime: "node",
+      outputs: ["got"],
+      steps: [
+        {
+          id: `cell-${name}`,
+          kind: "cell",
+          code: `try { const r = await notebooks.run('${callee}', {}); return { got: r.got }; } catch (e) { return { got: 'ERR:' + e.message }; }`,
+        },
+      ],
+      ...extra,
+    } as NotebookJson,
+    "test",
+    who.id
+  );
+  return saved.id;
+}
+
+await check("D-12: a call reaches an app open to everybody, and the callee runs with its own owner's secret", async () => {
+  const callee = await reporter("callee-open", other, "ZZ_FX17_ONLY_OTHER");
+  await notebooksService.deploy(callee, "test");
+  const from = await caller("caller-open", owner, "zz-fx17-callee-open");
+
+  const run = (await (await call(owner, "POST", `/api/notebooks/${from}/run`, {})).json()) as { runId: string };
+  assert.equal(await gotFrom(from, run.runId), "other-value", "the callee did not use its own owner's secret");
+});
+
+await check("D-12: an app for selected people that does not include the caller's owner is not found — a draft run and a deployed run alike", async () => {
+  const callee = await reporter("callee-picked", other, "ZZ_FX17_ONLY_OTHER");
+  await notebooksService.deploy(callee, "test");
+  await setVisibility(callee, "selected", [chosen]);
+  const from = await caller("caller-picked", owner, "zz-fx17-callee-picked");
+
+  const draftRun = (await (await call(owner, "POST", `/api/notebooks/${from}/run`, {})).json()) as { runId: string };
+  assert.match(String(await gotFrom(from, draftRun.runId)), /^ERR:.*not found/i);
+
+  await notebooksService.deploy(from, "test");
+  const pageRun = (await (await call(viewer, "POST", `/api/notebooks/${from}/run`, {})).json()) as { runId: string };
+  assert.match(String(await gotFrom(from, pageRun.runId)), /^ERR:.*not found/i, "the page run reached a callee its owner cannot");
+
+  await setVisibility(callee, "selected", [owner]);
+  const allowed = (await (await call(viewer, "POST", `/api/notebooks/${from}/run`, {})).json()) as { runId: string };
+  assert.equal(await gotFrom(from, allowed.runId), "other-value", "naming the caller's owner should open the callee");
+});
+
+await check("D-12: it is not found whether the callee is hidden or does not exist — the message does not tell them apart", async () => {
+  const hidden = await caller("caller-hidden", owner, "zz-fx17-callee-picked");
+  const missing = await caller("caller-missing", owner, "zz-fx17-callee-picked-x");
+  const callee = (await pool.query("SELECT id FROM notebooks WHERE name = 'zz-fx17-callee-picked'")).rows[0].id as string;
+  await setVisibility(callee, "selected", [chosen]);
+  const a = (await (await call(owner, "POST", `/api/notebooks/${hidden}/run`, {})).json()) as { runId: string };
+  const b = (await (await call(owner, "POST", `/api/notebooks/${missing}/run`, {})).json()) as { runId: string };
+  const messageA = String(await gotFrom(hidden, a.runId)).replace("zz-fx17-callee-picked", "X");
+  const messageB = String(await gotFrom(missing, b.runId)).replace("zz-fx17-callee-picked-x", "X");
+  assert.equal(messageA, messageB);
+});
+
+await check("D-12: a notebook with no owner calls nothing", async () => {
+  const callee = (await pool.query("SELECT id FROM notebooks WHERE name = 'zz-fx17-callee-open'")).rows[0].id as string;
+  const orphan = await caller("caller-orphan", owner, "zz-fx17-callee-open");
+  await pool.query("UPDATE notebooks SET owner_id = NULL WHERE id = $1", [orphan]);
+  const run = await notebookExecutionService.start(orphan, () => {}, {});
+  await run.completed;
+  const { rows } = await pool.query("SELECT cell_results FROM notebook_runs WHERE id = $1", [run.runId]);
+  const cell = Object.values(rows[0].cell_results as Record<string, { output?: { got?: unknown } }>)[0];
+  assert.match(String(cell?.output?.got), /^ERR:.*not found/i);
+  assert.ok(callee);
+});
+
+await check("D-12: a page button that runs another notebook reaches only what the page's owner may use", async () => {
+  const target = (await pool.query("SELECT id FROM notebooks WHERE name = 'zz-fx17-callee-picked'")).rows[0].id as string;
+  await setVisibility(target, "selected", [chosen]);
+  const page = await caller("pager", owner, "zz-fx17-callee-open", {
+    actions: [{ label: "Go", do: "run", notebook: "zz-fx17-callee-picked" }],
+  });
+  await notebooksService.deploy(page, "test");
+
+  const press = await call(viewer, "POST", `/api/notebooks/${page}/actions/0`, {});
+  assert.equal(press.status, 404, "the button ran a notebook its page's owner could not use");
+
+  const pages = (await (await call(viewer, "GET", "/api/notebooks/pages")).json()) as { id: string; actions: { notebook?: string }[] }[];
+  assert.ok(pages.find((entry) => entry.id === page), "the page itself is listed");
+
+  await setVisibility(target, "selected", [owner]);
+  const again = await call(viewer, "POST", `/api/notebooks/${page}/actions/0`, {});
+  assert.equal(again.status, 200);
+});
+
+await check("a stranger cannot press a button on a page they cannot use", async () => {
+  const hiddenPage = await seed("hidden-page", { owner, deployed: true, visibility: "selected", extra: { actions: [{ label: "Go", do: "rerun" }] } });
+  assert.equal((await call(other, "POST", `/api/notebooks/${hiddenPage}/actions/0`, {})).status, 404);
 });
 
 // ── next ──

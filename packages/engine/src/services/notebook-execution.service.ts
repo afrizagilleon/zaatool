@@ -213,6 +213,15 @@ export class NotebookExecutionService {
     if (context.signal.aborted) throw new Error(abortMessage(context.signal));
 
     const reference = String(request.notebook ?? "").trim();
+
+    // Only among what the *caller's owner* could use as an app (or, in a draft run, open).
+    // A notebook is not a way to reach what its author could not: a callee outside this set
+    // is "not found", the same as one that does not exist, so a call cannot be used to find
+    // out which notebooks somebody else has. A caller with no owner may call nothing.
+    const callerId = context.stack[context.stack.length - 1];
+    const callerOwner = await notebookAccessService.ownerOf(callerId);
+    const among = callerOwner === null ? [] : await notebookAccessService.callableIds(callerOwner);
+
     // A production run looks the callee up among the names of what is *deployed*; a draft
     // run among the drafts. Resolving production against the draft `name` column made a
     // rename in the editor break a deployed caller before anyone deployed anything.
@@ -220,7 +229,7 @@ export class NotebookExecutionService {
     let document: NotebookJson;
 
     if (context.useDeployed) {
-      const deployed = await notebooksService.findDeployedByIdOrName(reference);
+      const deployed = await notebooksService.findDeployedByIdOrName(reference, among);
       if (deployed === null) throw new NotebookNotFoundError(reference);
       if (deployed === "ambiguous") {
         throw new Error(
@@ -234,7 +243,7 @@ export class NotebookExecutionService {
       found = deployed;
       document = deployed.document;
     } else {
-      const draft = await notebooksService.findByIdOrName(reference);
+      const draft = await notebooksService.findByIdOrName(reference, among);
       if (draft === null) throw new NotebookNotFoundError(reference);
       if (draft === "ambiguous") {
         throw new Error(
