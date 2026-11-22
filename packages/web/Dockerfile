@@ -30,10 +30,21 @@ ENV VITE_BUILD_VERSION=$BUILD_VERSION \
 
 RUN pnpm --filter @zaa-tool/web build
 
-FROM nginx:1.27-alpine
+# nginx without root: the unprivileged build keeps its pid file and temp folders in /tmp, so
+# the server never needs to write anywhere root owns. A flaw in nginx is then a flaw of uid
+# 101, which owns nothing here (the files below are root's and only readable).
+#
+# It still listens on 80 inside the container, on purpose: Docker lets any process bind low
+# ports inside a container (net.ipv4.ip_unprivileged_port_start=0, the default since Docker
+# 20.10, also stated in docker-compose.yml), and every install made before this image keeps
+# `:80` in its compose file and `web:80` in its Caddyfile. update.sh pulls images, not compose
+# files, so moving the port would break those installs on their next update.
+FROM nginxinc/nginx-unprivileged:1.27-alpine
 # The `map` has to sit at http level, which conf.d is included into; the server block
 # comes after it alphabetically, which is the only ordering nginx cares about here.
 COPY packages/web/nginx-upgrade.conf /etc/nginx/conf.d/00-upgrade.conf
 COPY packages/web/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/packages/web/dist /usr/share/nginx/html
+# The base image already runs as this user; it is named here so the image says so itself.
+USER nginx
 EXPOSE 80

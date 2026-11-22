@@ -305,8 +305,13 @@ async function run(init) {
       }
     }
 
-    // wrap user's code in an async function
-    const fn = new Function(
+    // Wrap the cell's code in an async function. Running the code a notebook author wrote IS
+    // this process's job, so dynamic code here is intended, not an injection. The boundary is
+    // the process, not the language: this runs in a `node --permission` process of its own,
+    // one per cell, as the notebook owner's own Linux uid (K-02, FX-20). It cannot write
+    // files, start processes, threads or addons, and sees only the secrets the notebook
+    // declares. Reviewed 2026-11-23; see ARCHITECTURE.md "Sandboxing, honestly".
+    const fn = new Function( // NOSONAR: executing the cell's code is the purpose of this sandboxed process
       "inputs",
       "require",
       "Table",
@@ -316,7 +321,7 @@ async function run(init) {
       "files",
       `"use strict"; return (async () => { ${code} })()`
     );
-    const output = await fn(
+    const output = await fn( // NOSONAR: calls the cell compiled above, inside the same sandboxed process
       wrappedInputs,
       scopedRequire,
       Table,

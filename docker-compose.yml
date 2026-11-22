@@ -114,6 +114,10 @@ services:
     # without a proxy, and goes with COOKIE_SECURE=false over plain HTTP.
     ports:
       - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8080}:80"
+    # nginx runs as uid 101 (no root) and still listens on 80 inside the container. Docker
+    # already allows that by default; stated here so a runtime with another default does too.
+    sysctls:
+      net.ipv4.ip_unprivileged_port_start: 0
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:80/"]
       interval: 10s

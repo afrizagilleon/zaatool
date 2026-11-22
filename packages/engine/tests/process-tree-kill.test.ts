@@ -13,6 +13,7 @@ import { execFileSync } from "node:child_process";
 import { fromMarkdown } from "../src/core/notebook-text.js";
 import { compileNotebook } from "../src/core/notebook-compiler.js";
 import { runNotebook } from "../src/core/notebook-runner.js";
+import { taskkillPath } from "../src/core/kill-tree.js";
 
 let passed = 0;
 let failed = 0;
@@ -116,6 +117,20 @@ for (const pid of spawned) {
   }
 }
 fs.rmSync(dir, { recursive: true, force: true });
+
+await check("taskkill is run by its full path, never looked up in PATH", () => {
+  assert.equal(taskkillPath("C:\\Windows"), "C:\\Windows\\System32\\taskkill.exe");
+  assert.equal(taskkillPath("D:\\Win"), "D:\\Win\\System32\\taskkill.exe");
+  // Missing or relative SystemRoot: the standard location, not a bare name for PATH to resolve.
+  for (const bad of ["", "Windows", ".\\evil"]) {
+    assert.equal(taskkillPath(bad), "C:\\Windows\\System32\\taskkill.exe", JSON.stringify(bad));
+  }
+  // No argument: Windows' own SystemRoot when it is set, the standard location otherwise.
+  assert.match(taskkillPath(), /^[A-Za-z]:\\.*\\System32\\taskkill\.exe$/);
+  if (process.platform === "win32") {
+    assert.ok(fs.existsSync(taskkillPath()), "the resolved taskkill.exe exists on this machine");
+  }
+});
 
 console.log(`\n${passed} passed, ${failed} failed\n`);
 process.exit(failed === 0 ? 0 : 1);

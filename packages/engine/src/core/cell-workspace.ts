@@ -90,7 +90,9 @@ const PRIVATE = 0o700;
 export function prepareOwnerHome(config: SandboxConfig, uid: number, wfs: WorkspaceFs = fs): string {
   const owners = path.posix.join(trimEndChars(config.home, "/"), "owners");
   wfs.mkdirSync(owners, { recursive: true });
-  wfs.chmodSync(owners, 0o711);
+  // 0711 is the isolation, not a gap: execute lets a cell reach its own 0700 folder, and the
+  // missing read bit keeps it from listing who else has one. 0700 here would stop every cell.
+  wfs.chmodSync(owners, 0o711); // NOSONAR: traverse-only parent of the 0700 per-owner homes (FX-20)
 
   const home = ownerHomePath(config, uid);
   for (const dir of [home, `${home}/tmp`, `${home}/.cache`, `${home}/.cache/uv`, `${home}/cells`]) {

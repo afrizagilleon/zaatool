@@ -106,7 +106,15 @@ try {
   } catch {
     // best effort; the junction removal below handles the rest
   }
-  fs.rmSync(path.join(outside, "rootlink"), { force: true, recursive: false });
+  // The link itself, never what it points at. rmSync refuses a junction ("Path is a directory")
+  // on Windows machines that cannot make symlinks; unlink removes a symlink or a junction alike.
+  const rootLink = path.join(outside, "rootlink");
+  try {
+    if (fs.lstatSync(rootLink).isSymbolicLink()) fs.unlinkSync(rootLink);
+    else fs.rmSync(rootLink, { force: true, recursive: false });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
   fs.rmSync(root, { recursive: true, force: true });
   fs.rmSync(outside, { recursive: true, force: true });
 }

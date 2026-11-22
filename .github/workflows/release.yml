@@ -88,6 +88,9 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # The whole history and its tags: the notes list the commits since the previous tag.
+          fetch-depth: 0
       - name: Assemble the release files
         env:
           VERSION: ${{ github.ref_name }}
@@ -101,6 +104,16 @@ jobs:
           sed "s|^EMBEDDED_VERSION=.*|EMBEDDED_VERSION=\"${VERSION}\"|" scripts/install.sh > dist/install.sh
           grep -q "^EMBEDDED_VERSION=\"${VERSION}\"" dist/install.sh
           cd dist && sha256sum docker-compose.yml .env.example install.sh > SHA256SUMS
+      - name: Write the release notes
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          # --generate-notes lists pull requests only, and this repository merges without
+          # them, so a release used to say nothing but "Full Changelog". The notes are now the
+          # announcement in .github/release-notes.md: what changed (the commit subjects since
+          # the previous tag), how to install, update, check and remove.
+          scripts/release-notes.sh "$VERSION" > release-notes.md
+          cat release-notes.md
       - name: Create the GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -109,5 +122,5 @@ jobs:
         run: |
           gh release create "$VERSION" dist/* \
             --repo "$REPO" \
-            --title "$VERSION" \
-            --generate-notes
+            --title "zaatool $VERSION" \
+            --notes-file release-notes.md

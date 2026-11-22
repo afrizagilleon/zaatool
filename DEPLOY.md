@@ -602,7 +602,11 @@ git push origin v1.0.0
 The `release` workflow builds `linux/amd64` and `linux/arm64` images, pushes
 `ghcr.io/afrizagilleon/zaatool-engine` and `-web` as `:v1.0.0` and `:latest`, and creates the
 GitHub Release with `docker-compose.yml`, `.env.example`, `install.sh` (version embedded) and
-`SHA256SUMS`. The first time, make the two packages public (GitHub profile, Packages, each
+`SHA256SUMS`. The release text is the announcement in `.github/release-notes.md` (what is new,
+install, first account, day to day, connecting an agent), with the commit subjects since the
+previous tag filled in. See it before you tag with `scripts/release-notes.sh v1.0.0`, or rewrite
+an older release with `scripts/release-notes.sh v1.0.0 > notes.md && gh release edit v1.0.0
+--notes-file notes.md`. The first time, make the two packages public (GitHub profile, Packages, each
 package, Package settings, Change visibility) or an installer on another machine cannot pull
 them. `workflow_dispatch` publishes a test tag without a Release and without moving `latest`.
 
