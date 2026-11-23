@@ -1,8 +1,8 @@
 /**
  * What a cell is allowed to import.
  *
- * The policy itself is the engine's — it is the engine that loads a JavaScript package
- * into its own worker and the engine that hands a Python requirement to `uv`. But the
+ * The policy itself is the engine's — it is the engine whose `node_modules` a JavaScript
+ * cell process reads its packages from and the engine that hands a Python requirement to `uv`. But the
  * editor has to state the same policy before anything is saved, or the only way to learn
  * that `pg` is refused is to deploy and watch a run fail.
  *

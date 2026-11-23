@@ -281,8 +281,9 @@ return {"rows": pd.DataFrame(inputs["raw"]).groupby("month").sum().reset_index()
 built before the first cell and cached, so the second run costs nothing.
 
 **JavaScript may name only ${jsPackages}.** Node's own built-in modules always work and
-need no declaration. Anything else is refused — a JavaScript package loads into the
-engine's own process, so that list is part of the engine rather than part of a notebook.
+need no declaration. Anything else is refused — a JavaScript package is read from the
+engine's own \`node_modules\` rather than installed for the notebook, so that list is part of
+the engine rather than part of a notebook.
 
 **Undeclared means the standard library only.** Do not write \`import pandas\` and hope; a
 missing declaration is a failure at run time, and declaring it is one line.

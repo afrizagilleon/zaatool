@@ -181,9 +181,13 @@ the engine copied in) and the `node_modules` of the packages it declared; it can
 or a thread, or load a native addon. The runtime refuses these, so `module._load` and every
 other route around the `require` list ends in `ERR_ACCESS_DENIED` — the list is only the
 friendly message that comes first. Its environment is a small allow-list plus the secrets
-it declared, never the engine's. Its heap is capped (`MAX_CELL_MEMORY_MB`, default 512; Python has `MAX_PYTHON_CELL_MEMORY_MB`, default 1024), and on Linux the kernel caps the whole process (`core/cell-limits`);
-a cell that outgrows it fails and the engine, a different process, carries on. Timeout,
-deadline and cancel kill the whole tree.
+it declared, never the engine's: those are handed over after the process has started and set
+inside it, so they are not in `/proc/<pid>/environ`. Its heap is capped everywhere
+(`MAX_CELL_MEMORY_MB`, default 512), and on Linux with the sandbox on the kernel caps the whole
+process, off-heap `Buffer`s included, for JavaScript and for Python alike (`core/cell-limits`:
+memory, number of processes and threads, largest file, no core dumps; Python has its own memory
+limit, `MAX_PYTHON_CELL_MEMORY_MB`, default 1024). A cell that outgrows a limit fails and the
+engine, a different process, carries on. Timeout, deadline and cancel kill the whole tree.
 
 **Enforced on Linux/Docker: one group per owner, one uid per process.** The image starts the
 engine as root and spawns every cell — JS, Python, and the `uv` run that installs a notebook's
@@ -204,8 +208,11 @@ cell's own code is not on its command line (Python's wrapper is a file in its fo
 because `/proc/<pid>/cmdline` is readable by every user), and the engine makes each cell the
 first choice of the kernel's OOM killer (`core/oom-guard`). The kernel enforces this; on JS cells
 node's permission model sits on top. Python cells, which have no equivalent of the permission
-model, rely on this layer alone. `packages:` for Python is still resolved against an allow-list
-and pinned to exact versions; the install runs under its own limits (`MAX_INSTALL_*`).
+model, rely on this layer alone. `packages:` for Python may name anything on PyPI (the shape of
+the requirement is checked, and it is resolved to exact versions at deploy); installing runs
+package code, so the `uv` run is a process like a cell, with the owner's group and a uid of its
+own, under its own, looser limits (`MAX_INSTALL_*`). A JavaScript cell may name only a short list
+shipped with the engine.
 
 **Enforced on Linux/Docker: the network, per uid.** The entrypoint (tini first, so PID 1 reaps
 orphaned cell processes) runs as root before the engine and puts an `iptables`/`ip6tables` chain
@@ -230,6 +237,14 @@ or the owner for cron, webhooks and share links; for a nested call, the caller's
 it is under the notebook's own `uploads/<id>/` or `notebooks/<id>/`; anything else is refused
 as "file not found".
 
+**Enforced on Linux/Docker: disk, and who dies first.** The files an owner's cells leave
+(temp folder, `uv` cache) are measured against `MAX_OWNER_DISK_MB` (default 2048) before each
+cell, and an owner over it is refused while everybody else carries on (`core/owner-disk`; the
+measuring never follows a symlink and never changes anything). Cleaning up is done by a process
+with a cell's identity, never by root. The engine also writes `oom_score_adj` 1000 to every cell
+(`core/oom-guard`), so when the container's memory runs out the kernel kills a cell before the
+engine. That needs `SYS_RESOURCE`, which compose grants; without it the engine warns at start.
+
 **Not enforced:**
 
 - **The network is open to the internet, not to the inside.** On Linux/Docker an iptables firewall
@@ -239,25 +254,49 @@ as "file not found".
   for the host's services; and on Windows or a dev machine there is none at all. A cell can
   still reach anything on the public internet, and, if the operator allowed it with
   `CELL_EGRESS_ALLOW`, the destinations listed there. Node's permission model has no switch for
-  the network, so JS cells rely on this layer too.
+  the network, so JS cells rely on this layer too. `CELL_EGRESS_FIREWALL=off` removes the
+  firewall on purpose (the engine warns loudly), and a cell can send anything it can read out to
+  the internet.
 - **Python on Windows or a dev machine has no isolation.** The `SANDBOX_*` variables are
-  ignored on Windows and unset in development; a Python cell there runs as the user who started
-  the engine and can read storage and everything else that user can. (A JS cell is still
-  confined by the permission model there.)
+  ignored on Windows and unset in development, and so are the limits, the disk quota, the
+  firewall and the uid sweep: a Python cell there runs as the user who started the engine and
+  can read storage, `.env` and everything else that user can, with only the timeout to stop it.
+  On Windows its leftover child processes can also outlive it (`taskkill /T` only follows live
+  parents). (A JS cell is still confined by the permission model there, and cannot call
+  `process.kill`.) A production start on Windows warns about this. Windows is not a deploy target.
 - **Cells of the same owner share files, not processes.** Two notebooks of one account can read
   and write each other's files in the owner's shared folders (temp, home, package cache); the
   owner is one domain of trust (an editor's code already holds the owner's secrets). They cannot
-  signal or read each other's processes. A cell can also fill the shared temp folder or poison
-  the shared package cache for its owner's next cells.
+  signal or read each other's processes. A cell can also fill the shared temp folder (up to the
+  owner's disk quota, which it shares with the owner's other cells) or poison the shared package
+  cache for its owner's next cells. A file a cell deliberately makes mode 0700 cannot be cleaned
+  by another uid of the same owner; it still counts against that owner's quota.
+- **Cells can read what is world-readable in the image.** `/app` is closed (directories 0711,
+  files 0600, except what a JS cell needs to load), but `/etc`, `/usr` and the engine's
+  `node_modules` are readable, as they are in any container. `/dev/shm` is writable by every
+  cell (64 MB by default in Docker, shared) and is swept per uid, not rationed.
 - **A notebook with no owner does not run** where cells change uid; there is no uid to give it.
 - **The engine itself runs as root in the container.** Switching a child to another uid
   needs it. A flaw in the engine is a root flaw inside the container, not on the host.
-- **Memory is capped on the JS heap only**, and Python cells have no memory cap.
+- **Limits are ceilings, not reservations.** Several cells at once can add up to more than the
+  container's memory limit; the kernel then kills a cell first (see above), but the run it was
+  part of fails. A cell of a notebook that runs nested notebooks keeps its process while it waits.
+- **The accounting is in memory, in one engine.** The pool of cell uids, the in-flight sweeps
+  and the disk usage cache are not shared or persisted. That is safe with one engine per
+  container, which is the only supported shape; a restart takes the cells with it. A uid whose
+  sweep cannot be confirmed is retired until the engine restarts. The disk quota can be passed
+  inside the 5-second window its usage is cached for.
+- **Cells are separated by uid, not by namespace.** The sweep kills everything of a cell's uid
+  (a `setsid` child, a double-forked daemon) the moment the cell is over, and nothing of
+  another cell can be touched. A PID namespace per cell would be more thorough, and for
+  notebooks from authors you do not know a separate runner container would be the real
+  boundary; neither exists yet.
 
 So: much stronger than it was, still **not a hardened boundary.** A notebook runs code on
 your server with your server's network access. Give `creator` only to people you would give
-a shell to. The package allow-list exists to stop typo-squatting and drive-by installs, not
-to contain a determined author.
+a shell to. The JavaScript package list exists so that a cell cannot load the engine's own
+dependencies (a database client, for one), not to contain a determined author; Python packages
+are unrestricted by name.
 
 ---
 

@@ -219,8 +219,9 @@ export function maxNestedCalls(): number {
  *
  * A cell runs in a process of its own (see `js-runner`), so this is `--max-old-space-size`
  * on that process: a cell that allocates without end fails with an out-of-memory error and
- * the engine, which is a different process, carries on. It bounds the JS heap; memory held
- * outside it (large Buffers) is not counted by this flag.
+ * the engine, which is a different process, carries on. The flag bounds the JS heap only;
+ * memory held outside it (large Buffers) is bounded on Linux with the sandbox on by the kernel
+ * limit that {@link cellLimits} describes, and not at all elsewhere.
  */
 export function maxCellMemoryMb(): number {
   return positiveInt("MAX_CELL_MEMORY_MB", 512);
@@ -246,8 +247,9 @@ export function maxPythonCellMemoryMb(): number {
  * the cell and everything it starts (the kernel counts per uid, and every cell process has a
  * uid of its own). A Node cell is about a dozen threads and a Python cell with numpy a
  * handful, so 128 leaves room for a cell that starts workers and stops a fork bomb at that
- * size. It is also what keeps the container's `ENGINE_PIDS_LIMIT` honest: the run gate's
- * 24 cells at the limit is 3072, inside the 4096 default.
+ * size. The container's `ENGINE_PIDS_LIMIT` (4096 by default, 32 cells at this limit) is the
+ * bound over all of them: the run gate admits four runs, but the notebooks a run calls do not
+ * pass the gate and add cell processes of their own.
  *
  * `MAX_CELL_FILE_MB` is the largest single file a cell may write. It is generous on purpose:
  * it stops one runaway `write` from filling the disk in a single file, not a notebook

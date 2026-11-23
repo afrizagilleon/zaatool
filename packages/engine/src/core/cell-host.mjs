@@ -138,8 +138,10 @@ export class ImageObject extends FileObject {
 /**
  * A cell must not signal other processes (S-11).
  *
- * Node's permission model does not cover signals. On Linux a cell could kill another cell of
- * the same owner; on Windows `process.kill(process.ppid)` ends the engine. Every route to
+ * Node's permission model does not cover signals. On Windows `process.kill(process.ppid)` ends
+ * the engine, and where cells share a uid (a dev machine) a cell could kill another cell. In
+ * the Linux image each cell has a uid of its own, so the kernel already refuses a signal to
+ * another cell or to the engine; this is the layer that works everywhere. Every route to
  * `kill` goes through this one `process` object (`require("process")`,
  * `getBuiltinModule`, `import("node:process")` all return it), so replacing the two
  * properties and locking them covers them. The host ends itself with `process.exit`, which
@@ -330,7 +332,7 @@ async function run(init) {
     // Wrap the cell's code in an async function. Running the code a notebook author wrote IS
     // this process's job, so dynamic code here is intended, not an injection. The boundary is
     // the process, not the language: this runs in a `node --permission` process of its own,
-    // one per cell, as the notebook owner's own Linux uid (K-02, FX-20). It cannot write
+    // one per cell, as a Linux uid of its own where the sandbox is on (K-02, FX-20, S-16). It cannot write
     // files, start processes, threads or addons, and sees only the secrets the notebook
     // declares. Reviewed 2026-11-23; see ARCHITECTURE.md "Sandboxing, honestly".
     const fn = new Function( // NOSONAR: executing the cell's code is the purpose of this sandboxed process

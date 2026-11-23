@@ -111,13 +111,17 @@ touches Caddy or any other service for you.
 HTTP, and with no domain it sets `COOKIE_SECURE=false` (a browser never sends a Secure
 cookie back over HTTP). That is a way to look at it, not a way to run it.
 
-**What this does not isolate.** A notebook cell is code you or a creator wrote, and it has
-outbound network access. The cell runs in a container on Docker's network, where the host
-is reachable through the bridge gateway: another service on this machine that listens on
-`0.0.0.0` (an agent, an admin panel, a database) can be called from a cell. Suggestion, not
-something this repository tests: bind such services to `127.0.0.1` (which a container
-cannot reach through the gateway) or protect them with their own authentication, and
-give the creator role only to people you would let run code on this server.
+**What this does and does not isolate.** A notebook cell is code you or a creator wrote. In the
+official image it runs as an unprivileged uid with limits, and a firewall refuses it the engine's
+own port, the database, the other containers, the cloud metadata address and the private ranges
+(see "The cell firewall" below). The Docker bridge gateway is inside those ranges, so a service
+on this machine that listens on `0.0.0.0` is not reachable through it. What the firewall leaves
+open is the internet, and that includes this machine's own public address: a service that
+listens on `0.0.0.0` and answers on it can probably still be called from a cell (not something
+this repository tests), so give such a service its own authentication. The firewall does not
+exist at all with `network_mode: host` or `CELL_EGRESS_FIREWALL=off`, and `CELL_EGRESS_ALLOW`
+opens exactly what it names. Give the creator role only to people you would let run code on
+this server.
 
 ---
 
@@ -726,8 +730,10 @@ Each cell is a process of its own. These settings shape it (all optional; the im
   uid and every cell process has a uid of its own, so a fork bomb stops here, in that cell
   only: its neighbours, including the same owner's, are unaffected. **`MAX_CELL_FILE_MB`**
   (default `1024`) is the largest single file a cell may write. Cells never dump core.
-  **`ENGINE_PIDS_LIMIT`** (default `4096`, compose) bounds the whole container the same way;
-  the run gate's 24 cells at `MAX_CELL_PROCESSES` come to 3072, inside it.
+  **`ENGINE_PIDS_LIMIT`** (default `4096`, compose) bounds the whole container the same way. It
+  is room for 32 cells all at their limit; the run gate admits four runs at once, but the
+  notebooks a run calls do not pass the gate and add processes of their own, so this is the
+  last bound, not a sum worked out for you.
 - **`MAX_OWNER_DISK_MB`** (default `2048`) — disk one owner's cells may occupy: their temp
   folder and package cache, i.e. `<SANDBOX_HOME>/owners/<gid>` (without the sandbox, the owner's
   folder under the system temp). The engine, as root, only *measures* it (`lstat`, never

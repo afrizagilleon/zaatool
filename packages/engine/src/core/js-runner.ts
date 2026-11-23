@@ -48,7 +48,11 @@ export interface RunResult {
  * and cannot start a process, a thread or an addon — the runtime refuses, whatever the
  * cell's code does. Its heap is capped, and it gets its own environment.
  *
- * The network is NOT restricted: node's permission model has no switch for it.
+ * The network is not restricted *here*: node's permission model has no switch for it. On
+ * Linux in the Docker image the cell's uid is firewalled instead (`core/egress-firewall`, the
+ * image's entrypoint): the internet is open, the engine's port, the database, other containers
+ * and the private ranges are not. Without that firewall (Windows, a dev machine,
+ * `network_mode: host`, `CELL_EGRESS_FIREWALL=off`) a cell can reach whatever the engine can.
  */
 export function runJsNode(
   code: string,
