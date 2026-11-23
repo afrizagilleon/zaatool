@@ -229,15 +229,17 @@ await check("a notebook run is given the decrypted value", async () => {
       runtime: "node",
       secrets: ["ZZ_FX19_RUN"],
       outputs: ["got"],
-      steps: [{ id: "c1", kind: "cell", code: "return { got: process.env.ZZ_FX19_RUN ?? null };" }],
+      steps: [{ id: "c1", kind: "cell", code: "const v = process.env.ZZ_FX19_RUN; return { got: v == null ? null : [...v].reverse().join('') };" }],
     } as NotebookJson,
     "test",
     alice.id
   );
-  const started = await notebookExecutionService.start(saved.id, () => {}, {});
+  // The owner's own draft run. The cell reports the value reversed: a run redacts a secret's
+  // own value from its output (L-06), and the reversal still says which value it got.
+  const started = await notebookExecutionService.start(saved.id, () => {}, { startedBy: alice.id });
   const outcome = await started.completed;
   assert.equal(outcome.status, "success", JSON.stringify(outcome));
-  assert.equal((outcome.outputs as { got: unknown }).got, "value-for-the-cell");
+  assert.equal((outcome.outputs as { got: unknown }).got, [..."value-for-the-cell"].reverse().join(""));
 });
 
 console.log("\nplaintext from before: encrypted at start");
@@ -401,7 +403,7 @@ await check("a transferred notebook's secret is re-encrypted for the new owner a
       runtime: "node",
       secrets: ["ZZ_FX19_MOVED"],
       outputs: ["got"],
-      steps: [{ id: "c1", kind: "cell", code: "return { got: process.env.ZZ_FX19_MOVED ?? null };" }],
+      steps: [{ id: "c1", kind: "cell", code: "const v = process.env.ZZ_FX19_MOVED; return { got: v == null ? null : [...v].reverse().join('') };" }],
     } as NotebookJson,
     "test",
     alice.id
@@ -416,8 +418,8 @@ await check("a transferred notebook's secret is re-encrypted for the new owner a
   assert.equal(await secretsService.getValueByKey(carol.id, "ZZ_FX19_MOVED"), "moved-value");
   assert.equal(await secretsService.getValueByKey(alice.id, "ZZ_FX19_MOVED"), "moved-value", "the old owner lost theirs");
 
-  const outcome = await (await notebookExecutionService.start(saved.id, () => {}, {})).completed;
-  assert.equal((outcome.outputs as { got: unknown }).got, "moved-value");
+  const outcome = await (await notebookExecutionService.start(saved.id, () => {}, { startedBy: carol.id })).completed;
+  assert.equal((outcome.outputs as { got: unknown }).got, [..."moved-value"].reverse().join(""));
 });
 
 console.log("\nkey rotation");

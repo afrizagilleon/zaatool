@@ -199,13 +199,30 @@ export class NotebookAccessService {
   }
 
   /**
-   * Whether somebody may follow a run as a share link: only runs of the notebook the link
-   * was made for. A link is a page, not a window onto the installation.
+   * How a signed-in account may follow a run it knows the id of: `full` for the people who
+   * work on the notebook, `public` (the ending and the declared outputs only) for somebody
+   * who merely uses the app and started this run, `null` for anyone else.
    */
-  async runBelongsTo(runId: string, notebookId: string): Promise<boolean> {
+  async runViewFor(userId: string, runId: string): Promise<"full" | "public" | null> {
+    const { rows } = await pool.query<{ notebook_id: string; started_by: string | null }>(
+      "SELECT notebook_id, started_by FROM notebook_runs WHERE id = $1",
+      [runId]
+    );
+    if (!rows[0]) return null;
+    const scope = await this.runScope(userId, rows[0].notebook_id);
+    if (scope === "all") return "full";
+    return scope === "own" && rows[0].started_by === userId ? "public" : null;
+  }
+
+  /**
+   * Whether a run was started through this very share link. A link is a page, not a window
+   * onto the notebook: it follows the runs it started, not other runs of the same notebook
+   * (somebody else's, the owner's, a cron's), whose id it should not even need to guess.
+   */
+  async startedByShare(runId: string, shareId: string): Promise<boolean> {
     const { rows } = await pool.query(
-      "SELECT 1 FROM notebook_runs WHERE id = $1 AND notebook_id = $2",
-      [runId, notebookId]
+      "SELECT 1 FROM notebook_runs WHERE id = $1 AND share_id = $2",
+      [runId, shareId]
     );
     return rows.length > 0;
   }

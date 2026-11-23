@@ -9,7 +9,12 @@ import { notebookRunsService } from "./notebook-runs.service.js";
 /** The only part of the runs store this recorder needs. */
 export interface RunResultStore {
   recordCell(runId: string, cellId: string, result: RecordedCellResult): Promise<void>;
-  finish(runId: string, status: NotebookRunStatus, error?: string): Promise<void>;
+  finish(
+    runId: string,
+    status: NotebookRunStatus,
+    error?: string,
+    outputs?: Record<string, unknown>
+  ): Promise<void>;
 }
 
 /**
@@ -18,6 +23,9 @@ export interface RunResultStore {
  * Composed into the emitter's sink so persistence sits at one point: every event
  * that reaches a client also reaches storage, and no emit site has to remember to
  * record anything.
+ *
+ * It stores what it is given. Secrets are already redacted from the events by the emitter that
+ * feeds it (see `createRunEmitter`), so nothing unredacted is ever written here.
  *
  * Writes are detached — a failed insert must not take down a running notebook — but
  * never floating: each is caught and logged.
@@ -79,7 +87,16 @@ export class NotebookRunRecorder {
         break;
 
       case "run:done":
-        this.detach(this.store.finish(this.runId, "success"));
+        this.detach(
+          this.store.finish(
+            this.runId,
+            "success",
+            undefined,
+            event.outputs && typeof event.outputs === "object"
+              ? (event.outputs as Record<string, unknown>)
+              : undefined
+          )
+        );
         break;
 
       case "run:error":

@@ -37,6 +37,8 @@ interface CellEvent {
   cellId?: string;
   written?: string[];
   output?: Record<string, unknown>;
+  /** On `run:done`: the declared outputs, which is all a share link is sent of a run. */
+  outputs?: Record<string, unknown>;
   error?: string;
 }
 
@@ -239,6 +241,19 @@ export function SharedPage({ token }: { token: string }) {
         }
 
         if (event.type === 'run:done' || event.type === 'run:error') {
+          if (event.type === 'run:done' && event.outputs) {
+            const delivered = event.outputs;
+            setOutputs((current) => {
+              const next = { ...current };
+              for (const name of names) if (name in delivered) next[name] = delivered[name];
+              return next;
+            });
+            setStatus((current) => {
+              const next = { ...current };
+              for (const name of names) if (name in delivered) next[name] = 'ready';
+              return next;
+            });
+          }
           setStatus((current) => {
             const next = { ...current };
             for (const name of names) {

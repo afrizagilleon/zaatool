@@ -149,6 +149,16 @@ export async function startServer(port = 4000) {
     process.exit(1);
   }
 
+  // Retention (RUN_RETENTION_DAYS): at boot and then daily. A failure is only logged — old
+  // rows lingering a day longer is not a reason to stop serving.
+  const pruneHistory = (): void => {
+    notebookRunsService.pruneExpired().catch((err: unknown) => {
+      console.error("Failed to prune expired runs:", (err as Error).message);
+    });
+  };
+  pruneHistory();
+  setInterval(pruneHistory, 24 * 60 * 60 * 1000).unref();
+
   // After the tables exist and before anything can fire: the trigger index is brought in
   // line with what is deployed, so a table written from drafts by an older version never
   // gets to run a cron or answer a webhook. Not in `initDb()`, which creates tables and

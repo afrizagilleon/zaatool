@@ -3,6 +3,8 @@ import { v4 as uuidv4 } from "uuid";
 import { secretsKey } from "../config.js";
 import { decryptValue, encryptValue, isEncrypted } from "../core/secrets-crypto.js";
 import { LOCK_KEYS } from "../core/advisory-locks.js";
+import { notebookRunsService } from "./notebook-runs.service.js";
+import { logger } from "../core/logger.js";
 
 /** The key does not open what the database holds. Never "fixed" by overwriting. */
 export class SecretsKeyMismatchError extends Error {
@@ -72,9 +74,12 @@ function present(ownerId: string, row: SecretRow) {
 
 /**
  * A secret belongs to the account that made it, and every method here is asked on behalf of
- * one. A notebook runs with its *owner's* secrets — whoever presses Run, whoever edits it —
- * so an editor can write code that uses the owner's credentials, and cannot read them, list
- * them, or use them anywhere else.
+ * one. Whose secrets a run receives is decided by the execution service (`secretHolderFor`):
+ * the owner's for a run the owner starts and for production runs of the deployed version —
+ * deploy is the human-approved gate — and *the starter's own* for anybody else's run of the
+ * draft. An editor's code runs with the editor's secrets of the same names, never the
+ * owner's. Code in a cell can print or send anything it is given, so handing an editor the
+ * owner's credentials would be handing them over; this is what keeps that from happening.
  *
  * Values are encrypted in the database (see `core/secrets-crypto`): every read decrypts and
  * every write encrypts, and nothing outside this file sees the stored form.
@@ -99,17 +104,32 @@ export class SecretsService {
    * credentials it could be borrowing.
    */
   async getByKeys(ownerId: string | null, keys: string[]): Promise<Record<string, string>> {
-    if (keys.length === 0 || ownerId === null) return {};
+    return (await this.getForRun(ownerId, keys)).values;
+  }
+
+  /**
+   * Like `getByKeys`, and also says which of the values are *secret* (not plain variables), so
+   * a run knows what to redact from its output: a variable such as a base URL is meant to be
+   * readable and redacting it would only mangle the log.
+   */
+  async getForRun(
+    ownerId: string | null,
+    keys: string[]
+  ): Promise<{ values: Record<string, string>; secret: Record<string, string> }> {
+    const values: Record<string, string> = {};
+    const secret: Record<string, string> = {};
+    if (keys.length === 0 || ownerId === null) return { values, secret };
 
     const { rows } = await pool.query(
-      "SELECT key, value FROM secrets WHERE owner_id = $1 AND key = ANY($2)",
+      "SELECT key, value, is_secret FROM secrets WHERE owner_id = $1 AND key = ANY($2)",
       [ownerId, keys]
     );
-    const result: Record<string, string> = {};
     for (const row of rows) {
-      result[row.key] = openSecret(ownerId, row.key, row.value);
+      const plain = openSecret(ownerId, row.key, row.value);
+      values[row.key] = plain;
+      if (row.is_secret) secret[row.key] = plain;
     }
-    return result;
+    return { values, secret };
   }
 
   async getValueByKey(ownerId: string | null, key: string) {
@@ -133,16 +153,55 @@ export class SecretsService {
 
   /** Undefined when the id is not one of this owner's — which is also when it is not there. */
   async update(ownerId: string, id: string, key: string, value: string, isSecret: boolean) {
+    const before = await this.rowOf(ownerId, id);
     const { rows } = await pool.query<SecretRow>(
       "UPDATE secrets SET key = $1, value = $2, is_secret = $3 WHERE id = $4 AND owner_id = $5 RETURNING id, key, value, is_secret, created_at",
       [key, sealSecret(ownerId, key, value), isSecret, id, ownerId]
     );
+    if (before && rows[0]) {
+      const old = openSecret(ownerId, before.key, before.value);
+      const now = String(value);
+      // The old value is no longer one the owner uses, but runs written while it was current
+      // may still hold it; and a plain variable that has just become a secret may already be
+      // in history, where nothing hid it.
+      if (before.is_secret && old !== now) await this.scrub(ownerId, before.key, old);
+      else if (!before.is_secret && isSecret) await this.scrub(ownerId, key, now);
+    }
     return rows[0] ? present(ownerId, rows[0]) : undefined;
   }
 
   async delete(ownerId: string, id: string) {
+    const before = await this.rowOf(ownerId, id);
     await pool.query("DELETE FROM secrets WHERE id = $1 AND owner_id = $2", [id, ownerId]);
+    if (before?.is_secret) await this.scrub(ownerId, before.key, openSecret(ownerId, before.key, before.value));
     return { success: true };
+  }
+
+  private async rowOf(ownerId: string, id: string): Promise<SecretRow | undefined> {
+    const { rows } = await pool.query<SecretRow>(
+      "SELECT id, key, value, is_secret, created_at FROM secrets WHERE id = $1 AND owner_id = $2",
+      [id, ownerId]
+    );
+    return rows[0];
+  }
+
+  /**
+   * Removes a value that has stopped being current from the stored run history (see
+   * `NotebookRunsService.scrubSecret`). It runs inside the request that changed the secret,
+   * so by the time the owner is told "saved" the old value is gone from history. A failure is
+   * logged and does not undo the change: the secret *has* been rotated, which is what mattered.
+   */
+  private async scrub(ownerId: string, key: string, value: string): Promise<void> {
+    try {
+      await notebookRunsService.scrubSecret(ownerId, { [key]: value });
+    } catch (err: unknown) {
+      logger.error("Could not scrub a changed secret from run history", {
+        event: "secrets.scrub_failed",
+        err,
+        ownerId,
+        key,
+      });
+    }
   }
 
   /**

@@ -420,6 +420,31 @@ export async function initDb() {
       END $$;
     `);
 
+    // Which share link started a run, so a socket opened with a link can follow only the runs
+    // that link started and not any other run of the same notebook. NULL for everything that
+    // was not started through a link. Not a foreign key: revoking a link must not rewrite
+    // history, and a deleted link's runs should stay readable to the team.
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE notebook_runs ADD COLUMN share_id VARCHAR(255);
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
+
+    // The notebook's declared outputs as the run ended, already redacted. Kept apart from
+    // cell_results because it is the only part of a run that somebody who merely uses the
+    // notebook (an app user, a share link, a webhook caller) is allowed to read back.
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE notebook_runs ADD COLUMN outputs JSONB;
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
+
     // Add token_version to users: every session token carries the number it was minted
     // under, and raising it here is how all of a person's older sessions are ended at once.
     await client.query(`

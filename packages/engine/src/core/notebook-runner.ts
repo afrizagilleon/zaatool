@@ -198,7 +198,9 @@ export async function runNotebook(
     await executeSteps(plan.steps, rootScope);
     const ms = Date.now() - startedAt;
     const outputs = selectOutputs(plan.outputs, rootScope.snapshot());
-    ee?.emit("run:done", { type: "run:done", status: "success", ms });
+    // The declared outputs ride on the terminal event: it is the one thing a reader who may
+    // not see the cells (an app user, a share link) is allowed to be told.
+    ee?.emit("run:done", { type: "run:done", status: "success", ms, outputs });
     return { status: "success", errors: [], ms, outputs };
   } catch (err: unknown) {
     const ms = Date.now() - startedAt;

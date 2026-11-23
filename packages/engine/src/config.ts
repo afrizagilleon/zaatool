@@ -378,6 +378,15 @@ export function maxRunsPerOwner(fallback: number): number {
   return positiveInt("MAX_RUNS_PER_OWNER", fallback);
 }
 
+/**
+ * How long a finished run stays in the history, in days (RUN_RETENTION_DAYS, default 90).
+ * A run records what its cells printed and returned, which can include personal data from
+ * an API, so history is not kept forever on the strength of "it might be useful".
+ */
+export function runRetentionDays(): number {
+  return positiveInt("RUN_RETENTION_DAYS", 90);
+}
+
 /** How many runs one account may have waiting for a slot, with the same reasoning as above. */
 export function maxQueuedRunsPerOwner(fallback: number): number {
   return positiveInt("MAX_QUEUED_RUNS_PER_OWNER", fallback);

@@ -457,12 +457,15 @@ await check("behind a rewriting proxy the original host comes from X-Forwarded-H
 await check("a share token still opens a stream: it can follow a run but not watch the workspace", async () => {
   await wsSession();
   const share = await notebookSharesService.create("zz-fx18-nb", "zz-fx18");
+  // A link follows the runs it started (L-04), so this run is one the link started.
+  await pool.query("UPDATE notebook_runs SET share_id = $1 WHERE id = 'zz-fx18-run'", [share.id]);
   const opened = await connect({ Origin: origin });
   assert.ok(opened.ok);
   opened.socket.send(JSON.stringify({ action: "auth", token: share.token }));
   opened.socket.send(JSON.stringify({ action: "subscribe", runId: "zz-fx18-run" }));
   await settle();
-  hub.publish({ type: "cell:start", runId: "zz-fx18-run", notebookId: "zz-fx18-nb", cellId: "c1" } as RunEvent);
+  // Only a run's ending reaches a share socket; a cell event would be dropped.
+  hub.publish({ type: "run:done", status: "success", runId: "zz-fx18-run", notebookId: "zz-fx18-nb", ms: 1, outputs: {} } as RunEvent);
   await settle();
   assert.ok(opened.messages.some((m) => m.runId === "zz-fx18-run"), JSON.stringify(opened.messages));
 

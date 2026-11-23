@@ -241,7 +241,8 @@ export function createShareRouter(publishRunEvent: RunEventSink): Router {
       const started = await notebookExecutionService.start(
         opened.share.notebook_id,
         publishRunEvent,
-        { args: req.body?.args, triggerSource: "page" }
+        // `shareId` is what lets a socket opened with this link follow this run and no other.
+        { args: req.body?.args, triggerSource: "page", shareId: opened.share.id }
       );
 
       void started.completed.catch(() => {});
