@@ -180,6 +180,16 @@ async function boot(port: number) {
     refuseToStart("runs.reconcile_failed", "Failed to close interrupted runs.", { err });
   }
 
+  // Retention (RUN_RETENTION_DAYS): at boot and then daily. A failure is only logged — old
+  // rows lingering a day longer is not a reason to stop serving.
+  const pruneHistory = (): void => {
+    asSystem("run-retention", () => notebookRunsService.pruneExpired()).catch((err: unknown) => {
+      logger.error("Failed to prune expired runs.", { event: "runs.prune_failed", err });
+    });
+  };
+  pruneHistory();
+  setInterval(pruneHistory, 24 * 60 * 60 * 1000).unref();
+
   // After the tables exist and before anything can fire: the trigger index is brought in
   // line with what is deployed, so a table written from drafts by an older version never
   // gets to run a cron or answer a webhook. Each change is logged because it is a visible

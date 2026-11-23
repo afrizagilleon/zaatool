@@ -82,4 +82,12 @@ export interface NotebookRunSummary {
 
 export interface NotebookRunDetail extends NotebookRunSummary {
   cell_results: Record<string, RecordedCellResult>;
+  /**
+   * The notebook's declared outputs as the run ended. The part of a run that somebody who
+   * only uses the notebook is allowed to read; null for a run that has not finished, one that
+   * failed, and one recorded before this was kept.
+   */
+  outputs?: Record<string, unknown> | null;
+  /** The share link that started the run, if one did. Never sent to a client. */
+  share_id?: string | null;
 }

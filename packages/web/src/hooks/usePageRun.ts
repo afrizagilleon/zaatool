@@ -43,6 +43,8 @@ interface CellEvent {
   cellId?: string;
   written?: string[];
   output?: Record<string, unknown>;
+  /** On `run:done`: the declared outputs. All that a reader who may not see the cells is sent. */
+  outputs?: Record<string, unknown>;
   error?: string;
   status?: string;
 }
@@ -143,6 +145,16 @@ export function usePageRun(notebookId: string, outputs: NotebookOutput[]) {
           }
 
           if (event.type === 'run:done' || event.type === 'run:error') {
+            // Somebody who only uses the page is not sent the cells' own events, only the
+            // declared outputs with the end of the run: take them from there.
+            if (event.type === 'run:done' && event.outputs) {
+              for (const name of names) {
+                if (!(name in event.outputs)) continue;
+                freshRef.current.add(name);
+                status[name] = 'ready';
+                values[name] = event.outputs[name];
+              }
+            }
             // A declared name no cell ever wrote comes back as null from the contract,
             // and the page should say the same rather than wait for it forever.
             for (const name of names) {

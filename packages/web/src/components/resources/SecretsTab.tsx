@@ -45,7 +45,8 @@ export function SecretsTab({ secrets, onAdd, onDelete }: SecretsTabProps) {
       <div className="flex justify-between items-center gap-3 mb-4">
         <p className="text-sm text-muted-foreground shrink-0">
           Manage your API keys and environment variables securely. They are yours: a notebook you own
-          runs with them, and an editor you invite can use them in that notebook without ever reading them.
+          runs with them, and so does its deployed version. An editor you invite runs the draft with their
+          own secrets of the same names, never with yours.
         </p>
         <div className="flex items-center gap-2">
           <div className="relative">

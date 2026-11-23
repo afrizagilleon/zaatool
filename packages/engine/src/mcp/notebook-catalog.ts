@@ -184,11 +184,14 @@ export async function registerDeployedNotebooks(
           const result = await started.completed;
 
           if (result.status === "failed") {
+            // Only that it failed, and which run to look up. The error text is whatever the
+            // notebook's author's cell raised, and the person calling an app as a tool is not
+            // the author: the owner reads the real one in the run.
             return {
               content: [
                 {
                   type: "text" as const,
-                  text: `"${document.name}" failed: ${result.errors[0] ?? "unknown error"}`,
+                  text: `"${document.name}" failed (run ${started.runId}).`,
                 },
               ],
               isError: true,

@@ -661,7 +661,14 @@ async function putSecret(who: Person, key: string, value: string): Promise<Respo
   return call(who, "POST", "/api/resources/secrets", { key, value, is_secret: true });
 }
 
-/** A notebook that reports the secret it was given, stored through the service. */
+/**
+ * What a notebook that reports its secret is expected to report. The value itself would be
+ * redacted from the run (that is the point of L-06), so the cell hands back the value
+ * *reversed*, which no redaction pattern matches and which still says exactly which secret it got.
+ */
+const rev = (value: string): string => [...value].reverse().join("");
+
+/** A notebook that reports the secret it was given (reversed, see `rev`), stored through the service. */
 async function reporter(name: string, who: Person, key: string, extra: Record<string, unknown> = {}): Promise<string> {
   const saved = await notebooksService.save(
     {
@@ -671,7 +678,7 @@ async function reporter(name: string, who: Person, key: string, extra: Record<st
       runtime: "node",
       secrets: [key],
       outputs: ["got"],
-      steps: [{ id: `cell-${name}`, kind: "cell", code: `return { got: process.env.${key} ?? null };` }],
+      steps: [{ id: `cell-${name}`, kind: "cell", code: `const v = process.env.${key}; return { got: v == null ? null : [...v].reverse().join('') };` }],
       ...extra,
     } as NotebookJson,
     "test",
@@ -713,14 +720,14 @@ await check("an editor cannot read, change or delete the owner's secret through 
   assert.equal(await storedSecret("id = $1", [ownerRow.id]), "owner-value", "the owner's secret was changed or deleted by somebody else");
 });
 
-await check("D-6/D-7: a notebook runs with its owner's secret, whoever presses Run — an editor's own value is not used", async () => {
+await check("D-6/D-7 (L-01): the owner's run uses the owner's secret, an editor's draft run uses the editor's own, never the owner's", async () => {
   const id = await reporter("secret-owner", owner, "ZZ_FX17_TOKEN");
   await pool.query("INSERT INTO notebook_access (notebook_id, user_id, permission) VALUES ($1, $2, 'editor')", [id, editor.id]);
 
   const byOwner = (await (await call(owner, "POST", `/api/notebooks/${id}/run`, {})).json()) as { runId: string };
-  assert.equal(await gotFrom(id, byOwner.runId), "owner-value");
+  assert.equal(await gotFrom(id, byOwner.runId), rev("owner-value"));
   const byEditor = (await (await call(editor, "POST", `/api/notebooks/${id}/run`, {})).json()) as { runId: string };
-  assert.equal(await gotFrom(id, byEditor.runId), "owner-value", "the editor's run used the editor's secret");
+  assert.equal(await gotFrom(id, byEditor.runId), rev("editor-value"), "the editor's draft run was handed the owner's secret");
 });
 
 await check("a notebook cannot use another account's secret that its owner does not have", async () => {
@@ -732,7 +739,7 @@ await check("a notebook cannot use another account's secret that its owner does 
 await check("an editor's own notebook uses the editor's secret, not the owner's with the same key", async () => {
   const id = await reporter("secret-editors", editor, "ZZ_FX17_TOKEN");
   const run = (await (await call(editor, "POST", `/api/notebooks/${id}/run`, {})).json()) as { runId: string };
-  assert.equal(await gotFrom(id, run.runId), "editor-value");
+  assert.equal(await gotFrom(id, run.runId), rev("editor-value"));
 });
 
 await check("a webhook guarded by a secret key is guarded by the notebook owner's value", async () => {
@@ -749,7 +756,7 @@ await check("a webhook guarded by a secret key is guarded by the notebook owner'
   assert.equal((await hook("hook-editor")).status, 401, "the editor's own value opened the owner's webhook");
   const ok = await hook("hook-owner");
   assert.equal(ok.status, 200);
-  assert.equal(((await ok.json()) as { outputs: { got: string } }).outputs.got, "hook-owner");
+  assert.equal(((await ok.json()) as { outputs: { got: string } }).outputs.got, rev("hook-owner"));
 });
 
 // ── nested calls and buttons (T-05) ───────────────────────────────────────────
@@ -788,13 +795,19 @@ async function caller(name: string, who: Person, callee: string, extra: Record<s
   return saved.id;
 }
 
-await check("D-12: a call reaches an app open to everybody, and the callee runs with its own owner's secret", async () => {
+await check("D-12 (L-01): a call reaches an app open to everybody; the callee gets its owner's secret in production, and the starter's (here none) in a draft run", async () => {
   const callee = await reporter("callee-open", other, "ZZ_FX17_ONLY_OTHER");
   await notebooksService.deploy(callee, "test");
   const from = await caller("caller-open", owner, "zz-fx17-callee-open");
 
+  // A draft run is the starter's own: the callee's owner's secret is not handed to a draft run
+  // of somebody else's notebook.
   const run = (await (await call(owner, "POST", `/api/notebooks/${from}/run`, {})).json()) as { runId: string };
-  assert.equal(await gotFrom(from, run.runId), "other-value", "the callee did not use its own owner's secret");
+  assert.equal(await gotFrom(from, run.runId), null, "a draft run was handed the callee owner's secret");
+  // Deployed, the page runs production: the callee's owner approved what the callee does.
+  await notebooksService.deploy(from, "test");
+  const page = (await (await call(viewer, "POST", `/api/notebooks/${from}/run`, {})).json()) as { runId: string };
+  assert.equal(await gotFrom(from, page.runId), rev("other-value"), "the callee did not use its own owner's secret in production");
 });
 
 await check("D-12: an app for selected people that does not include the caller's owner is not found — a draft run and a deployed run alike", async () => {
@@ -812,7 +825,7 @@ await check("D-12: an app for selected people that does not include the caller's
 
   await setVisibility(callee, "selected", [owner]);
   const allowed = (await (await call(viewer, "POST", `/api/notebooks/${from}/run`, {})).json()) as { runId: string };
-  assert.equal(await gotFrom(from, allowed.runId), "other-value", "naming the caller's owner should open the callee");
+  assert.equal(await gotFrom(from, allowed.runId), rev("other-value"), "naming the caller's owner should open the callee");
 });
 
 await check("D-12: it is not found whether the callee is hidden or does not exist — the message does not tell them apart", async () => {
@@ -1108,18 +1121,28 @@ await check("subscribing to a run by id needs the right to read that run", async
   for (const socket of Object.values(sockets)) socket.close();
 });
 
-await check("K-16: a share link follows runs of its own notebook only", async () => {
+await check("K-16 (L-04): a share link follows the runs it started, and no other run, not even of its own notebook", async () => {
   const share = (await (await call(owner, "POST", `/api/notebooks/${everyone}/shares`)).json()) as { token: string };
-  const own = await startRun(owner, everyone);
+  const started = await fetch(`${base}/api/shared/${share.token}/run`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  assert.equal(started.status, 200);
+  const own = ((await started.json()) as { runId: string }).runId;
+  const sameNotebook = await startRun(owner, everyone);
   const foreign = await startRun(owner, picked);
   await finished(everyone, own);
+  await finished(everyone, sameNotebook);
   await finished(picked, foreign);
 
-  const socket = await wsAs(share.token, { action: "subscribe", runId: own }, { action: "subscribe", runId: foreign });
+  const socket = await wsAs(
+    share.token,
+    { action: "subscribe", runId: own },
+    { action: "subscribe", runId: sameNotebook },
+    { action: "subscribe", runId: foreign }
+  );
   await settle();
-  assert.ok(socket.messages.some((message) => message.runId === own), "the link cannot follow its own notebook's run");
+  assert.ok(socket.messages.some((message) => message.runId === own), "the link cannot follow the run it started");
+  assert.ok(!socket.messages.some((message) => message.runId === sameNotebook), "a share link followed another run of its own notebook");
   assert.ok(!socket.messages.some((message) => message.runId === foreign), "a share link followed a run of another notebook");
-  assert.ok(socket.messages.some((message) => message.type === "run:denied"));
+  assert.ok(socket.messages.filter((message) => message.type === "run:denied").length >= 2);
   socket.close();
 });
 
@@ -1363,7 +1386,7 @@ await check("the CLI moves one notebook, and copies the secrets it names to the 
   assert.match(result.out, /ZZ_FX17_ONLY_OTHER/);
 
   const run = (await (await call(editor, "POST", `/api/notebooks/${id}/run`, {})).json()) as { runId: string };
-  assert.equal(await gotFrom(id, run.runId), "other-value", "the new owner's run did not have the secret the notebook names");
+  assert.equal(await gotFrom(id, run.runId), rev("other-value"), "the new owner's run did not have the secret the notebook names");
   assert.equal(await storedSecret("owner_id = $1 AND key = 'ZZ_FX17_ONLY_OTHER'", [other.id]), "other-value", "the old owner lost theirs");
 });
 

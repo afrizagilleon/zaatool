@@ -2,6 +2,9 @@ import { pool } from "../db/connection.js";
 import { resignStorageLinks } from "../core/storage-links.js";
 import type { Actor } from "../core/actor.js";
 import { currentContext } from "../core/request-context.js";
+import { runRetentionDays } from "../config.js";
+import { createRedactor } from "../core/secret-redactor.js";
+import { logger } from "../core/logger.js";
 import type {
 
   NotebookRunDetail,
@@ -23,6 +26,9 @@ const MAX_LOG_LENGTH = 2_000;
  * it impossible to cancel.
  */
 const MAX_RUNS_PER_NOTEBOOK = 50;
+
+/** Rows rewritten per round trip when old secret values are scrubbed from history. */
+const SCRUB_BATCH = 100;
 
 export const INTERRUPTED_RUN_ERROR = "the engine restarted while this run was in progress";
 
@@ -90,13 +96,15 @@ export class NotebookRunsService {
     parentRunId?: string;
     /** The account that asked, if one did. Absent for a schedule, a webhook or a share link. */
     startedBy?: string;
+    /** The share link that asked, if one did: what lets a socket opened with it follow this run and no other. */
+    shareId?: string;
   }): Promise<void> {
     const who = attributionOf(currentContext()?.actor, run);
     await pool.query(
       `INSERT INTO notebook_runs
          (id, notebook_id, status, trigger_source, cell_id, parent_run_id, started_by,
-          actor_type, agent_token_id, agent_client, trigger_id)
-       VALUES ($1, $2, 'running', $3, $4, $5, $6, $7, $8, $9, $10)`,
+          actor_type, agent_token_id, agent_client, trigger_id, share_id)
+       VALUES ($1, $2, 'running', $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
         run.runId,
         run.notebookId,
@@ -108,10 +116,87 @@ export class NotebookRunsService {
         who.agentTokenId,
         who.agentClient,
         who.triggerId,
+        run.shareId ?? null,
       ]
     );
 
     await this.pruneOldRuns(run.notebookId);
+  }
+
+  /**
+   * Drops finished runs older than `RUN_RETENTION_DAYS` (default 90), across every notebook.
+   * The per-notebook cap alone keeps a busy notebook's last 50 runs forever, which for a
+   * notebook that fires once a month is years of whatever its cells printed. A run that is
+   * still going is never touched. Called at boot and then daily.
+   */
+  async pruneExpired(): Promise<number> {
+    const days = runRetentionDays();
+    const { rowCount } = await pool.query(
+      `DELETE FROM notebook_runs
+       WHERE status <> 'running'
+         AND COALESCE(finished_at, started_at) < CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 day')`,
+      [days]
+    );
+    return rowCount ?? 0;
+  }
+
+  /**
+   * Rewrites the stored history so a secret that has been changed or deleted no longer
+   * appears in it, replacing the old value (in every encoding the redactor knows) with
+   * `[secret:NAME]`.
+   *
+   * Covers the runs of `ownerId`'s notebooks, and the runs `ownerId` started on other
+   * people's notebooks: an editor's draft run uses the editor's own secret, and it is
+   * recorded under the owner's notebook.
+   *
+   * Done in the request that changed the secret, in batches of 100 rows walked by id, so a
+   * long history is not one huge statement and a failure half-way leaves the rest still
+   * scrubbable by a retry. Rows that do not contain the value are not written.
+   */
+  async scrubSecret(ownerId: string, secrets: Record<string, string>): Promise<number> {
+    const redactor = createRedactor(secrets);
+    if (redactor.empty) return 0;
+
+    let rewritten = 0;
+    let after = "";
+    for (;;) {
+      const { rows } = await pool.query<{
+        id: string;
+        cell_results: unknown;
+        error: string | null;
+        outputs: unknown;
+      }>(
+        `SELECT r.id, r.cell_results, r.error, r.outputs
+         FROM notebook_runs r
+         LEFT JOIN notebooks n ON n.id = r.notebook_id
+         WHERE (n.owner_id = $1 OR r.started_by = $1) AND r.id > $2
+         ORDER BY r.id
+         LIMIT $3`,
+        [ownerId, after, SCRUB_BATCH]
+      );
+      if (rows.length === 0) break;
+      after = rows[rows.length - 1].id;
+
+      for (const row of rows) {
+        const cells = redactor.value(row.cell_results);
+        const error = row.error === null ? null : redactor.string(row.error);
+        const outputs = row.outputs === null ? null : redactor.value(row.outputs);
+        if (cells === row.cell_results && error === row.error && outputs === row.outputs) continue;
+        await pool.query(
+          "UPDATE notebook_runs SET cell_results = $2::jsonb, error = $3, outputs = $4::jsonb WHERE id = $1",
+          [row.id, JSON.stringify(cells), error, outputs === null ? null : JSON.stringify(outputs)]
+        );
+        rewritten += 1;
+      }
+    }
+    if (rewritten > 0) {
+      logger.info("Scrubbed a changed secret from run history", {
+        event: "secrets.scrub",
+        ownerId,
+        runs: rewritten,
+      });
+    }
+    return rewritten;
   }
 
   private async pruneOldRuns(notebookId: string): Promise<void> {
@@ -165,12 +250,17 @@ export class NotebookRunsService {
     );
   }
 
-  async finish(runId: string, status: NotebookRunStatus, error?: string): Promise<void> {
+  async finish(
+    runId: string,
+    status: NotebookRunStatus,
+    error?: string,
+    outputs?: Record<string, unknown>
+  ): Promise<void> {
     await pool.query(
       `UPDATE notebook_runs
-       SET status = $2, error = $3, finished_at = CURRENT_TIMESTAMP
+       SET status = $2, error = $3, finished_at = CURRENT_TIMESTAMP, outputs = $4::jsonb
        WHERE id = $1`,
-      [runId, status, error ?? null]
+      [runId, status, error ?? null, outputs === undefined ? null : JSON.stringify(outputs)]
     );
   }
 
@@ -196,7 +286,7 @@ export class NotebookRunsService {
 
   async getById(runId: string): Promise<NotebookRunDetail | null> {
     const { rows } = await pool.query(
-      `SELECT ${SUMMARY_COLUMNS}, cell_results FROM notebook_runs WHERE id = $1`,
+      `SELECT ${SUMMARY_COLUMNS}, cell_results, outputs, share_id FROM notebook_runs WHERE id = $1`,
       [runId]
     );
     return rows[0] ? (resignStorageLinks(this.parseDetail(rows[0])) as NotebookRunDetail) : null;
@@ -208,7 +298,7 @@ export class NotebookRunsService {
     startedBy?: string
   ): Promise<NotebookRunDetail | null> {
     const { rows } = await pool.query(
-      `SELECT ${SUMMARY_COLUMNS}, cell_results FROM notebook_runs
+      `SELECT ${SUMMARY_COLUMNS}, cell_results, outputs, share_id FROM notebook_runs
        WHERE notebook_id = $1 AND ($2::text IS NULL OR started_by = $2)
        ORDER BY started_at DESC
        LIMIT 1`,

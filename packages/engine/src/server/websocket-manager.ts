@@ -16,6 +16,7 @@ import { notebookSharesService } from "../services/notebook-shares.service.js";
 import { notebookAccessService } from "../services/notebook-access.service.js";
 import { notebookRunsService } from "../services/notebook-runs.service.js";
 import { finishedRunEvent } from "../core/finished-run-event.js";
+import { publicEvent } from "../core/run-projection.js";
 import { onSessionsEnded } from "../core/session-events.js";
 import { logger } from "../core/logger.js";
 
@@ -60,7 +61,7 @@ function parseMessage(raw: unknown): RunClientMessage | null {
  */
 type Caller =
   | { kind: "session"; userId: string; tokenVersion: number; expiresAt: number | null }
-  | { kind: "share"; notebookId: string };
+  | { kind: "share"; notebookId: string; shareId: string };
 
 async function identify(token: string): Promise<Caller | null> {
   // Asked of the database, not just the signature: an ended session or a switched-off
@@ -80,7 +81,7 @@ async function identify(token: string): Promise<Caller | null> {
     return null;
   }
   const share = await notebookSharesService.resolve(token);
-  return share ? { kind: "share", notebookId: share.notebook_id } : null;
+  return share ? { kind: "share", notebookId: share.notebook_id, shareId: share.id } : null;
 }
 
 /**
@@ -111,7 +112,13 @@ function toActivity(event: RunEvent): RunActivityEvent | null {
  *  - `subscribe` still needs the run id, which a client only gets from the response that
  *    started that run. Authentication is a second lock on that door, not a replacement —
  *    and the run id is not a credential on its own either: a session follows a run only if
- *    it could read that run over REST, and a share link only the runs of its own notebook.
+ *    it could read that run over REST, and a share link only the runs that link itself
+ *    started (not any other run of the same notebook).
+ *
+ * And what a socket is told depends on who it is. The people who work on a notebook get every
+ * event of its runs. Everybody else (a share link, somebody who only uses the app) gets the
+ * run's ending and its declared outputs and nothing a cell printed or produced on the way:
+ * see `publicEvent` in `core/run-projection`.
  *  - `watch` needs a session. It used to name every notebook that runs anywhere in this
  *    installation; it now names only the runs the session could read over REST, and the
  *    catalog changes it could see. A share token, which was issued for exactly one page,
@@ -318,11 +325,13 @@ export class WebSocketManager {
         // subscription and not two.
         unsubscribes.set(runId, () => {});
         decide(async () => {
-          const allowed =
+          const view =
             who.kind === "session"
-              ? await notebookAccessService.canSeeRunId(who.userId, runId)
-              : await notebookAccessService.runBelongsTo(runId, who.notebookId);
-          if (!allowed) {
+              ? await notebookAccessService.runViewFor(who.userId, runId)
+              : (await notebookAccessService.startedByShare(runId, who.shareId))
+                ? "public"
+                : null;
+          if (view === null) {
             unsubscribes.delete(runId);
             return deny("That run is not one this connection may follow.");
           }
@@ -334,7 +343,8 @@ export class WebSocketManager {
           // the only thing left that knows how it ended, so the client is told from there
           // instead of being subscribed to a channel that will never say anything.
           if (!this.hub.hasChannel(runId)) {
-            const ended = finishedRunEvent(await notebookRunsService.getById(runId));
+            const rebuilt = finishedRunEvent(await notebookRunsService.getById(runId));
+            const ended = rebuilt && view === "public" ? publicEvent(rebuilt) : rebuilt;
             if (ended) {
               unsubscribes.delete(runId);
               if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(ended));
@@ -348,9 +358,9 @@ export class WebSocketManager {
           unsubscribes.set(
             runId,
             this.hub.subscribe(runId, (event) => {
-              if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify(event));
-              }
+              if (ws.readyState !== WebSocket.OPEN) return;
+              const outgoing = view === "public" ? publicEvent(event) : event;
+              if (outgoing) ws.send(JSON.stringify(outgoing));
             })
           );
         });

@@ -22,6 +22,7 @@ import { setActor } from "../core/request-context.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 import { logger } from "../core/logger.js";
 import { internalError } from "../core/http-errors.js";
+import { genericRunError } from "../core/run-projection.js";
 
 /** Long enough for a real API call, short enough that a caller is not left hanging. */
 const DEFAULT_WAIT_MS = 30_000;
@@ -323,10 +324,13 @@ export function createHooksRouter(publishRunEvent: RunEventSink): Router {
       }
 
       if (outcome.status === "failed") {
+        // The caller of a webhook is whoever holds the URL, not the notebook's author: the
+        // text a cell raised (often a request URL or a response body) stays in the run, where
+        // the owner can read it by this id.
         return res.status(500).json({
           status: "failed",
           runId,
-          error: outcome.errors[0] ?? "Run failed",
+          error: genericRunError(runId),
         });
       }
 

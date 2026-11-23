@@ -8,7 +8,10 @@ import type { NotebookRunDetail, RunEvent } from "@zaa-tool/shared";
  * Null while the run is still going, because then there is no ending to report yet.
  */
 export function finishedRunEvent(
-  run: Pick<NotebookRunDetail, "id" | "notebook_id" | "status" | "error" | "started_at" | "finished_at"> | null
+  run:
+    | (Pick<NotebookRunDetail, "id" | "notebook_id" | "status" | "error" | "started_at" | "finished_at"> &
+        Partial<Pick<NotebookRunDetail, "outputs">>)
+    | null
 ): RunEvent | null {
   if (!run || run.status === "running") return null;
 
@@ -17,6 +20,8 @@ export function finishedRunEvent(
   const ms = Number.isFinite(started) && Number.isFinite(finished) ? Math.max(0, finished - started) : 0;
   const base = { runId: run.id, notebookId: run.notebook_id, ms };
 
-  if (run.status === "success") return { type: "run:done", status: "success", ...base };
+  if (run.status === "success") {
+    return { type: "run:done", status: "success", ...base, ...(run.outputs ? { outputs: run.outputs } : {}) };
+  }
   return { type: "run:error", error: run.error ?? "Run failed", ...base };
 }

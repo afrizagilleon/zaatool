@@ -226,7 +226,9 @@ await check("a failing notebook reports the failure rather than a cheerful run i
   assert.equal(res.status, 500);
   const body = await res.json();
   assert.equal(body.status, "failed");
-  assert.match(String(body.error), /nope/);
+  // The caller of a webhook is told only that it failed (L-05); the text stays in the run.
+  assert.match(String(body.error), /^Run failed \(run [0-9a-f-]{36}\)$/);
+  assert.doesNotMatch(JSON.stringify(body), /nope/);
 });
 
 console.log("\nwhat the editor is told");

@@ -33,6 +33,7 @@ import { applyCellEdit, CellEditError, type CellEdit } from "../core/notebook-ed
 import { pythonSyntaxProblem, stripCodeFence } from "../core/cell-code.js";
 import { outputNames } from "../core/notebook-outputs.js";
 import { abridge, wasAbridged } from "./abridge.js";
+import { fullView, publicView } from "../core/run-projection.js";
 import type { NotebookPlan } from "../core/notebook-compiler.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 import type { AgentScope } from "../services/agent-tokens.service.js";
@@ -50,7 +51,8 @@ import type { NotebookJson, NotebookStep } from "@zaa-tool/shared";
  * markdown, writes markdown back; JSON never crosses the boundary.
  *
  * Deliberately absent, and not by oversight:
- *   - no tool returns a secret's *value*, only its name
+ *   - no tool returns a secret's *value*, only its name (and a value a cell prints is
+ *     redacted from the run before anything here can read it)
  *   - no tool deploys anything, because deciding what production runs is yours
  */
 
@@ -586,7 +588,13 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
       // of a notebook they work on, and for a page they merely use, their own.
       const direct = await notebookRunsService.getById(run.trim());
       if (direct && (await notebookAccessService.canSeeRun(deps.userId, direct))) {
-        return asJson(abridge(direct));
+        // The code and logs of a run are for the people who work on the notebook. An agent
+        // acting for somebody who only uses the app gets how its own run came out and the
+        // declared outputs, the same as that person would in the browser.
+        const scope = await notebookAccessService.runScope(deps.userId, direct.notebook_id);
+        if (scope === "all") return asJson(abridge(fullView(direct)));
+        const contract = await notebooksService.getDeployedDocument(direct.notebook_id);
+        return asJson(abridge(publicView(direct, contract)));
       }
 
       const resolved = await resolveNotebook(run, deps.userId);
@@ -594,7 +602,7 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
         return refuse(`No run and no notebook matches "${run}".`);
       }
       const latest = await notebookRunsService.getLatestForNotebook(resolved.record.id);
-      return latest ? asJson(abridge(latest)) : reply(`"${resolved.record.name}" has never run.`);
+      return latest ? asJson(abridge(fullView(latest))) : reply(`"${resolved.record.name}" has never run.`);
     }
   );
 
@@ -603,7 +611,7 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
     {
       title: "List secret names",
       description:
-        "The names of stored secrets — never their values. Reference a secret by name in a notebook's `secrets:` list; the engine resolves it at run time so no credential is written into a document.",
+        "The names of YOUR OWN stored secrets — never their values. Reference a secret by name in a notebook's `secrets:` list; the engine resolves it at run time so no credential is written into a document. Which secrets a run receives: when the notebook's owner runs it, or when the deployed version runs in production (cron, webhook, page, app tool), the OWNER's secrets; when anyone else runs the draft, THEIR OWN secrets of the same names. An editor therefore has to hold a secret of that name to test a notebook that uses it.",
       inputSchema: {},
     },
     async () => {

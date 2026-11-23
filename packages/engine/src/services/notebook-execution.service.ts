@@ -18,6 +18,9 @@ import { notebooksService } from "./notebooks.service.js";
 import { notebookRunsService } from "./notebook-runs.service.js";
 import { NotebookRunRecorder } from "./notebook-run-recorder.js";
 import { secretsService } from "./secrets.service.js";
+import { createRedactor, type SecretRedactor } from "../core/secret-redactor.js";
+import { genericRunError } from "../core/run-projection.js";
+import type { EventEmitter } from "node:events";
 import { notebookAccessService } from "./notebook-access.service.js";
 import { cellHostForOwner } from "./cell-host.service.js";
 import { authService } from "./auth.service.js";
@@ -113,6 +116,8 @@ export interface StartRunOptions {
    * inherited by every notebook the run calls.
    */
   startedBy?: string;
+  /** The share link that asked, so the run can be followed with that link and with no other. */
+  shareId?: string;
 }
 
 export interface StartedRun {
@@ -144,6 +149,97 @@ function sourcesOf(plan: NotebookPlan): Record<string, string> {
   };
   walk(plan.steps);
   return sources;
+}
+
+/**
+ * Whose secrets a run of this notebook receives.
+ *
+ * A cell is code somebody wrote, and it can print or send anything it is handed, so the
+ * secrets it receives must be ones its author was already entitled to hold:
+ *
+ *  - **Production** (cron, webhook, a page, an agent calling the app as a tool: everything
+ *    that runs the *deployed* version) uses the owner's. Deploying is the step where a human
+ *    reads what will run and approves it, so the owner's credentials go to code the owner
+ *    has signed off on, and nobody else's edit can reach them without a deploy.
+ *  - **The owner's own run** of the draft uses the owner's.
+ *  - **Anybody else's run of the draft** (an invited editor pressing Run, or their agent)
+ *    uses *the starter's own* secrets of the same names. An editor can write a cell that
+ *    prints `process.env.API_KEY`; what it prints must then be the editor's key, not the
+ *    owner's. If the starter has none by that name the cell gets it as missing, exactly like
+ *    an unset secret (see `missingSecretsNote`).
+ *  - A notebook with no owner runs with none; a draft run with no account behind it (which
+ *    no entry point produces) gets none either.
+ *
+ * Decided per run and carried down a chain of calls: a draft run by an editor reaches every
+ * callee with the editor's secrets, and a production run reaches every callee with its own
+ * owner's.
+ */
+export function secretHolderFor(
+  notebookOwner: string | null,
+  useDeployed: boolean,
+  startedBy?: string
+): { holder: string | null; substituted: boolean } {
+  if (notebookOwner === null) return { holder: null, substituted: false };
+  if (useDeployed) return { holder: notebookOwner, substituted: false };
+  if (startedBy === notebookOwner) return { holder: notebookOwner, substituted: false };
+  return { holder: startedBy ?? null, substituted: true };
+}
+
+/** The one note a run's log gets when it is a draft run by somebody other than the owner and some declared secret is not theirs. Names keys only, never values. */
+export function missingSecretsNote(keys: string[]): string {
+  const names = keys.map((key) => `"${key}"`).join(", ");
+  const one = keys.length === 1;
+  return (
+    `Secret${one ? "" : "s"} ${names} ${one ? "is" : "are"} not among your own secrets. ` +
+    `A draft run by someone other than the notebook's owner uses the starter's own secrets, never the owner's, ` +
+    `so the cell sees ${one ? "it" : "them"} as missing. Add ${one ? "it" : "them"} under your secrets, ` +
+    `or ask the owner to deploy and run the deployed version.`
+  );
+}
+
+interface RunSecrets {
+  values: Record<string, string>;
+  redactor: SecretRedactor;
+  /** Declared secrets the holder does not have; only ever set for a substituted holder. */
+  missing: string[];
+}
+
+async function secretsForRun(
+  plan: NotebookPlan,
+  notebookOwner: string | null,
+  useDeployed: boolean,
+  startedBy?: string
+): Promise<RunSecrets> {
+  const { holder, substituted } = secretHolderFor(notebookOwner, useDeployed, startedBy);
+  const { values, secret } = await secretsService.getForRun(holder, plan.secrets);
+  return {
+    values,
+    redactor: createRedactor(secret),
+    missing: substituted ? plan.secrets.filter((key) => !(key in values)) : [],
+  };
+}
+
+/** Puts the "missing secrets" note in the run's log, on the first cell that starts. */
+function noteMissingSecrets(ee: EventEmitter, missing: string[]): void {
+  if (missing.length === 0) return;
+  ee.once("cell:start", (event: { cellId?: string }) => {
+    ee.emit("cell:log", {
+      type: "cell:log",
+      cellId: event.cellId,
+      level: "warn",
+      payload: missingSecretsNote(missing),
+    });
+  });
+}
+
+/** A run's outcome with its secrets redacted, for everything that reads `completed` instead of the stream. */
+function redactedResult(result: NotebookRunResult, redactor: SecretRedactor): NotebookRunResult {
+  if (redactor.empty) return result;
+  return {
+    ...result,
+    errors: result.errors.map((error) => redactor.string(error)),
+    outputs: redactor.value(result.outputs),
+  };
 }
 
 /** Everything a nested call needs to know about the chain above it. */
@@ -266,7 +362,15 @@ export class NotebookExecutionService {
    * bounded by its `FanOut` (see `callNotebook`); depth is bounded separately.
    *
    * The callee gets its own secrets, never the caller's — reuse must not become a way
-   * to borrow credentials a notebook never declared.
+   * to borrow credentials a notebook never declared. Whose, exactly, is `secretHolderFor`'s
+   * rule: the callee owner's in production, the starter's in a draft run.
+   *
+   * What the callee says back depends on whose it is. A callee of the *same owner* is part
+   * of one system and keeps reporting its log lines and error text to the caller (redacted).
+   * A callee of *another owner* is a service: its logs are not forwarded and its error text
+   * is replaced by a generic message with the callee's run id, because that text is written
+   * by an author the caller's owner does not know and routinely contains what that author's
+   * cells had in hand.
    */
   private async runCallee(
     request: NotebookCallRequest,
@@ -347,10 +451,12 @@ export class NotebookExecutionService {
       bindInputs(plan.inputs, request.input),
       { notebookId: found.id, actorId: callerOwner, ownFolders: false, grants: context.grants }
     );
-    // The callee's owner's, which is not necessarily the caller's: a notebook runs with the
-    // credentials of whoever owns *it*.
+    // The callee's owner's, which is not necessarily the caller's: in production a notebook
+    // runs with the credentials of whoever owns *it*.
     const calleeOwner = await notebookAccessService.ownerOf(found.id);
-    const secrets = await secretsService.getByKeys(calleeOwner, plan.secrets);
+    const sameOwner = calleeOwner === callerOwner;
+    const held = await secretsForRun(plan, calleeOwner, context.useDeployed, context.startedBy);
+    const secrets = held.values;
     // The callee's cells run as the callee's owner, as its secrets are the owner's.
     const host = await cellHostForOwner(calleeOwner, context.grants);
 
@@ -385,18 +491,27 @@ export class NotebookExecutionService {
     // Published under the callee's own run id, so a client following the *caller* still
     // never sees another notebook's cells — but the workspace does, which is how a call
     // chain lights up across the map.
-    const ee = createRunEmitter({ runId, notebookId: found.id }, (event) => {
-      context.publish(event);
-      recorder.handle(event);
-    });
+    const ee = createRunEmitter(
+      { runId, notebookId: found.id },
+      (event) => {
+        context.publish(event);
+        recorder.handle(event);
+      },
+      held.redactor
+    );
+    noteMissingSecrets(ee, held.missing);
 
     // The callee's logs also surface on the cell that is waiting, labelled, so a failure
-    // deep in a chain is readable without going looking for the nested run.
-    ee.on("cell:log", (event: { level: string; payload: string }) => {
-      context.log(event.level, `[${document.name}] ${event.payload}`);
-    });
+    // deep in a chain is readable without going looking for the nested run. Only for a
+    // callee of the same owner, and redacted with the callee's own secrets first (this
+    // listener sees the event before the emitter's redaction does).
+    if (sameOwner) {
+      ee.on("cell:log", (event: { level: string; payload: string }) => {
+        context.log(event.level, `[${document.name}] ${held.redactor.string(String(event.payload))}`);
+      });
+    }
 
-    const result = await runNotebook(plan, {
+    const raw = await runNotebook(plan, {
       ee,
       secrets,
       input,
@@ -408,9 +523,14 @@ export class NotebookExecutionService {
       host,
     });
     await recorder.drain();
+    const result = redactedResult(raw, held.redactor);
 
     if (result.status === "failed") {
-      throw new Error(`${document.name}: ${result.errors[0] ?? "run failed"}`);
+      throw new Error(
+        sameOwner
+          ? `${document.name}: ${result.errors[0] ?? "run failed"}`
+          : `${document.name}: ${genericRunError(runId).toLowerCase()}`
+      );
     }
 
     return result.outputs;
@@ -545,9 +665,11 @@ export class NotebookExecutionService {
       plan = single;
     }
 
-    // The owner's, whoever pressed Run: an editor's run uses the notebook's secrets, not the
-    // editor's own, and the editor never sees them.
-    const secrets = await secretsService.getByKeys(record.owner_id, plan.secrets);
+    // The owner's for the owner's own run and for anything production; the starter's own for
+    // somebody else's run of the draft (see `secretHolderFor`). An editor's cell can print
+    // whatever it is handed, so it is handed the editor's secrets and never the owner's.
+    const held = await secretsForRun(plan, record.owner_id, useDeployed, options.startedBy);
+    const secrets = held.values;
     // Also the owner's: every cell of this notebook runs as their uid. Refused here, before a
     // run row exists, when there is none to give (no owner, or the uid range is full).
     const host = await cellHostForOwner(record.owner_id, grants);
@@ -559,15 +681,22 @@ export class NotebookExecutionService {
       triggerSource: options.triggerSource ?? (options.cellId ? "cell" : "manual"),
       cellId: options.cellId,
       startedBy: options.startedBy,
+      shareId: options.shareId,
     });
 
     // Recording is composed into the sink, so every event that reaches a client
-    // also reaches storage and no emit site has to remember to persist.
+    // also reaches storage and no emit site has to remember to persist. The emitter
+    // redacts the run's secrets before either sees an event.
     const recorder = new NotebookRunRecorder(runId, sourcesOf(plan));
-    const ee = createRunEmitter({ runId, notebookId }, (event) => {
-      publish(event);
-      recorder.handle(event);
-    });
+    const ee = createRunEmitter(
+      { runId, notebookId },
+      (event) => {
+        publish(event);
+        recorder.handle(event);
+      },
+      held.redactor
+    );
+    noteMissingSecrets(ee, held.missing);
 
     // Detached: runNotebook reports its own outcome through terminal events and never
     // rejects for a cell failure. The gate slot is taken here rather than before the
@@ -619,9 +748,14 @@ export class NotebookExecutionService {
         // Waiting for the recorder means a caller that reads the run the moment this
         // resolves sees every cell, not whichever writes happened to land first.
         await recorder.drain();
-        settle(result);
+        settle(redactedResult(result, held.redactor));
       } catch (err: unknown) {
-        settle({ status: "failed", errors: [(err as Error).message], ms: 0, outputs: {} });
+        settle({
+          status: "failed",
+          errors: [held.redactor.string((err as Error).message)],
+          ms: 0,
+          outputs: {},
+        });
       } finally {
         clearTimeout(deadline);
         this.activeRuns.delete(runId);

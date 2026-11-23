@@ -179,9 +179,9 @@ export function AccessDialog({
         <DialogHeader>
           <DialogTitle className="text-sm">Access to “{notebookName}”</DialogTitle>
           <DialogDescription className="text-xs">
-            Editors can open, change, deploy and run this notebook, and run it with your
-            secrets — they cannot read them. Inviting an editor means trusting them with
-            what this notebook can reach.
+            Editors can open, change, deploy and run this notebook. When an editor runs the draft
+            it uses their own secrets, never yours; the deployed version, once someone deploys it,
+            runs with yours. Inviting an editor means trusting them with what this notebook can reach.
           </DialogDescription>
         </DialogHeader>
 

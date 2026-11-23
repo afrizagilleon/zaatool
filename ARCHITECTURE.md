@@ -266,7 +266,7 @@ engine. That needs `SYS_RESOURCE`, which compose grants; without it the engine w
   `process.kill`.) A production start on Windows warns about this. Windows is not a deploy target.
 - **Cells of the same owner share files, not processes.** Two notebooks of one account can read
   and write each other's files in the owner's shared folders (temp, home, package cache); the
-  owner is one domain of trust (an editor's code already holds the owner's secrets). They cannot
+  owner is one domain of trust (an editor's cells run as the owner's uid, though not with the owner's secrets). They cannot
   signal or read each other's processes. A cell can also fill the shared temp folder (up to the
   owner's disk quota, which it shares with the owner's other cells) or poison the shared package
   cache for its owner's next cells. A file a cell deliberately makes mode 0700 cannot be cleaned
@@ -350,12 +350,23 @@ webhook, a share link) is the team's to read.
 
 Consequences that are deliberate, and worth knowing before inviting someone:
 
-- **Secrets belong to whoever made them, and a notebook runs with its owner's.** That holds for
-  an editor's run, a webhook, a schedule, a share link, and a notebook called from another
-  notebook (the *callee's* owner's). So an editor writes code that runs with the owner's
-  credentials: inviting an editor trusts them with whatever those secrets reach. What is
-  guaranteed is that an editor cannot read the values through the app or the API, and cannot use
-  the owner's secrets in a notebook of their own.
+- **Secrets belong to whoever made them, and the deployed version runs with its owner's.** The
+  owner's secrets go to the owner's own runs and to production runs of the *deployed* version (a
+  webhook, a schedule, a share link, a page, an app tool, and a notebook called from another
+  notebook, which uses the *callee's* owner's), because deploying is the step where a human
+  approves the code. A draft run by an editor uses the *editor's own* secrets of the same names;
+  if they have none by that name the cell sees it as missing and the run log says so. Cell code
+  can print or send anything it is handed, so an editor is never handed the owner's credentials
+  before a deploy.
+- **Run output is redacted and projected.** The values of a run's secrets are replaced by
+  `[secret:NAME]` in everything the run stores or sends (raw, JSON/URL/hex/base64 forms): an
+  accident guard, not a defence against an author who wants a secret out (that is what the rule
+  above is for). Whoever is not an owner or editor of the notebook (app users, share links,
+  webhook callers, another owner's notebook calling this one) is told only the run's status,
+  timings, the notebook's declared outputs and a generic error. Never cell code, logs or
+  intermediate values. A share link can follow only runs that link started. Finished runs are
+  deleted after `RUN_RETENTION_DAYS` (default 90), and changing or deleting a secret rewrites the
+  old value out of stored runs.
 - **A notebook reaches only what its owner could use.** `notebooks.run` and page buttons resolve
   their target among the notebooks the *calling notebook's owner* may use as an app (or open, in
   a draft run). Anything else is "not found". A notebook with no owner calls nothing.

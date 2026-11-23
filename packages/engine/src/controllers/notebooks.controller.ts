@@ -8,6 +8,7 @@ import { outputSpecs } from "../core/notebook-outputs.js";
 import { actionSpecs } from "../core/notebook-actions.js";
 import { notebookSharesService } from "../services/notebook-shares.service.js";
 import { notebookRunsService } from "../services/notebook-runs.service.js";
+import { fullView, publicSummary, publicView, genericRunError } from "../core/run-projection.js";
 import {
   notebookAccessService,
   isEditAccess,
@@ -493,7 +494,9 @@ export class NotebooksController {
         notebook: target.name,
         status: outcome.status,
         ms: outcome.ms,
-        ...(outcome.errors.length > 0 ? { errors: outcome.errors } : {}),
+        // The page's button is pressed by somebody who may use the app, not read it: the
+        // error text a cell raised is the owner's to see, in the run, and not this person's.
+        ...(outcome.errors.length > 0 ? { errors: [genericRunError(started.runId)] } : {}),
       });
     } catch (err: unknown) {
       respondWithError(res, err);
@@ -766,13 +769,14 @@ export class NotebooksController {
       const user = callerOf(req);
       const scope = await notebookAccessService.runScope(user.id, String(req.params.id));
       if (scope === "none") return res.status(404).json(NOT_FOUND);
-      res.json(
-        await notebookRunsService.listByNotebook(
-          String(req.params.id),
-          undefined,
-          scope === "own" ? user.id : undefined
-        )
+      const runs = await notebookRunsService.listByNotebook(
+        String(req.params.id),
+        undefined,
+        scope === "own" ? user.id : undefined
       );
+      // The people who work on the notebook read the history as it is; somebody who only
+      // uses it reads how their own runs came out (see `core/run-projection`).
+      res.json(scope === "all" ? runs.map(fullView) : runs.map(publicSummary));
     } catch (err: unknown) {
       respondWithError(res, err);
     }
@@ -863,7 +867,11 @@ export class NotebooksController {
       if (!(await notebookAccessService.canSeeRun(user.id, run))) {
         return res.status(404).json({ error: "Run not found" });
       }
-      res.json(run);
+      // Everything for the team. For somebody who merely uses the page: the run's status,
+      // timings and the notebook's *declared* outputs (what its deployed contract promises)
+      // and nothing a cell printed, produced on the way or raised — see `core/run-projection`.
+      if (scope === "all") return res.json(fullView(run));
+      res.json(publicView(run, await notebooksService.getDeployedDocument(notebookId)));
     } catch (err: unknown) {
       respondWithError(res, err);
     }
