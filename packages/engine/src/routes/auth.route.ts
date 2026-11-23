@@ -4,11 +4,34 @@ import { authController } from "../controllers/auth.controller.js";
 import { authMiddleware } from "../middleware/auth.middleware.js";
 import { requireRole } from "../middleware/require-role.js";
 import { loginRateLimitWindowMs, loginRateLimitMax } from "../config.js";
+import { audit } from "../services/audit.service.js";
+
+/**
+ * What a limiter does when it turns somebody away: the same answer as before, and a row in
+ * the audit trail. A burst of these is rationed by the audit service itself, so being
+ * refused a thousand times does not mean a thousand rows.
+ */
+function refusedAndRecorded(action: string) {
+  return async (
+    req: { body?: { username?: unknown } },
+    res: { status(code: number): { send(body: unknown): void } },
+    _next: unknown,
+    options: { statusCode: number; message: unknown }
+  ): Promise<void> => {
+    await audit.record({
+      action,
+      outcome: "denied",
+      meta: { reason: "rate_limited", attempted: String(req.body?.username ?? "").trim().slice(0, 64) },
+    });
+    res.status(options.statusCode).send(options.message);
+  };
+}
 
 export const loginLimiter = rateLimit({
   windowMs: loginRateLimitWindowMs(),
   limit: () => loginRateLimitMax(),
   message: { error: "Too many login attempts. Please try again later." },
+  handler: refusedAndRecorded("auth.login"),
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -23,6 +46,7 @@ export const registerLimiter = rateLimit({
   windowMs: loginRateLimitWindowMs(),
   limit: () => loginRateLimitMax(),
   message: { error: "Too many registration attempts. Please try again later." },
+  handler: refusedAndRecorded("auth.register"),
   standardHeaders: true,
   legacyHeaders: false,
 });

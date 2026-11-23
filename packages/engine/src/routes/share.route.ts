@@ -21,6 +21,7 @@ import { ContractError } from "../core/notebook-contract.js";
 import { NotebookCompileError } from "../core/notebook-compiler.js";
 import { outputSpecs } from "../core/notebook-outputs.js";
 import { normaliseTags } from "@zaa-tool/shared";
+import { setActor } from "../core/request-context.js";
 import { actionSpecs } from "../core/notebook-actions.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 import type { NotebookJson, NotebookPage } from "@zaa-tool/shared";
@@ -147,6 +148,9 @@ export function createShareRouter(publishRunEvent: RunEventSink): Router {
       res.status(404).json({ error: "This link does not work." });
       return null;
     }
+    // Named by the share row, never by the token in the URL (which is the credential). From
+    // here on the run this may start, and every log line and audit event, carries it.
+    setActor({ type: "share", shareId: share.id, notebookId: share.notebook_id });
 
     const password = req.header("x-share-password") ?? undefined;
     // Only an actual guess is counted: opening the page to be asked for the password is not
@@ -157,6 +161,7 @@ export function createShareRouter(publishRunEvent: RunEventSink): Router {
       const byAddress = guessesByAddress.reserve(addressKey);
       const byLink = guessesByLink.reserve(share.id);
       if (!byAddress || !byLink) {
+        await notebookSharesService.recordPasswordFailure(share, "denied", "rate_limited");
         // Over the limit still counts, so persistence does not buy a fresh window; what is
         // refused here never reaches bcrypt.
         res
@@ -167,6 +172,8 @@ export function createShareRouter(publishRunEvent: RunEventSink): Router {
       }
     }
     if (!(await notebookSharesService.checkPassword(share, password))) {
+      // Asking for the password is not a failure; getting it wrong is. The guess is never kept.
+      if (guessing) await notebookSharesService.recordPasswordFailure(share, "failure", "wrong_password");
       res.status(401).json({ error: "This page needs a password.", needsPassword: true });
       return null;
     }

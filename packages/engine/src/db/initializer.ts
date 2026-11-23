@@ -432,6 +432,139 @@ export async function initDb() {
       END $$;
     `);
 
+    // ── Audit trail ──────────────────────────────────────────────────────────────
+    //
+    // Who did what, kept apart from the operational log (stdout) and from the run history
+    // (which the app prunes and deletes with its notebook). Rules that make it a trail:
+    //
+    //  - No foreign keys. A row must outlive the user, token, notebook or share it names,
+    //    so the actor and the target are snapshots (id plus the name as it was).
+    //  - Append-only. A trigger refuses UPDATE, DELETE and TRUNCATE; the one exception is
+    //    the retention prune, which says so with `SET LOCAL zaatool.audit_prune = 'on'`
+    //    inside its own transaction. That keeps a bug or an injected statement from
+    //    rewriting history by accident; it does not stop whoever owns the database (see
+    //    the hash chain for that).
+    //  - Hash chain. `hash = sha256(prev_hash || canonical row)`, written under an advisory
+    //    lock so every row names the one before it. Editing or removing a row in the
+    //    middle breaks every hash after it, which `verifyChain()` finds.
+    //  - `timestamptz`, so the instant is unambiguous whatever the session's time zone.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS audit_events (
+        id BIGSERIAL PRIMARY KEY,
+        occurred_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        action TEXT NOT NULL,
+        outcome TEXT NOT NULL CHECK (outcome IN ('success', 'failure', 'denied')),
+        actor_type TEXT NOT NULL,
+        user_id TEXT,
+        username TEXT,
+        token_id TEXT,
+        label TEXT,
+        client TEXT,
+        trigger_id TEXT,
+        share_id TEXT,
+        actor_notebook_id TEXT,
+        command TEXT,
+        os_user TEXT,
+        component TEXT,
+        target_type TEXT,
+        target_id TEXT,
+        target_owner_id TEXT,
+        target_name TEXT,
+        ip TEXT,
+        user_agent TEXT,
+        request_id TEXT,
+        meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+        prev_hash TEXT NOT NULL,
+        hash TEXT NOT NULL
+      );
+    `);
+
+    // One per filter of the read API, each ending in `id` because every list is newest
+    // first by id. `text_pattern_ops` is what lets `action LIKE 'notebook.%'` use an index
+    // under a non-C collation.
+    for (const [name, columns] of [
+      ["audit_events_user_idx", "(user_id, id DESC)"],
+      ["audit_events_owner_idx", "(target_owner_id, id DESC)"],
+      ["audit_events_action_idx", "(action text_pattern_ops, id DESC)"],
+      ["audit_events_target_idx", "(target_type, target_id, id DESC)"],
+      ["audit_events_actor_type_idx", "(actor_type, id DESC)"],
+      ["audit_events_outcome_idx", "(outcome, id DESC)"],
+      ["audit_events_time_idx", "(occurred_at)"],
+    ]) {
+      await client.query(`CREATE INDEX IF NOT EXISTS ${name} ON audit_events ${columns}`);
+    }
+
+    await client.query(`
+      CREATE OR REPLACE FUNCTION audit_events_refuse_change() RETURNS trigger AS $fn$
+      BEGIN
+        IF TG_OP = 'DELETE' AND current_setting('zaatool.audit_prune', true) = 'on' THEN
+          RETURN OLD;
+        END IF;
+        RAISE EXCEPTION 'audit_events is append-only (% refused)', TG_OP
+          USING ERRCODE = 'insufficient_privilege';
+      END;
+      $fn$ LANGUAGE plpgsql;
+    `);
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'audit_events_append_only' AND NOT tgisinternal) THEN
+          CREATE TRIGGER audit_events_append_only
+            BEFORE UPDATE OR DELETE ON audit_events
+            FOR EACH ROW EXECUTE FUNCTION audit_events_refuse_change();
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'audit_events_no_truncate' AND NOT tgisinternal) THEN
+          CREATE TRIGGER audit_events_no_truncate
+            BEFORE TRUNCATE ON audit_events
+            FOR EACH STATEMENT EXECUTE FUNCTION audit_events_refuse_change();
+        END IF;
+      END $$;
+    `);
+
+    // Who started a run, as the audit trail names them: the kind of actor (a person at the
+    // UI and an agent both have the owner's id in `started_by`), the agent token and the
+    // client it said it was, and the trigger a webhook or cron fire came from. Plain columns
+    // without foreign keys: a run outlives the token that started it.
+    for (const column of [
+      "actor_type VARCHAR(20)",
+      "agent_token_id VARCHAR(255)",
+      "agent_client VARCHAR(255)",
+      "trigger_id VARCHAR(255)",
+    ]) {
+      await client.query(`
+        DO $$
+        BEGIN
+          ALTER TABLE notebook_runs ADD COLUMN ${column};
+        EXCEPTION
+          WHEN duplicate_column THEN null;
+        END $$;
+      `);
+    }
+
+    // Ids beside the usernames `deployed_by` and `created_by` hold. A username can be
+    // reused; an id cannot. The old columns stay for display, and there is no foreign key
+    // so the id outlives the account. Backfilled once, with the column, from the name.
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE notebook_versions ADD COLUMN deployed_by_user_id VARCHAR(255);
+        UPDATE notebook_versions v SET deployed_by_user_id = u.id
+        FROM users u WHERE u.username = v.deployed_by;
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE notebook_shares ADD COLUMN created_by_user_id VARCHAR(255);
+        UPDATE notebook_shares s SET created_by_user_id = u.id
+        FROM users u WHERE u.username = s.created_by;
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
+
     // Test fixtures do not belong here, and two of them were briefly written into this
     // function during FX8. `initDb()` runs on every start of every installation: seeding
     // `zz-uji-rekam` and `zz-uji-prosa` from a schema migration put somebody else's test

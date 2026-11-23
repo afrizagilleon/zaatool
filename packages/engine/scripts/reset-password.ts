@@ -23,6 +23,7 @@
  * loss, not a simplification: it removed the only path that hands you a strong password
  * when you are locked out and in no state to invent one.
  */
+import { asOperator } from "./operator-context.js";
 import crypto from "crypto";
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
@@ -95,7 +96,7 @@ async function main(): Promise<void> {
   }
 }
 
-main()
+asOperator("reset-password", main)
   .catch((err: unknown) => {
     console.error(`\n  ${humanMessage(err)}\n`);
     process.exitCode = 1;

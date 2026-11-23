@@ -20,6 +20,11 @@ import { egressFirewallProblems, egressFirewallWarnings } from "./core/egress-fi
 import { windowsProductionWarnings } from "./core/windows-production.js";
 import { logger } from "./core/logger.js";
 import { withContext } from "./core/request-context.js";
+import { audit } from "./services/audit.service.js";
+
+/** Boot steps that change data run as the engine itself, so what they log and record is not anonymous. */
+const asSystem = <T>(component: string, run: () => Promise<T>): Promise<T> =>
+  withContext({ actor: { type: "system", component } }, run);
 
 /**
  * Addresses on this machine another device could actually dial.
@@ -143,7 +148,7 @@ async function boot(port: number) {
   // engine rather than letting it write new secrets nobody could read back. Not in
   // `initDb()`, which creates tables and never touches rows.
   try {
-    const encrypted = await secretsService.protectAtStart();
+    const encrypted = await asSystem("secrets-protect", () => secretsService.protectAtStart());
     if (encrypted > 0) {
       logger.info("Encrypted secrets that were stored in plaintext.", {
         event: "secrets.encrypted_plaintext",
@@ -164,7 +169,7 @@ async function boot(port: number) {
   // process stopped will never be finished by anyone, so its row is closed rather than left
   // saying `running`. Not in `initDb()`, which creates tables and never touches rows.
   try {
-    const interrupted = await notebookRunsService.failInterrupted();
+    const interrupted = await asSystem("run-reconcile", () => notebookRunsService.failInterrupted());
     if (interrupted > 0) {
       logger.warn("Marked runs that were in progress at shutdown as failed.", {
         event: "runs.reconciled",
@@ -182,7 +187,7 @@ async function boot(port: number) {
   // is deployed again. The trigger and notebook ids identify it; a webhook slug is a
   // credential and is never logged. Not in `initDb()`, which creates tables and never rows.
   try {
-    for (const change of await notebookTriggersService.rebuildTriggerIndex()) {
+    for (const change of await asSystem("trigger-index", () => notebookTriggersService.rebuildTriggerIndex())) {
       logger.warn(`Trigger index: ${change.change}.`, {
         event: "triggers.rebuilt",
         change: change.change,
@@ -194,6 +199,23 @@ async function boot(port: number) {
   } catch (err: unknown) {
     refuseToStart("triggers.rebuild_failed", "Failed to rebuild the trigger index.", { err });
   }
+
+  // The reconciliation above is done: this is the moment the engine is, for the trail, started.
+  await asSystem("boot", () =>
+    audit.record({
+      action: "engine.start",
+      target: { type: "engine" },
+      meta: {
+        version: process.env.BUILD_VERSION || "dev",
+        commit: process.env.BUILD_COMMIT || "unknown",
+        port,
+        registrationOpen: registrationOpen(),
+        encryptionAtRest: secretsKey() !== null,
+      },
+    })
+  );
+  // Old audit rows are removed daily, as the retention setting says.
+  audit.startRetention();
 
   const server = http.createServer();
   const runEventHub = new RunEventHub();

@@ -3,6 +3,7 @@
  *
  *   pnpm --filter @zaa-tool/engine create-user <username> --role creator|viewer [--password-stdin] [--email <value>]
  */
+import { asOperator } from "./operator-context.js";
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
 import { authService, isRole } from "../src/services/auth.service.js";
@@ -44,7 +45,7 @@ async function main(): Promise<void> {
   console.log(`\n  User ${user.username} created successfully with role ${user.role}.\n`);
 }
 
-main()
+asOperator("create-user", main)
   .catch((err: unknown) => {
     console.error(`\n  ${humanMessage(err)}\n`);
     process.exitCode = 1;

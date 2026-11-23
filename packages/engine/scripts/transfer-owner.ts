@@ -13,6 +13,7 @@
  * secrets guarding their webhooks) are copied to the new owner when they do not already have
  * one by that name. Theirs wins when they do. The old owner keeps theirs.
  */
+import { asOperator } from "./operator-context.js";
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
 import { notebookAccessService } from "../src/services/notebook-access.service.js";
@@ -63,7 +64,7 @@ async function main(): Promise<void> {
   console.log("");
 }
 
-main()
+asOperator("transfer-owner", main)
   .catch((err: unknown) => {
     console.error(`\n  ${humanMessage(err)}\n`);
     process.exitCode = 1;

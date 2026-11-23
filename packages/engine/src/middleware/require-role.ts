@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import type { Role } from "../services/auth.service.js";
+import { audit } from "../services/audit.service.js";
 
 /**
  * The check that was missing.
@@ -17,7 +18,7 @@ import type { Role } from "../services/auth.service.js";
  * Runs after {@link authMiddleware}, which is what puts `req.user` there.
  */
 export function requireRole(...allowed: Role[]) {
-  return (req: Request, res: Response, next: NextFunction) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
     const user = (req as Request & { user?: { role?: string } }).user;
 
     if (!user) {
@@ -25,6 +26,17 @@ export function requireRole(...allowed: Role[]) {
     }
 
     if (!allowed.includes(user.role as Role)) {
+      // The route's template (`/api/agent-tokens/:id`), not the URL: ids stay out of it.
+      await audit.record({
+        action: "authz.denied",
+        outcome: "denied",
+        meta: {
+          required: allowed,
+          role: user.role ?? "unknown",
+          method: req.method,
+          route: `${req.baseUrl}${req.route?.path ?? ""}`,
+        },
+      });
       return res.status(403).json({
         error: `This needs a ${allowed.join(" or ")} account. Yours is ${user.role ?? "unknown"}.`,
       });

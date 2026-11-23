@@ -14,7 +14,9 @@
  * against the re-encrypted rows. Keep the new key apart from your database backups;
  * a key that is lost takes every secret with it.
  */
+import { asOperator } from "./operator-context.js";
 import { pool } from "../src/db/connection.js";
+import { initDb } from "../src/db/initializer.js";
 import { parseSecretsKey } from "../src/core/secrets-crypto.js";
 import { secretsService } from "../src/services/secrets.service.js";
 import { humanMessage } from "./cli-error.js";
@@ -28,13 +30,16 @@ async function main(): Promise<void> {
   }
   if (oldKey.equals(newKey)) throw new Error("NEW_SECRETS_KEY is the same as SECRETS_KEY.");
 
+  // Idempotent. Rotating before the first start of an engine that has the audit trail would
+  // otherwise find no table to record the rotation in.
+  await initDb();
   const count = await secretsService.rotateKey(oldKey, newKey);
   console.log(`\n  Re-encrypted ${count} secret(s) with the new key.`);
   console.log("  Next: set SECRETS_KEY in .env to the new key, then start the engine");
   console.log("  (docker compose up -d). Keep a copy of the key apart from your backups.\n");
 }
 
-main()
+asOperator("rotate-secrets-key", main)
   .catch((err: unknown) => {
     console.error(`\n  ${humanMessage(err)}\n`);
     process.exitCode = 1;

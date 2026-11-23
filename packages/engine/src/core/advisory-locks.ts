@@ -19,6 +19,11 @@ export const LOCK_KEYS = {
    * cannot start while any engine is up and an engine cannot start during one.
    */
   engineAlive: "zaa:engine-alive",
+  /**
+   * One at a time: appending to the audit trail. Each row's hash covers the one before it,
+   * so two writers that both read the same "last hash" would fork the chain.
+   */
+  auditChain: "zaa:audit-chain",
 } as const;
 
 /** The per-notebook key: deploys, undeploys and deletes of one notebook queue behind each other. */

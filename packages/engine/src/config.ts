@@ -125,6 +125,18 @@ export function notebookJsonBodyLimit(): number {
   return Math.floor(megabytes * 1024 * 1024);
 }
 
+/**
+ * How many days of the audit trail are kept (`AUDIT_RETENTION_DAYS`, default 400: a year
+ * plus a margin, which is what PCI-DSS 10.5 asks for). `0` keeps everything. Older rows are
+ * removed by a daily job; export them first (`GET /api/audit/export`) if they must outlive it.
+ */
+export function auditRetentionDays(): number {
+  const raw = process.env.AUDIT_RETENTION_DAYS;
+  if (raw === undefined || raw.trim() === "") return 400;
+  const days = Number(raw);
+  return Number.isFinite(days) && days >= 0 ? Math.floor(days) : 400;
+}
+
 export function loginRateLimitWindowMs(): number {
   const raw = Number(process.env.LOGIN_RATE_LIMIT_WINDOW_MS);
   return Number.isFinite(raw) && raw > 0 ? raw : 15 * 60 * 1000;

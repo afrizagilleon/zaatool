@@ -12,6 +12,7 @@ import { agentTokensService } from "../services/agent-tokens.service.js";
 import { createShareRouter } from "../routes/share.route.js";
 import { authRouter } from "../routes/auth.route.js";
 import { agentTokensRouter } from "../routes/agent-tokens.route.js";
+import { auditRouter } from "../routes/audit.route.js";
 import { authMiddleware } from "../middleware/auth.middleware.js";
 import { csrfGuard } from "../middleware/csrf.middleware.js";
 
@@ -104,6 +105,7 @@ export function createApp(publishRunEvent: RunEventSink) {
 
   app.use("/api/auth", authRouter);
   app.use("/api/agent-tokens", agentTokensRouter);
+  app.use("/api/audit", auditRouter);
   app.use("/api/resources/skills", skillsRouter);
 
   app.use("/api/resources/secrets", secretsRouter);

@@ -64,6 +64,17 @@ export interface NotebookRunSummary {
    * What decides whether somebody who only uses the page may read this run.
    */
   started_by?: string | null;
+  /**
+   * What set it off, which `started_by` cannot say: "user" (the UI), "agent" (an MCP tool
+   * call), "webhook", "cron", "share" or "cli". Null on runs from before this was recorded.
+   */
+  actor_type?: string | null;
+  /** The agent token behind an agent run, so a run can be traced to the connection that asked. */
+  agent_token_id?: string | null;
+  /** What the MCP client called itself (`name/version`). Self-reported. */
+  agent_client?: string | null;
+  /** The webhook or cron trigger a run came from. */
+  trigger_id?: string | null;
   error: string | null;
   started_at: string;
   finished_at: string | null;

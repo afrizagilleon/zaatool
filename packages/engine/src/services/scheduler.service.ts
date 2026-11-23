@@ -4,6 +4,7 @@ import { cronTimezone } from "../config.js";
 import { notebookTriggersService, type TriggerRecord } from "./notebook-triggers.service.js";
 import { notebookExecutionService } from "./notebook-execution.service.js";
 import { logger } from "../core/logger.js";
+import { withContext } from "../core/request-context.js";
 
 const MINUTE_MS = 60_000;
 
@@ -132,10 +133,16 @@ export class SchedulerService {
           }
 
           try {
-            const { runId } = await this.deps.startRun(trigger.notebook_id, publish, {
-              triggerSource: "cron",
-              input: { trigger: { kind: "cron", cron: trigger.cron, firedAt: at.toISOString() } },
-            });
+            // Each fire is its own context: nothing here is a request, and the run it starts
+            // (and everything that run logs or records) is attributed to this trigger.
+            const { runId } = await withContext(
+              { actor: { type: "cron", triggerId: trigger.id, notebookId: trigger.notebook_id } },
+              () =>
+                this.deps.startRun(trigger.notebook_id, publish, {
+                  triggerSource: "cron",
+                  input: { trigger: { kind: "cron", cron: trigger.cron, firedAt: at.toISOString() } },
+                })
+            );
             logger.info("Cron run started.", {
               event: "scheduler.run_started",
               trigger_id: trigger.id,

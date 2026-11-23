@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { authService } from "../services/auth.service.js";
 import { credentialOf } from "./session-cookie.js";
+import { setActor } from "../core/request-context.js";
 
 /**
  * Who is asking.
@@ -59,6 +60,8 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
       username: session.user.username,
       role: session.user.role,
     };
+    // From here on every log line and audit event of this request names this person.
+    setActor({ type: "user", userId: session.user.id, username: session.user.username });
     next();
   } catch (err) {
     next(err);

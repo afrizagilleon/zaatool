@@ -9,8 +9,25 @@ import { jwtSecret, registrationOpen, setupCodeOverride } from "../config.js";
 import { notifySessionsEnded } from "../core/session-events.js";
 import { LOCK_KEYS, lockUntilTransactionEnds } from "../core/advisory-locks.js";
 import { logger } from "../core/logger.js";
+import type { Actor } from "../core/actor.js";
+import { audit, type AuditTarget } from "./audit.service.js";
 
 const SALT_ROUNDS = 10;
+
+/** An account as the audit trail names it: owned by itself, so the person can see what happened to them. */
+function userTarget(user: { id: string; username: string }): AuditTarget {
+  return { type: "user", id: user.id, ownerId: user.id, name: user.username };
+}
+
+/**
+ * The name somebody typed into a sign-in form, for the audit trail. Capped, and kept only as
+ * data: a person who fumbles the password into the username field leaves it in a row only a
+ * creator (or the database owner) can read, which is why failed sign-ins are never shown to
+ * anyone else.
+ */
+function attemptedName(username: unknown): string {
+  return String(username ?? "").trim().slice(0, 64);
+}
 export const MIN_PASSWORD_LENGTH = 12;
 
 export { ROLES, type Role };
@@ -198,6 +215,35 @@ export class AuthService {
    * the creator. After that the door is shut unless it was deliberately propped open.
    */
   async register(username: string, passwordPlain: string, email?: string, setupCode?: unknown) {
+    const user = await this.registerAccount(username, passwordPlain, email, setupCode).catch(async (err: unknown) => {
+      // Who was refused, and which door: a wrong setup code is somebody guessing at the first
+      // account, a closed registration is somebody knocking.
+      if (err instanceof SetupCodeError) {
+        await audit.record({
+          action: "auth.setup_code_used",
+          outcome: "failure",
+          meta: { attempted: attemptedName(username) },
+        });
+      } else if (err instanceof RegistrationClosedError) {
+        await audit.record({
+          action: "auth.register",
+          outcome: "denied",
+          meta: { attempted: attemptedName(username) },
+        });
+      }
+      throw err;
+    });
+    // The new account is the actor of its own registration.
+    const actor: Actor = { type: "user", userId: user.id, username: user.username };
+    await audit.record({ action: "auth.register", actor, target: userTarget(user), meta: { role: user.role } });
+    // Only the first account needs the code, and is the creator.
+    if (user.role === "creator") {
+      await audit.record({ action: "auth.setup_code_used", actor, target: userTarget(user) });
+    }
+    return user;
+  }
+
+  private async registerAccount(username: string, passwordPlain: string, email?: string, setupCode?: unknown) {
     const existingUsers = await this.userCount();
     if (existingUsers > 0 && !registrationOpen()) {
       throw new RegistrationClosedError();
@@ -208,7 +254,7 @@ export class AuthService {
     if (existingUsers === 0 && !setupCodeMatches(setupCode)) {
       throw new SetupCodeError();
     }
-    if (existingUsers > 0) return this.createUser(username, passwordPlain, "viewer", email);
+    if (existingUsers > 0) return this.createAccount(username, passwordPlain, "viewer", email);
 
     // Nobody has an account *as far as the count above knew*. Six requests carrying the right
     // code all read zero, and each one would have made a creator. The decision is made again
@@ -243,6 +289,14 @@ export class AuthService {
    * and because the route above it is the thing that checks the caller is a creator.
    */
   async createUser(username: string, passwordPlain: string, role: Role, email?: string) {
+    const user = await this.createAccount(username, passwordPlain, role, email);
+    // The actor is whoever is in the context: the creator who invited them, or the operator
+    // running `create-user`. Nothing about the password goes in.
+    await audit.record({ action: "user.create", target: userTarget(user), meta: { role: user.role } });
+    return user;
+  }
+
+  private async createAccount(username: string, passwordPlain: string, role: Role, email?: string) {
     const account = await this.prepareAccount(username, passwordPlain);
 
     const existing = await pool.query("SELECT id FROM users WHERE username = $1", [account.name]);
@@ -330,7 +384,19 @@ export class AuthService {
     );
     // Open sockets are sessions too, and they are not asked again: they have to be told.
     if (!active && (rowCount ?? 0) > 0) notifySessionsEnded(id);
+    if ((rowCount ?? 0) > 0) {
+      await audit.record({
+        action: active ? "user.activate" : "user.deactivate",
+        target: await this.auditTargetOf(id),
+      });
+    }
     return (rowCount ?? 0) > 0;
+  }
+
+  /** The account as an audit target; just the id when it is already gone. */
+  private async auditTargetOf(id: string): Promise<AuditTarget> {
+    const { rows } = await pool.query<{ username: string }>("SELECT username FROM users WHERE id = $1", [id]);
+    return rows[0] ? userTarget({ id, username: rows[0].username }) : { type: "user", id, ownerId: id };
   }
 
   /** Ends every session this account has, on every device, by outdating their tokens. */
@@ -339,7 +405,10 @@ export class AuthService {
       "UPDATE users SET token_version = token_version + 1 WHERE id = $1",
       [id]
     );
-    if ((rowCount ?? 0) > 0) notifySessionsEnded(id);
+    if ((rowCount ?? 0) > 0) {
+      notifySessionsEnded(id);
+      await audit.record({ action: "auth.logout_all", target: await this.auditTargetOf(id) });
+    }
     return (rowCount ?? 0) > 0;
   }
 
@@ -392,21 +461,43 @@ export class AuthService {
   async login(username: string, passwordPlain: string) {
     const { rows } = await pool.query("SELECT * FROM users WHERE username = $1", [username]);
 
+    // The reason is for the audit trail only; the person is told the same thing for an
+    // unknown name and a wrong password, as before.
+    const failed = async (reason: string, known?: { id: string; username: string }): Promise<void> => {
+      await audit.record({
+        action: "auth.login",
+        outcome: "failure",
+        target: known ? userTarget(known) : { type: "user" },
+        meta: { reason, attempted: attemptedName(username), knownAccount: known !== undefined },
+      });
+    };
+
     if (rows.length === 0) {
+      await failed("unknown_user");
       throw new AuthInputError("Invalid username or password");
     }
 
     const user = rows[0];
     const isPasswordValid = await bcrypt.compare(passwordPlain, user.password_hash);
     if (!isPasswordValid) {
+      await failed("bad_password", user);
       throw new AuthInputError("Invalid username or password");
     }
 
     if (user.active === false) {
+      await failed("account_deactivated", user);
       throw new AuthInputError("This account has been deactivated.");
     }
 
     const role: Role = isRole(user.role) ? user.role : "viewer";
+    // The session does not exist yet, so the context still says "anonymous": the person who
+    // just proved who they are is named here, and the controller names them for the rest of
+    // the request.
+    await audit.record({
+      action: "auth.login",
+      actor: { type: "user", userId: user.id, username: user.username },
+      target: userTarget(user),
+    });
 
     const token = this.signSession({
       id: user.id,
@@ -437,7 +528,15 @@ export class AuthService {
       "UPDATE users SET password_hash = $1, token_version = token_version + 1 WHERE username = $2 RETURNING id",
       [passwordHash, username]
     );
-    for (const row of rows) notifySessionsEnded(row.id);
+    for (const row of rows) {
+      notifySessionsEnded(row.id);
+      // By the terminal reset, so the actor is the operator (`cli`) and the target the account.
+      await audit.record({
+        action: "auth.password_change",
+        target: userTarget({ id: row.id, username }),
+        meta: { via: "reset" },
+      });
+    }
     return rows.length > 0;
   }
 
@@ -453,6 +552,12 @@ export class AuthService {
     const user = rows[0];
     const isPasswordValid = await bcrypt.compare(currentPasswordPlain, user.password_hash);
     if (!isPasswordValid) {
+      await audit.record({
+        action: "auth.password_change",
+        outcome: "failure",
+        target: userTarget(user),
+        meta: { reason: "current_password_incorrect" },
+      });
       throw new AuthInputError("Current password is incorrect");
     }
     const passwordHash = await bcrypt.hash(newPasswordPlain, SALT_ROUNDS);
@@ -463,15 +568,31 @@ export class AuthService {
       [passwordHash, userId]
     );
     notifySessionsEnded(userId);
+    await audit.record({
+      action: "auth.password_change",
+      target: userTarget(user),
+      meta: { via: "self" },
+    });
     return true;
   }
 
 
   async setRole(username: string, role: Role): Promise<boolean> {
+    const { rows: before } = await pool.query<{ id: string; role: string | null }>(
+      "SELECT id, role FROM users WHERE username = $1",
+      [username]
+    );
     const { rowCount } = await pool.query("UPDATE users SET role = $1 WHERE username = $2", [
       role,
       username,
     ]);
+    if ((rowCount ?? 0) > 0 && before[0]) {
+      await audit.record({
+        action: "user.role_change",
+        target: userTarget({ id: before[0].id, username }),
+        meta: { before: before[0].role ?? "viewer", after: role },
+      });
+    }
     return (rowCount ?? 0) > 0;
   }
 
