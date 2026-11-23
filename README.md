@@ -28,7 +28,7 @@ tool an AI agent can call.
 
 | Overview | Inside `zz-uji-paralel-3` |
 |---|---|
-| <video src="https://github.com/user-attachments/assets/885aaa46-2d43-4a8f-b812-729818ea7f8f" controls autoplay loop muted playsinline width="100%"></video> | <video src="https://github.com/user-attachments/assets/166ff786-8d59-42c2-af56-ad3994dbde88" controls autoplay loop muted playsinline width="100%"></video> |
+| <video src="https://github.com/user-attachments/assets/fbcad865-9e17-48ed-8873-0e917b200fea" controls autoplay loop muted playsinline width="100%"></video> | <video src="https://github.com/user-attachments/assets/8b8dc1db-c58a-4287-8ff1-7914baa505ab" controls autoplay loop muted playsinline width="100%"></video> |
 
 The right one is a fixture whose whole job is to prove that three levels of nested parallel
 lanes actually rejoin their scope at the end — F-128, if you go looking for it.
