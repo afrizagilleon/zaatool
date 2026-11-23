@@ -1,7 +1,0 @@
-# Keeps the commit SHAs in .github/workflows from going stale.
-version: 2
-updates:
-  - package-ecosystem: github-actions
-    directory: /
-    schedule:
-      interval: weekly
