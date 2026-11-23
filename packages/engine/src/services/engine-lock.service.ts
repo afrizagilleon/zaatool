@@ -1,6 +1,7 @@
 import pg from "pg";
 import { connectionOptions } from "../db/connection.js";
 import { LOCK_KEYS } from "../core/advisory-locks.js";
+import { logger } from "../core/logger.js";
 
 /**
  * A key rotation is under way, so an engine may not start now.
@@ -43,7 +44,7 @@ async function acquire(first: boolean): Promise<void> {
   const onLost = (reason: string) => {
     if (lost) return;
     lost = true;
-    console.error(`The engine's database lock was lost (${reason}); taking it again.`);
+    logger.error("The engine's database lock was lost; taking it again.", { event: "engine.lock_lost", reason });
     client.end().catch(() => undefined);
     const retry = () => {
       acquire(false).catch(() => setTimeout(retry, RETRY_MS).unref());
@@ -62,7 +63,7 @@ async function acquire(first: boolean): Promise<void> {
     lost = true;
     await client.end().catch(() => undefined);
     if (first) throw new RotationInProgressError();
-    console.error(new RotationInProgressError().message);
+    logger.fatal(new RotationInProgressError().message, { event: "engine.lock_refused" });
     process.exit(1);
   }
 }

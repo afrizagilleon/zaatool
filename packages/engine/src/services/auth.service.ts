@@ -8,6 +8,7 @@ import { pool } from "../db/connection.js";
 import { jwtSecret, registrationOpen, setupCodeOverride } from "../config.js";
 import { notifySessionsEnded } from "../core/session-events.js";
 import { LOCK_KEYS, lockUntilTransactionEnds } from "../core/advisory-locks.js";
+import { logger } from "../core/logger.js";
 
 const SALT_ROUNDS = 10;
 export const MIN_PASSWORD_LENGTH = 12;
@@ -163,22 +164,29 @@ export class AuthService {
   }
 
   /**
-   * Prints the setup code if the installation has no accounts, once, at startup.
+   * Announces the setup code if the installation has no accounts, once, at startup.
    * Returns whether it did. A code the operator chose is announced but never printed.
+   *
+   * This is the one place a credential is deliberately written to the log: the operator
+   * reads the code from the engine's output (`docker compose logs engine`), because that is
+   * the only channel it has to them. It is a single `auth.setup_code` event whose *message*
+   * carries the code — the logger redacts the value of any field named like a credential but
+   * never rewrites `msg`, so this is explicit rather than an accident. The code is random,
+   * lives in memory only and means nothing once the first account exists.
    */
-  async announceSetupCode(log: (line: string) => void = console.log): Promise<boolean> {
+  async announceSetupCode(log: (line: string) => void = (line) => logger.warn(line, { event: "auth.setup_code" })): Promise<boolean> {
     if ((await this.userCount()) > 0) return false;
     const { code, chosen } = currentSetupCode();
-    log("");
-    log("🔑 Setup code: there are no accounts yet, so the first one needs a code.");
+    const lines = ["Setup code: there are no accounts yet, so the first one needs a code."];
     if (chosen) {
-      log("   The code is the value of SETUP_CODE in this server's environment.");
+      lines.push("The code is the value of SETUP_CODE in this server's environment.");
     } else {
-      log(`   Setup code: ${code}`);
-      log("   It lives in memory only and changes on every restart.");
+      lines.push(`Setup code: ${code}`);
+      lines.push("It lives in memory only and changes on every restart.");
     }
-    log("   Open the app, choose Register and enter it. (`pnpm create-user` needs no code.)");
-    log("");
+    lines.push("Open the app, choose Register and enter it. (`pnpm create-user` needs no code.)");
+    // One event, one line: the lines of a multi-line banner would be separate log records.
+    log(lines.join(" "));
     return true;
   }
 

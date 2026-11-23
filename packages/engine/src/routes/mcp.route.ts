@@ -9,6 +9,9 @@ import { registerNotebookTools } from "../mcp/notebook-tools.js";
 import { registerConventions } from "../mcp/conventions.js";
 import { onCatalogChanged, registerDeployedNotebooks } from "../mcp/notebook-catalog.js";
 import type { RunEventSink } from "../core/run-emitter.js";
+import { logger } from "../core/logger.js";
+import { INTERNAL_ERROR_MESSAGE } from "../core/http-errors.js";
+import { currentContext } from "../core/request-context.js";
 
 /**
  * The MCP endpoint, over Streamable HTTP.
@@ -156,8 +159,10 @@ export function createMcpRouter(publishRunEvent: RunEventSink): Router {
 
       await transport.handleRequest(req, res, req.body);
     } catch (err: unknown) {
-      console.error("MCP request failed:", (err as Error).message);
-      if (!res.headersSent) rpcError(res, 500, (err as Error).message);
+      // The caller is an agent, not a person at a login screen, but what it is told is still
+      // only that the engine failed; the cause is in the log under this request's id.
+      logger.error("MCP request failed.", { event: "mcp.request_failed", err });
+      if (!res.headersSent) rpcError(res, 500, `${INTERNAL_ERROR_MESSAGE} (request ${currentContext()?.requestId ?? "unknown"})`);
     }
   });
 

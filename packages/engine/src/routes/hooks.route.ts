@@ -17,6 +17,8 @@ import { ContractError } from "../core/notebook-contract.js";
 import { secretsService } from "../services/secrets.service.js";
 import { notebookAccessService } from "../services/notebook-access.service.js";
 import type { RunEventSink } from "../core/run-emitter.js";
+import { logger } from "../core/logger.js";
+import { internalError } from "../core/http-errors.js";
 
 /** Long enough for a real API call, short enough that a caller is not left hanging. */
 const DEFAULT_WAIT_MS = 30_000;
@@ -37,10 +39,15 @@ export async function isSecretAuthenticatedWebhook(slug: string, secretHeader?: 
   // can never succeed until it is fixed. The caller still gets the same 401
   // so nothing about the configuration leaks, but the operator gets told.
   if (!expected) {
-    console.error(
-      `Webhook "${trigger.slug}" requires secret "${trigger.secret_key}", ` +
-        `which does not exist in the secrets store. This webhook will reject every ` +
-        `request until the secret is created or the trigger is changed.`
+    // Named by trigger and notebook: the slug is the webhook's credential and stays out.
+    logger.error(
+      "A webhook requires a secret that does not exist in the secrets store. It will reject every request until the secret is created or the trigger is changed.",
+      {
+        event: "webhook.secret_missing",
+        trigger_id: trigger.id,
+        notebook_id: trigger.notebook_id,
+        secret_name: trigger.secret_key,
+      }
     );
     return false;
   }
@@ -289,11 +296,11 @@ export function createHooksRouter(publishRunEvent: RunEventSink): Router {
       // The hook exists but its notebook was never deployed. Told plainly to the
       // caller *and* the log, because from outside this looks like the hook is broken.
       if (err instanceof NotebookNotDeployedError) {
-        console.error(`Webhook "${String(req.params.slug)}": ${err.message}`);
+        logger.error("A webhook fired for a notebook that was never deployed.", { event: "webhook.not_deployed", err });
         return res.status(409).json({ error: err.message });
       }
       if (err instanceof OwnerInactiveError) {
-        console.error(`Webhook "${String(req.params.slug)}": ${err.message}`);
+        logger.error("A webhook fired for a notebook whose owner is deactivated.", { event: "webhook.owner_inactive", err });
         return res.status(409).json({ error: err.message });
       }
       if (err instanceof NotebookCompileError) {
@@ -302,7 +309,7 @@ export function createHooksRouter(publishRunEvent: RunEventSink): Router {
       if (err instanceof ContractError) {
         return res.status(400).json({ error: err.message, issues: err.issues });
       }
-      res.status(500).json({ error: (err as Error).message });
+      internalError(res, err, "webhook.request_failed");
     }
   });
 

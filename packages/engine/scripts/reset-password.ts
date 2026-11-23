@@ -2,7 +2,7 @@
  * The way back in when a password is gone.
  *
  *   pnpm --filter @zaa-tool/engine reset-password <username>
- *   pnpm --filter @zaa-tool/engine reset-password <username> --password foobar123
+ *   pnpm --filter @zaa-tool/engine reset-password <username> --password-stdin
  *   pnpm --filter @zaa-tool/engine reset-password <username> --prompt
  *   pnpm --filter @zaa-tool/engine reset-password <username> --role creator
  *   pnpm --filter @zaa-tool/engine reset-password --list
@@ -14,8 +14,9 @@
  *
  * Three ways to say what the new password is, and the default matters. With no flag one
  * is **generated** here rather than typed, because a password typed at a prompt in a hurry
- * is the one that ends up shared. It is printed once. `--password` is for when you already
- * know what you want; `--prompt` is for when you want to type it where nobody can read it
+ * is the one that ends up shared. It is printed once. `--password-stdin` is for when you already
+ * know what you want and a script supplies it (a password in argv would sit in shell history
+ * and the process list, so `--password` is refused); `--prompt` is for when you want to type it where nobody can read it
  * off your screen or your shell history.
  *
  * FX7 briefly made `--prompt` the default and deleted the generator outright. That was a
@@ -26,7 +27,8 @@ import crypto from "crypto";
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
 import { authService, isRole } from "../src/services/auth.service.js";
-import { promptPassword } from "./prompt-password.js";
+import { humanMessage } from "./cli-error.js";
+import { promptPassword, readPasswordFromStdin, refusePasswordFlag } from "./prompt-password.js";
 
 /** Unambiguous when read aloud or copied by hand: no O/0, no l/1. */
 const ALPHABET = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -38,6 +40,7 @@ function newPassword(length = 20): string {
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
+  refusePasswordFlag(args);
   await initDb();
 
   if (args.length === 0 || args[0] === "--list") {
@@ -51,7 +54,7 @@ async function main(): Promise<void> {
       console.log(`  ${user.username.padEnd(24)} ${user.role}${user.active ? "" : "  (deactivated)"}`);
     }
     console.log(
-      "\n  Usage: reset-password <username> [--password <value> | --prompt] [--role creator|viewer]\n"
+      "\n  Usage: reset-password <username> [--password-stdin | --prompt] [--role creator|viewer]\n"
     );
     return;
   }
@@ -65,13 +68,10 @@ async function main(): Promise<void> {
     throw new Error("--role must be creator or viewer");
   }
 
-  const passwordIndex = args.indexOf("--password");
-  const given = passwordIndex === -1 ? undefined : args[passwordIndex + 1];
-
   let password: string;
   let generated = false;
-  if (given) {
-    password = given;
+  if (args.includes("--password-stdin")) {
+    password = await readPasswordFromStdin();
   } else if (args.includes("--prompt")) {
     password = await promptPassword("New password: ");
   } else {
@@ -97,7 +97,7 @@ async function main(): Promise<void> {
 
 main()
   .catch((err: unknown) => {
-    console.error(`\n  ${(err as Error).message}\n`);
+    console.error(`\n  ${humanMessage(err)}\n`);
     process.exitCode = 1;
   })
   .finally(() => pool.end());

@@ -20,6 +20,7 @@ import { storageHeaders } from "../middleware/storage-headers.js";
 import { trustProxy, jsonBodyLimit, notebookJsonBodyLimit, declaredCorsOrigins } from "../config.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 import { requestContext } from "../core/request-context.js";
+import { requestLog, finalErrorHandler } from "../middleware/request-log.middleware.js";
 
 /** When this process came up. Restarts are the thing you are usually checking for. */
 const STARTED_AT = new Date().toISOString();
@@ -58,6 +59,8 @@ export function createApp(publishRunEvent: RunEventSink) {
   // inside a context that knows the request id, the client address and, once a guard has
   // established it, the actor.
   app.use(requestContext);
+  // Next, so the line is written for every request, including the ones refused further down.
+  app.use(requestLog);
   app.use(cors(corsPolicy()));
 
   // Small by default: /hooks, /mcp and /api/shared are parsed before anyone has proved who
@@ -127,6 +130,14 @@ export function createApp(publishRunEvent: RunEventSink) {
   });
 
   app.use("/api/notebooks", createNotebooksRouter(publishRunEvent));
+
+  // Last, after every router: whatever threw or was refused by the body parser ends here as
+  // JSON rather than as Express's default HTML page, which carries a stack trace outside
+  // production. Anything nothing matched is a JSON 404 for the same reason.
+  app.use((_req, res) => {
+    res.status(404).json({ error: "Not found" });
+  });
+  app.use(finalErrorHandler);
 
   return app;
 }

@@ -18,11 +18,13 @@ import { notebookRunsService } from "./services/notebook-runs.service.js";
 import { sandboxWarnings } from "./core/sandbox-identity.js";
 import { egressFirewallProblems, egressFirewallWarnings } from "./core/egress-firewall.js";
 import { windowsProductionWarnings } from "./core/windows-production.js";
+import { logger } from "./core/logger.js";
+import { withContext } from "./core/request-context.js";
 
 /**
  * Addresses on this machine another device could actually dial.
  *
- * Printed at startup because the alternative is what happened: you were told the server
+ * Logged at startup because the alternative is what happened: you were told the server
  * was on `localhost`, typed a LAN address you found yourself, and got `failed to fetch`
  * with nothing anywhere naming the address the app was really using.
  */
@@ -33,14 +35,26 @@ function lanAddresses(): string[] {
     .map((entry) => entry.address);
 }
 
+/**
+ * Stops the process for a reason the operator has to act on. The line is written first; the
+ * logger writes synchronously to files and TTYs, which is what `docker logs` reads.
+ */
+function refuseToStart(event: string, msg: string, fields: Record<string, unknown> = {}): never {
+  logger.fatal(msg, { event, ...fields });
+  process.exit(1);
+}
+
 export async function startServer(port = 4000) {
+  // Boot work is not a request: it runs as the system so its lines say so.
+  return withContext({ actor: { type: "system", component: "boot" } }, () => boot(port));
+}
+
+async function boot(port: number) {
   // Before anything is opened. A misconfigured deployment that starts is worse than one
   // that does not: it looks like it works, and the thing it got wrong is the lock.
   const problems = configProblems();
   if (problems.length > 0) {
-    console.error("\n❌ Refusing to start:\n");
-    for (const problem of problems) console.error(`   • ${problem}\n`);
-    process.exit(1);
+    refuseToStart("config.invalid", "Refusing to start: the configuration has problems.", { problems });
   }
 
   // Cells must not reach the engine's own port, the database or the rest of the network. The
@@ -48,32 +62,31 @@ export async function startServer(port = 4000) {
   const getuid = process.getuid?.bind(process);
   const egress = await egressFirewallProblems(process.platform, process.env, getuid);
   if (egress.length > 0) {
-    console.error("\n❌ Refusing to start:\n");
-    for (const problem of egress) console.error(`   • ${problem}\n`);
-    process.exit(1);
+    refuseToStart("sandbox.egress_unsafe", "Refusing to start: a cell could reach the network.", { problems: egress });
   }
   for (const warning of egressFirewallWarnings(process.platform, process.env, getuid)) {
-    console.warn(`⚠️  ${warning}`);
+    logger.warn(warning, { event: "sandbox.egress_warning" });
   }
 
   if (!isProduction() && usingDevSecret()) {
-    console.warn("⚠️  JWT_SECRET is not set; using the development secret.");
+    logger.warn("JWT_SECRET is not set; using the development secret.", { event: "auth.dev_secret" });
   }
   if (secretsKey() === null) {
-    console.warn("⚠️  SECRETS_KEY is not set; secrets are stored in plaintext in the database.");
+    logger.warn("SECRETS_KEY is not set; secrets are stored in plaintext in the database.", {
+      event: "secrets.plaintext_storage",
+    });
   }
   for (const warning of [...sandboxWarnings(process.platform, process.env), ...windowsProductionWarnings(process.platform, process.env)]) {
-    console.warn(`⚠️  ${warning}`);
+    logger.warn(warning, { event: "sandbox.warning" });
   }
   // Cells change uid: the storage folder becomes root's and closed, so what a cell can read is
   // only what the engine copies into its own folder. Before anything is served.
   try {
     if (secureStorageRoot(activeSandboxConfig(), STORAGE_DIR)) {
-      console.log("🔒 Storage folder is root-only; cells run as one user per process.");
+      logger.info("Storage folder is root-only; cells run as one user per process.", { event: "sandbox.storage_closed" });
     }
   } catch (err: unknown) {
-    console.error("❌ Could not close the storage folder to cells:", (err as Error).message);
-    process.exit(1);
+    refuseToStart("sandbox.storage_close_failed", "Could not close the storage folder to cells.", { err });
   }
   // Homes made when every owner had a uid of its own become root's with the owner's group, and
   // the folders of processes the last engine did not get to remove are cleared. Before anything
@@ -82,33 +95,39 @@ export async function startServer(port = 4000) {
     const sandbox = activeSandboxConfig();
     if (sandbox) {
       const oomWarning = oomGuardWarning();
-      if (oomWarning) console.warn(`⚠️  ${oomWarning}`);
+      if (oomWarning) logger.warn(oomWarning, { event: "sandbox.oom_guard_unavailable" });
       const report = migrateOwnerHomes(sandbox);
       if (report.converted.length > 0) {
-        console.log(`🔒 Converted ${report.converted.length} owner folder(s) to one group per owner.`);
+        logger.info("Converted owner folders to one group per owner.", {
+          event: "sandbox.owner_homes_converted",
+          count: report.converted.length,
+        });
       }
       if (report.clearedProcessFolders > 0) {
-        console.log(`🧹 Removed ${report.clearedProcessFolders} cell folder(s) left by the last run.`);
+        logger.info("Removed cell folders left by the last run.", {
+          event: "sandbox.process_folders_cleared",
+          count: report.clearedProcessFolders,
+        });
       }
-      if (report.problems.length > 0) {
-        // Not fatal: that owner's runs refuse to start, by name, and nobody else is affected.
-        for (const problem of report.problems) console.warn(`⚠️  ${problem}`);
+      // Not fatal: that owner's runs refuse to start, by name, and nobody else is affected.
+      for (const problem of report.problems) {
+        logger.warn(problem, { event: "sandbox.owner_home_problem" });
       }
     }
   } catch (err: unknown) {
-    console.error("❌ Could not prepare the owners' folders:", (err as Error).message);
-    process.exit(1);
+    refuseToStart("sandbox.owner_folders_failed", "Could not prepare the owner folders.", { err });
   }
   if (registrationOpen()) {
-    console.warn("⚠️  ALLOW_REGISTRATION is on: anyone who can reach this port can make an account.");
+    logger.warn("ALLOW_REGISTRATION is on: anyone who can reach this port can make an account.", {
+      event: "auth.registration_open",
+    });
   }
 
   // Initialize Database
   try {
     await initDb();
   } catch (err: unknown) {
-    console.error("❌ Failed to initialize database:", (err as Error).message);
-    process.exit(1);
+    refuseToStart("db.init_failed", "Failed to initialize the database.", { err });
   }
 
   // Says to the database that an engine is alive, so a key rotation refuses to run under it
@@ -116,8 +135,7 @@ export async function startServer(port = 4000) {
   try {
     await holdEngineLock();
   } catch (err: unknown) {
-    console.error(`❌ Refusing to start: ${(err as Error).message}`);
-    process.exit(1);
+    refuseToStart("engine.lock_refused", `Refusing to start: ${(err as Error).message}`);
   }
 
   // After the tables exist and before anything is served: secrets written before encryption
@@ -126,16 +144,20 @@ export async function startServer(port = 4000) {
   // `initDb()`, which creates tables and never touches rows.
   try {
     const encrypted = await secretsService.protectAtStart();
-    if (encrypted > 0) console.log(`🔐 Encrypted ${encrypted} secret(s) that were stored in plaintext.`);
+    if (encrypted > 0) {
+      logger.info("Encrypted secrets that were stored in plaintext.", {
+        event: "secrets.encrypted_plaintext",
+        count: encrypted,
+      });
+    }
   } catch (err: unknown) {
     if (err instanceof SecretsKeyMismatchError) {
-      console.error(`
-❌ Refusing to start: ${err.message}. Restore the SECRETS_KEY these secrets were written with, or run rotate-secrets-key. See DEPLOY.md.
-`);
-    } else {
-      console.error("❌ Failed to protect secrets:", (err as Error).message);
+      refuseToStart(
+        "secrets.key_mismatch",
+        `Refusing to start: ${err.message}. Restore the SECRETS_KEY these secrets were written with, or run rotate-secrets-key. See DEPLOY.md.`
+      );
     }
-    process.exit(1);
+    refuseToStart("secrets.protect_failed", "Failed to protect secrets.", { err });
   }
 
   // Before anything is served or can fire: a run that was in progress when the previous
@@ -143,26 +165,34 @@ export async function startServer(port = 4000) {
   // saying `running`. Not in `initDb()`, which creates tables and never touches rows.
   try {
     const interrupted = await notebookRunsService.failInterrupted();
-    if (interrupted > 0) console.warn(`⚠️  Marked ${interrupted} run(s) that were in progress at shutdown as failed.`);
+    if (interrupted > 0) {
+      logger.warn("Marked runs that were in progress at shutdown as failed.", {
+        event: "runs.reconciled",
+        count: interrupted,
+      });
+    }
   } catch (err: unknown) {
-    console.error("❌ Failed to close interrupted runs:", (err as Error).message);
-    process.exit(1);
+    refuseToStart("runs.reconcile_failed", "Failed to close interrupted runs.", { err });
   }
 
   // After the tables exist and before anything can fire: the trigger index is brought in
   // line with what is deployed, so a table written from drafts by an older version never
-  // gets to run a cron or answer a webhook. Not in `initDb()`, which creates tables and
-  // never rows. Each change is logged because it is a visible change of behaviour — a
-  // trigger that was only ever saved stops firing until its notebook is deployed again.
+  // gets to run a cron or answer a webhook. Each change is logged because it is a visible
+  // change of behaviour — a trigger that was only ever saved stops firing until its notebook
+  // is deployed again. The trigger and notebook ids identify it; a webhook slug is a
+  // credential and is never logged. Not in `initDb()`, which creates tables and never rows.
   try {
     for (const change of await notebookTriggersService.rebuildTriggerIndex()) {
-      console.warn(
-        `⚠️  Trigger index: ${change.change} ${change.triggerId} (notebook ${change.notebookId}) — ${change.detail}`
-      );
+      logger.warn(`Trigger index: ${change.change}.`, {
+        event: "triggers.rebuilt",
+        change: change.change,
+        trigger_id: change.triggerId,
+        notebook_id: change.notebookId,
+        change_detail: change.detail,
+      });
     }
   } catch (err: unknown) {
-    console.error("❌ Failed to rebuild the trigger index:", (err as Error).message);
-    process.exit(1);
+    refuseToStart("triggers.rebuild_failed", "Failed to rebuild the trigger index.", { err });
   }
 
   const server = http.createServer();
@@ -182,29 +212,43 @@ export async function startServer(port = 4000) {
   const host = process.env.HOST?.trim() || "0.0.0.0";
 
   server.listen(port, host, () => {
-    console.log(`✅ Server listening on http://localhost:${port}`);
-    for (const address of lanAddresses()) {
-      console.log(`   also on http://${address}:${port}`);
-    }
+    logger.info(`Server listening on port ${port}.`, {
+      event: "server.listening",
+      port,
+      host,
+      addresses: lanAddresses(),
+    });
   });
 
   // After the tables exist, so the question "are there any accounts" has an answer.
   try {
     await authService.announceSetupCode();
   } catch (err: unknown) {
-    console.error("❌ Could not work out whether a setup code is needed:", (err as Error).message);
+    logger.error("Could not work out whether a setup code is needed.", { event: "auth.setup_code_check_failed", err });
   }
 
   server.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE") {
-      console.error(`❌ Port ${port} is already in use.`);
-    } else {
-      console.error(`❌ HTTP server error:`, err.message);
+      refuseToStart("server.port_in_use", `Port ${port} is already in use.`, { port });
     }
-    process.exit(1);
+    refuseToStart("server.error", "The HTTP server failed.", { err });
   });
 
   return { app, server, wssManager };
 }
 
-startServer().catch(console.error);
+// A promise nobody awaited that rejects is a bug somewhere we did not look; the process
+// keeps serving, but the line says where to look. An exception nobody caught leaves the
+// process in a state nobody can reason about, so it is logged and the process ends — the
+// container runtime restarts it.
+process.on("unhandledRejection", (reason) => {
+  logger.error("Unhandled promise rejection.", { event: "process.unhandled_rejection", err: reason });
+});
+process.on("uncaughtException", (err) => {
+  logger.fatal("Uncaught exception; exiting.", { event: "process.uncaught_exception", err });
+  process.exit(1);
+});
+
+startServer().catch((err: unknown) => {
+  refuseToStart("server.start_failed", "The server failed to start.", { err });
+});

@@ -71,7 +71,7 @@ function describeDifference(before: TriggerRecord, after: TriggerRecord): string
   if (before.notebook_id !== after.notebook_id) differences.push("notebook");
   if (before.kind !== after.kind) differences.push("kind");
   if (before.cron !== after.cron) differences.push(`cron ${before.cron} -> ${after.cron}`);
-  if (before.slug !== after.slug) differences.push(`slug ${before.slug} -> ${after.slug}`);
+  if (before.slug !== after.slug) differences.push("slug changed");
   if (before.secret_key !== after.secret_key) {
     differences.push(`secret ${before.secret_key ?? "none"} -> ${after.secret_key ?? "none"}`);
   }
@@ -166,7 +166,7 @@ export class NotebookTriggersService {
               notebookId,
               triggerId: row.id,
               change: "skipped",
-              detail: `trigger id "${row.id}" or slug "${row.slug ?? ""}" is already used by another deployed notebook`,
+              detail: "the trigger id or webhook slug is already used by another deployed notebook",
             });
             continue;
           }
@@ -178,7 +178,7 @@ export class NotebookTriggersService {
               notebookId,
               triggerId: row.id,
               change: "added",
-              detail: row.kind === "cron" ? `cron ${row.cron}` : `webhook /hooks/${row.slug}`,
+              detail: row.kind === "cron" ? `cron ${row.cron}` : "webhook",
             });
             continue;
           }
@@ -195,7 +195,7 @@ export class NotebookTriggersService {
           notebookId: row.notebook_id,
           triggerId: row.id,
           change: "removed",
-          detail: row.kind === "cron" ? `cron ${row.cron}` : `webhook /hooks/${row.slug}`,
+          detail: row.kind === "cron" ? `cron ${row.cron}` : "webhook",
         });
       }
 

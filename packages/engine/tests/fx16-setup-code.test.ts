@@ -217,8 +217,8 @@ await check("pnpm create-user needs no code and still works", async () => {
   authService.userCount = realUserCount;
   const result = spawnSync(
     "node",
-    ["--import", "tsx", "scripts/create-user.ts", "zz-fx16-cli", "--role", "creator", "--password", PASSWORD],
-    { cwd: path.resolve(here, ".."), encoding: "utf8", env: { ...process.env, SETUP_CODE: "" } }
+    ["--import", "tsx", "scripts/create-user.ts", "zz-fx16-cli", "--role", "creator", "--password-stdin"],
+    { cwd: path.resolve(here, ".."), encoding: "utf8", input: `${PASSWORD}\n`, env: { ...process.env, SETUP_CODE: "" } }
   );
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.equal((await rowFor("zz-fx16-cli"))?.role, "creator");

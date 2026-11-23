@@ -320,7 +320,7 @@ await check("the right key starts, and encrypts a plaintext row on the way", asy
   await insertPlain(bob.id, "ZZ_FX19_AT_START", "plain-at-start");
   const result = await engine({ SECRETS_KEY: KEY_A }, /Server listening|already in use/);
   assert.doesNotMatch(result.out, /Refusing to start/);
-  assert.match(result.out, /Encrypted [0-9]+ secret/);
+  assert.match(result.out, /"event":"secrets.encrypted_plaintext".*"count":[0-9]+/);
   assert.ok((await rawValue(bob.id, "ZZ_FX19_AT_START")).startsWith("enc:v1:"));
 });
 

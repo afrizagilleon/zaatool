@@ -22,6 +22,7 @@
  * without the protection is better than a run that does not.
  */
 import fs from "node:fs";
+import { logger } from "./logger.js";
 
 /** `CAP_SYS_RESOURCE` is capability number 24; `CapEff` in `/proc/self/status` is a hex mask. */
 const CAP_SYS_RESOURCE_BIT = 24n;
@@ -78,7 +79,7 @@ export function lockOomScore(
 let reported = false;
 
 /**
- * {@link lockOomScore} for a runner: reports a failure once per engine run, on the console,
+ * {@link lockOomScore} for a runner: reports a failure once per engine run, in the log,
  * because the same cause (a missing capability) would otherwise repeat for every cell.
  */
 export function guardCellFromOom(pid: number | undefined, applies: boolean): void {
@@ -86,8 +87,9 @@ export function guardCellFromOom(pid: number | undefined, applies: boolean): voi
   const problem = lockOomScore(pid);
   if (problem !== undefined && !reported) {
     reported = true;
-    console.warn(
-      `⚠️  ${problem}. Add cap_add: [SYS_RESOURCE] to the engine, or one greedy cell can get the engine killed.`
+    logger.warn(
+      `${problem}. Add cap_add: [SYS_RESOURCE] to the engine, or one greedy cell can get the engine killed.`,
+      { event: "sandbox.oom_guard_failed" }
     );
   }
 }

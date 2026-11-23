@@ -1,4 +1,5 @@
 import { pool } from "./connection.js";
+import { logger } from "../core/logger.js";
 
 export async function initDb() {
   const client = await pool.connect();
@@ -446,10 +447,10 @@ export async function initDb() {
     //   DROP TABLE IF EXISTS triggers; DROP TABLE IF EXISTS flows;
 
     await client.query("COMMIT");
-    console.log("✅ Database initialized successfully.");
+    logger.info("Database initialized.", { event: "db.initialized" });
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error("❌ Failed to initialize database:", err);
+    logger.error("Failed to initialize the database.", { event: "db.init_failed", err });
     throw err;
   } finally {
     client.release();

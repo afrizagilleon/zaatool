@@ -5,6 +5,7 @@ import type {
   RunEvent,
 } from "@zaa-tool/shared";
 import { notebookRunsService } from "./notebook-runs.service.js";
+import { logger } from "../core/logger.js";
 
 /** The only part of the runs store this recorder needs. */
 export interface RunResultStore {
@@ -100,7 +101,7 @@ export class NotebookRunRecorder {
 
   private detach(write: Promise<void>): void {
     const tracked = write.catch((err: unknown) => {
-      console.error(`Failed to record run ${this.runId}:`, (err as Error).message);
+      logger.error("Could not record a run.", { event: "run.record_failed", run_id: this.runId, err });
     });
     this.inFlight.add(tracked);
     void tracked.finally(() => this.inFlight.delete(tracked));

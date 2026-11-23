@@ -131,8 +131,8 @@ await check("the reset-password script ends old tokens", async () => {
   const { token } = await newUser(USERS[4]);
   const run = spawnSync(
     "node",
-    ["--import", "tsx", "scripts/reset-password.ts", USERS[4], "--password", "zz-fx18-password-3"],
-    { cwd: path.resolve(import.meta.dirname, ".."), encoding: "utf8", env: process.env }
+    ["--import", "tsx", "scripts/reset-password.ts", USERS[4], "--password-stdin"],
+    { cwd: path.resolve(import.meta.dirname, ".."), encoding: "utf8", env: process.env, input: "zz-fx18-password-3\n" }
   );
   assert.equal(run.status, 0, run.stdout + run.stderr);
   assert.equal((await get("/api/auth/me", bearer(token))).status, 401);

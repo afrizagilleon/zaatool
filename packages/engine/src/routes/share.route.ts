@@ -24,6 +24,7 @@ import { normaliseTags } from "@zaa-tool/shared";
 import { actionSpecs } from "../core/notebook-actions.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 import type { NotebookJson, NotebookPage } from "@zaa-tool/shared";
+import { internalError } from "../core/http-errors.js";
 
 /**
  * Pages handed to people who have no account here.
@@ -191,7 +192,7 @@ export function createShareRouter(publishRunEvent: RunEventSink): Router {
       if (!opened) return;
       res.json(pageOf(opened.share.notebook_id, opened.document));
     } catch (err: unknown) {
-      res.status(500).json({ error: (err as Error).message });
+      internalError(res, err, "share.request_failed");
     }
   });
 
@@ -223,7 +224,7 @@ export function createShareRouter(publishRunEvent: RunEventSink): Router {
         )
       );
     } catch (err: unknown) {
-      res.status(500).json({ error: (err as Error).message });
+      internalError(res, err, "share.request_failed");
     }
   });
 
@@ -261,7 +262,7 @@ export function createShareRouter(publishRunEvent: RunEventSink): Router {
       if (err instanceof NotebookNotFoundError) {
         return res.status(404).json({ error: err.message });
       }
-      res.status(500).json({ error: (err as Error).message });
+      internalError(res, err, "share.request_failed");
     }
   });
 

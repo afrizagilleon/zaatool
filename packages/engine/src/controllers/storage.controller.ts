@@ -5,6 +5,7 @@ import { signStorageLink } from "../core/storage-links.js";
 import { safeSubPath } from "../core/storage-paths.js";
 import { STORAGE_DIR } from "../services/storage.service.js";
 import { notebookAccessService } from "../services/notebook-access.service.js";
+import { internalError } from "../core/http-errors.js";
 
 /**
  * Which paths are somebody else's notebook's folders, for the person asking.
@@ -26,8 +27,7 @@ function fail(res: Response, err: unknown) {
   if (err instanceof OutsideStorageError) {
     return res.status(400).json({ error: err.message });
   }
-  console.error("Storage controller error:", err);
-  res.status(500).json({ error: "Something went wrong. Please try again." });
+  internalError(res, err, "storage.request_failed");
 }
 
 export class StorageController {

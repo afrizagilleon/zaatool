@@ -23,6 +23,7 @@
  * The decision of who needs a uid, and the folders, belong to `cell-workspace`.
  */
 import { spawn } from "node:child_process";
+import { logger } from "./logger.js";
 
 export interface SweepTarget {
   uid: number;
@@ -179,7 +180,7 @@ export function createUidPool(options: UidPoolOptions): UidPool {
   const { base, count, sweeper } = options;
   const retries = options.retries ?? 2;
   const retryDelayMs = options.retryDelayMs ?? 250;
-  const onProblem = options.onProblem ?? ((message: string) => console.warn(`⚠️  ${message}`));
+  const onProblem = options.onProblem ?? ((message: string) => logger.warn(message, { event: "sandbox.uid_retired" }));
 
   // Leased, being swept, or retired. A uid leaves it only after a confirmed sweep.
   const taken = new Set<number>();

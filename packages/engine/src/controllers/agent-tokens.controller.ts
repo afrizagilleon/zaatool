@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { agentTokensService, type AgentScope } from "../services/agent-tokens.service.js";
+import { internalError } from "../core/http-errors.js";
 
 /** Whose tokens these are: the account asking. `authMiddleware` has run, so there is one. */
 const userOf = (req: Request): string => (req as Request & { user: { id: string } }).user.id;
@@ -18,8 +19,7 @@ export const agentTokensController = {
       const result = await agentTokensService.issue(userOf(req), label, scope);
       res.status(201).json(result);
     } catch (err: unknown) {
-      console.error("Agent tokens issue error:", err);
-      res.status(500).json({ error: "Something went wrong. Please try again." });
+      internalError(res, err, "agent_tokens.request_failed");
     }
   },
 
@@ -28,8 +28,7 @@ export const agentTokensController = {
       const tokens = await agentTokensService.list(userOf(req));
       res.status(200).json(tokens);
     } catch (err: unknown) {
-      console.error("Agent tokens list error:", err);
-      res.status(500).json({ error: "Something went wrong. Please try again." });
+      internalError(res, err, "agent_tokens.request_failed");
     }
   },
 
@@ -42,8 +41,7 @@ export const agentTokensController = {
       }
       res.status(200).json({ success: true });
     } catch (err: unknown) {
-      console.error("Agent tokens revoke error:", err);
-      res.status(500).json({ error: "Something went wrong. Please try again." });
+      internalError(res, err, "agent_tokens.request_failed");
     }
   },
 };

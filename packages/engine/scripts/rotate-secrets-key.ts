@@ -17,6 +17,7 @@
 import { pool } from "../src/db/connection.js";
 import { parseSecretsKey } from "../src/core/secrets-crypto.js";
 import { secretsService } from "../src/services/secrets.service.js";
+import { humanMessage } from "./cli-error.js";
 
 async function main(): Promise<void> {
   const oldKey = parseSecretsKey(process.env.SECRETS_KEY);
@@ -35,7 +36,7 @@ async function main(): Promise<void> {
 
 main()
   .catch((err: unknown) => {
-    console.error(`\n  ${(err as Error).message}\n`);
+    console.error(`\n  ${humanMessage(err)}\n`);
     process.exitCode = 1;
   })
   .finally(() => pool.end());
