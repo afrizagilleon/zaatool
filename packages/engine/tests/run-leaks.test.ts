@@ -96,7 +96,7 @@ async function make(doc: Partial<NotebookJson>, owner: string, deploy = true): P
     owner
   );
   created.push(id);
-  if (deploy) await notebooksService.deploy(id, "test");
+  if (deploy) await notebooksService.deploy(id, "test", owner);
   return id;
 }
 

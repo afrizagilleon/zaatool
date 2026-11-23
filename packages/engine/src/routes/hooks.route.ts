@@ -33,8 +33,9 @@ export async function isSecretAuthenticatedWebhook(slug: string, secretHeader?: 
   const trigger = await notebookTriggersService.findEnabledWebhook(slug);
   if (!trigger || !trigger.secret_key) return false;
 
-  // The owner's: a webhook is guarded by a secret of the notebook it starts, and that
-  // notebook runs with its owner's.
+  // The owner's: a webhook is guarded by a secret of the notebook it starts, which is the
+  // owner's to set. (The cells themselves get the deployer's secrets; this is only the
+  // guard the caller must present, never handed to code.)
   const expected = await secretsService.getValueByKey(
     await notebookAccessService.ownerOf(trigger.notebook_id),
     trigger.secret_key

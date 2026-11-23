@@ -85,11 +85,12 @@ function present(ownerId: string, row: SecretRow) {
 /**
  * A secret belongs to the account that made it, and every method here is asked on behalf of
  * one. Whose secrets a run receives is decided by the execution service (`secretHolderFor`):
- * the owner's for a run the owner starts and for production runs of the deployed version —
- * deploy is the human-approved gate — and *the starter's own* for anybody else's run of the
- * draft. An editor's code runs with the editor's secrets of the same names, never the
- * owner's. Code in a cell can print or send anything it is given, so handing an editor the
- * owner's credentials would be handing them over; this is what keeps that from happening.
+ * the owner's for a draft run the owner starts, *the deployer's* for production runs of the
+ * deployed version — deploy is the human-approved gate, so the secrets are those of whoever
+ * approved that code — and *the starter's own* for anybody else's run of the draft. An
+ * editor's code runs with the editor's secrets of the same names, never the owner's. Code in
+ * a cell can print or send anything it is given, so handing an editor the owner's credentials
+ * would be handing them over; this is what keeps that from happening.
  *
  * Values are encrypted in the database (see `core/secrets-crypto`): every read decrypts and
  * every write encrypts, and nothing outside this file sees the stored form.

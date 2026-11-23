@@ -416,6 +416,11 @@ export interface NotebookDeployState {
   isDeployed: boolean;
   deployedAt: string | null;
   deployedBy: string | null;
+  /**
+   * Set when the deployed version declares secrets and was deployed by someone other than the
+   * owner: production runs use that person's secrets, not the owner's. The deployer's name.
+   */
+  productionSecretsFrom?: string | null;
   hasUndeployedChanges: boolean;
   /**
    * What taking this out of production would switch off.

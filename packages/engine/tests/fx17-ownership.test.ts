@@ -742,7 +742,7 @@ await check("an editor's own notebook uses the editor's secret, not the owner's 
   assert.equal(await gotFrom(id, run.runId), rev("editor-value"));
 });
 
-await check("a webhook guarded by a secret key is guarded by the notebook owner's value", async () => {
+await check("a webhook guarded by a secret key is guarded by the notebook owner's value, and runs with its deployer's", async () => {
   await putSecret(owner, "ZZ_FX17_HOOK", "hook-owner");
   await putSecret(editor, "ZZ_FX17_HOOK", "hook-editor");
   const slug = "zz-fx17-hook-slug-guarded-owner";
@@ -756,7 +756,14 @@ await check("a webhook guarded by a secret key is guarded by the notebook owner'
   assert.equal((await hook("hook-editor")).status, 401, "the editor's own value opened the owner's webhook");
   const ok = await hook("hook-owner");
   assert.equal(ok.status, 200);
-  assert.equal(((await ok.json()) as { outputs: { got: string } }).outputs.got, rev("hook-owner"));
+  // The guard is the owner's, but what the cell is handed is the DEPLOYER's: the editor deployed this
+  // version, so a production run gets the editor's secret of that name, never the owner's.
+  assert.equal(((await ok.json()) as { outputs: { got: string } }).outputs.got, rev("hook-editor"), "an editor-deployed version was handed the owner's secret");
+
+  // Once the owner deploys, the owner's secret is what production uses.
+  assert.equal((await call(owner, "POST", `/api/notebooks/${id}/deploy`)).status, 200);
+  const again = await hook("hook-owner");
+  assert.equal(((await again.json()) as { outputs: { got: string } }).outputs.got, rev("hook-owner"));
 });
 
 // ── nested calls and buttons (T-05) ───────────────────────────────────────────

@@ -30,10 +30,13 @@ function summary(state: NotebookDeployState | null, hasTriggers: boolean): strin
       ? 'Not deployed — its triggers will not fire until you do'
       : 'Not deployed';
   }
+  const secrets = state.productionSecretsFrom
+    ? ` · production runs use ${state.productionSecretsFrom}'s secrets, not the owner's`
+    : '';
   if (state.hasUndeployedChanges) {
-    return `Deployed ${new Date(state.deployedAt ?? '').toLocaleString()} · your draft has changes`;
+    return `Deployed ${new Date(state.deployedAt ?? '').toLocaleString()}${secrets} · your draft has changes`;
   }
-  return `Deployed ${new Date(state.deployedAt ?? '').toLocaleString()}`;
+  return `Deployed ${new Date(state.deployedAt ?? '').toLocaleString()}${secrets}`;
 }
 
 export function DeployButton({ notebookId, refreshKey, hasTriggers, isDirty }: DeployButtonProps) {

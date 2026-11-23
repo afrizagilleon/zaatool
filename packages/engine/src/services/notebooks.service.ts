@@ -151,6 +151,9 @@ export interface DeployedNotebook {
   id: string;
   name: string;
   document: NotebookJson;
+  /** The version's id and who deployed it, for whoever has to decide whose secrets it runs with. */
+  versionId: string;
+  deployedByUserId: string | null;
 }
 
 export class NotebooksService {
@@ -311,8 +314,8 @@ export class NotebooksService {
     }
 
     const id = String(rows[0].id);
-    const document = await this.getDeployedDocument(id);
-    return document ? { id, name: document.name, document } : null;
+    const deployed = await this.getDeployed(id);
+    return deployed ? { id, name: deployed.document.name, ...deployed } : null;
   }
 
   /**
@@ -653,8 +656,15 @@ export class NotebooksService {
 
   /** What a trigger should run, or null when nothing has been deployed yet. */
   async getDeployedDocument(id: string): Promise<NotebookJson | null> {
+    return (await this.getDeployed(id))?.document ?? null;
+  }
+
+  /** The deployed version with who deployed it, read in one query so the two cannot disagree. */
+  async getDeployed(
+    id: string
+  ): Promise<{ document: NotebookJson; versionId: string; deployedByUserId: string | null } | null> {
     const { rows } = await pool.query(
-      `SELECT v.document, v.locked_packages
+      `SELECT v.id AS version_id, v.document, v.locked_packages, v.deployed_by_user_id
        FROM notebooks n
        JOIN notebook_versions v ON v.id = n.deployed_version_id
        WHERE n.id = $1`,
@@ -669,7 +679,11 @@ export class NotebooksService {
     if (Array.isArray(rows[0].locked_packages) && rows[0].locked_packages.length > 0) {
       doc.packages = rows[0].locked_packages;
     }
-    return doc;
+    return {
+      document: doc,
+      versionId: String(rows[0].version_id),
+      deployedByUserId: rows[0].deployed_by_user_id ?? null,
+    };
   }
 
 
@@ -684,7 +698,7 @@ export class NotebooksService {
     if (!record) return null;
 
     const { rows } = await pool.query(
-      `SELECT v.document, v.created_at, v.deployed_by
+      `SELECT v.document, v.created_at, v.deployed_by, v.deployed_by_user_id
        FROM notebooks n
        JOIN notebook_versions v ON v.id = n.deployed_version_id
        WHERE n.id = $1`,
@@ -702,6 +716,14 @@ export class NotebooksService {
       isDeployed: true,
       deployedAt: new Date(rows[0].created_at).toISOString(),
       deployedBy: rows[0].deployed_by ?? null,
+      // Production runs hand a version's cells the secrets of whoever deployed it, so when
+      // that is not the owner the owner is told, by name, whose secrets the declared ones are.
+      productionSecretsFrom:
+        (document.secrets ?? []).length > 0 &&
+        rows[0].deployed_by_user_id &&
+        rows[0].deployed_by_user_id !== record.owner_id
+          ? (rows[0].deployed_by ?? null)
+          : null,
       hasUndeployedChanges: deployed !== JSON.stringify(this.parseDocument(record)),
       serving: {
         toolName:

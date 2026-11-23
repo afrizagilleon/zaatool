@@ -611,7 +611,7 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
     {
       title: "List secret names",
       description:
-        "The names of YOUR OWN stored secrets — never their values. Reference a secret by name in a notebook's `secrets:` list; the engine resolves it at run time so no credential is written into a document. Which secrets a run receives: when the notebook's owner runs it, or when the deployed version runs in production (cron, webhook, page, app tool), the OWNER's secrets; when anyone else runs the draft, THEIR OWN secrets of the same names. An editor therefore has to hold a secret of that name to test a notebook that uses it.",
+        "The names of YOUR OWN stored secrets — never their values. Reference a secret by name in a notebook's `secrets:` list; the engine resolves it at run time so no credential is written into a document. Which secrets a run receives: when the notebook's owner runs the draft, THEIR secrets; when anyone else runs the draft, THEIR OWN secrets of the same names; when the deployed version runs in production (cron, webhook, page, app tool), the secrets of WHOEVER DEPLOYED that version (the owner's if the owner deployed it). An editor therefore has to hold a secret of that name to test a notebook that uses it, and to deploy one that uses it.",
       inputSchema: {},
     },
     async () => {

@@ -9,9 +9,13 @@
  * Every notebook the first account owns moves to the second, or just the one named by
  * `--notebook`. `--orphaned` takes the ones nobody owns instead.
  *
- * A notebook runs with its owner's secrets, so the secrets the moved notebooks name (and the
- * secrets guarding their webhooks) are copied to the new owner when they do not already have
+ * A notebook's draft runs with its owner's secrets, so the secrets the moved notebooks name (and
+ * the secrets guarding their webhooks) are copied to the new owner when they do not already have
  * one by that name. Theirs wins when they do. The old owner keeps theirs.
+ *
+ * Moving a notebook does not move its deployed version's deployer: production keeps running
+ * with the secrets of whoever deployed that version (which may be the old owner) until the new
+ * owner deploys again, so a transfer never silently changes whose credentials production uses.
  */
 import { asOperator } from "./operator-context.js";
 import { initDb } from "../src/db/initializer.js";

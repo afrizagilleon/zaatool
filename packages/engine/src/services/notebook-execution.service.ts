@@ -27,6 +27,7 @@ import { authService } from "./auth.service.js";
 import type { NotebookCallRequest, NotebookCaller } from "../core/notebook-call.js";
 import type { NotebookPlan } from "../core/notebook-compiler.js";
 import type { NotebookJson, NotebookRunTrigger } from "@zaa-tool/shared";
+import { logger } from "../core/logger.js";
 
 export class NotebookNotFoundError extends Error {
   constructor(id: string) {
@@ -158,9 +159,12 @@ function sourcesOf(plan: NotebookPlan): Record<string, string> {
  * secrets it receives must be ones its author was already entitled to hold:
  *
  *  - **Production** (cron, webhook, a page, an agent calling the app as a tool: everything
- *    that runs the *deployed* version) uses the owner's. Deploying is the step where a human
- *    reads what will run and approves it, so the owner's credentials go to code the owner
- *    has signed off on, and nobody else's edit can reach them without a deploy.
+ *    that runs the *deployed* version) uses the secrets of **whoever deployed that version**.
+ *    Deploying is the step where a human reads what will run and approves it, so a person's
+ *    credentials go only to code that person signed off on. When the owner deployed it that
+ *    is the owner's, as it always was; when an invited editor deployed it the cells get the
+ *    editor's, never the owner's, because an editor can write a cell that prints a secret
+ *    and deploy it. A deployer who lacks a declared secret leaves it missing for the cell.
  *  - **The owner's own run** of the draft uses the owner's.
  *  - **Anybody else's run of the draft** (an invited editor pressing Run, or their agent)
  *    uses *the starter's own* secrets of the same names. An editor can write a cell that
@@ -171,30 +175,69 @@ function sourcesOf(plan: NotebookPlan): Record<string, string> {
  *    no entry point produces) gets none either.
  *
  * Decided per run and carried down a chain of calls: a draft run by an editor reaches every
- * callee with the editor's secrets, and a production run reaches every callee with its own
- * owner's.
+ * callee with the editor's secrets, and a production run reaches every callee with the
+ * secrets of whoever deployed *that callee's* version.
+ *
+ * `deployedBy` is the deploying account's id for the version being run. A legacy version
+ * with none (the backfill could not map its username to an account, so there is nothing
+ * to attribute it to) falls back to the owner: those rows predate the rule and cannot be
+ * told apart from owner deploys, and refusing them would take working production down.
+ * `deployerHolderFor` logs `secrets.deployer_unknown` once per version when that happens.
  */
 export function secretHolderFor(
   notebookOwner: string | null,
   useDeployed: boolean,
-  startedBy?: string
+  startedBy?: string,
+  deployedBy?: string | null
 ): { holder: string | null; substituted: boolean } {
   if (notebookOwner === null) return { holder: null, substituted: false };
-  if (useDeployed) return { holder: notebookOwner, substituted: false };
+  if (useDeployed) {
+    const deployer = deployedBy ?? notebookOwner;
+    return { holder: deployer, substituted: deployer !== notebookOwner };
+  }
   if (startedBy === notebookOwner) return { holder: notebookOwner, substituted: false };
   return { holder: startedBy ?? null, substituted: true };
 }
 
-/** The one note a run's log gets when it is a draft run by somebody other than the owner and some declared secret is not theirs. Names keys only, never values. */
-export function missingSecretsNote(keys: string[]): string {
+/** Versions already warned about, so a cron firing every minute does not log the same legacy row forever. */
+const warnedDeployerUnknown = new Set<string>();
+
+/** The deployer to hand to `secretHolderFor`: the version's, or null (owner) with one warning per legacy version. */
+function deployerHolderFor(
+  notebookId: string,
+  versionId: string | undefined,
+  deployedBy: string | null | undefined
+): string | null {
+  if (deployedBy) return deployedBy;
+  if (versionId && !warnedDeployerUnknown.has(versionId)) {
+    warnedDeployerUnknown.add(versionId);
+    logger.warn("Deployed version has no recorded deploying account; running it with the owner's secrets", {
+      event: "secrets.deployer_unknown",
+      notebookId,
+      versionId,
+    });
+  }
+  return null;
+}
+
+/**
+ * The one note a run's log gets when the account whose secrets it uses lacks some declared
+ * secret. Names keys only, never values. `deployed` says whether the holder is the deployer
+ * of a production run (as opposed to the starter of a draft run).
+ */
+export function missingSecretsNote(keys: string[], deployed = false): string {
   const names = keys.map((key) => `"${key}"`).join(", ");
   const one = keys.length === 1;
-  return (
-    `Secret${one ? "" : "s"} ${names} ${one ? "is" : "are"} not among your own secrets. ` +
-    `A draft run by someone other than the notebook's owner uses the starter's own secrets, never the owner's, ` +
-    `so the cell sees ${one ? "it" : "them"} as missing. Add ${one ? "it" : "them"} under your secrets, ` +
-    `or ask the owner to deploy and run the deployed version.`
-  );
+  const it = one ? "it" : "them";
+  const head = `Secret${one ? "" : "s"} ${names} ${one ? "is" : "are"} not among ${deployed ? "the deployer's" : "your own"} secrets. `;
+  return deployed
+    ? head +
+        `A deployed version runs with the secrets of whoever deployed it, never the owner's when someone else did, ` +
+        `so the cell sees ${it} as missing. The deployer should add ${it} under their secrets, or the owner can deploy it again.`
+    : head +
+        `A draft run by someone other than the notebook's owner uses the starter's own secrets, never the owner's, ` +
+        `so the cell sees ${it} as missing. Add ${it} under your secrets, ` +
+        `or ask the owner to deploy and run the deployed version.`;
 }
 
 interface RunSecrets {
@@ -202,32 +245,36 @@ interface RunSecrets {
   redactor: SecretRedactor;
   /** Declared secrets the holder does not have; only ever set for a substituted holder. */
   missing: string[];
+  /** Whether the holder is a production deployer rather than a draft's starter. */
+  deployed: boolean;
 }
 
 async function secretsForRun(
   plan: NotebookPlan,
   notebookOwner: string | null,
   useDeployed: boolean,
-  startedBy?: string
+  startedBy: string | undefined,
+  deployedBy?: string | null
 ): Promise<RunSecrets> {
-  const { holder, substituted } = secretHolderFor(notebookOwner, useDeployed, startedBy);
+  const { holder, substituted } = secretHolderFor(notebookOwner, useDeployed, startedBy, deployedBy);
   const { values, secret } = await secretsService.getForRun(holder, plan.secrets);
   return {
     values,
     redactor: createRedactor(secret),
     missing: substituted ? plan.secrets.filter((key) => !(key in values)) : [],
+    deployed: useDeployed,
   };
 }
 
 /** Puts the "missing secrets" note in the run's log, on the first cell that starts. */
-function noteMissingSecrets(ee: EventEmitter, missing: string[]): void {
+function noteMissingSecrets(ee: EventEmitter, missing: string[], deployed: boolean): void {
   if (missing.length === 0) return;
   ee.once("cell:start", (event: { cellId?: string }) => {
     ee.emit("cell:log", {
       type: "cell:log",
       cellId: event.cellId,
       level: "warn",
-      payload: missingSecretsNote(missing),
+      payload: missingSecretsNote(missing, deployed),
     });
   });
 }
@@ -277,7 +324,14 @@ interface CallContext {
    * shared by the whole tree. A deploy that lands mid-run does not reach a callee the run
    * already used: one production run is one version of what it calls, not a mixture.
    */
-  pinned: Map<string, NotebookJson>;
+  pinned: Map<string, PinnedVersion>;
+}
+
+/** A deployed version a run pinned: what it runs and who deployed it, whose secrets it gets. */
+interface PinnedVersion {
+  document: NotebookJson;
+  versionId: string;
+  deployedByUserId: string | null;
 }
 
 /**
@@ -395,6 +449,8 @@ export class NotebookExecutionService {
     // rename in the editor break a deployed caller before anyone deployed anything.
     let found: { id: string };
     let document: NotebookJson;
+    // Who deployed the version this callee runs as, pinned with it: its secrets are theirs.
+    let deployedBy: string | null = null;
 
     if (context.useDeployed) {
       const deployed = await notebooksService.findDeployedByIdOrName(reference, among);
@@ -412,11 +468,14 @@ export class NotebookExecutionService {
       // The first call in this run decides the version; synchronous with the lookup's
       // result, so two parallel first calls cannot each pin a different one.
       const pinned = context.pinned.get(deployed.id);
-      if (pinned) document = pinned;
-      else {
-        context.pinned.set(deployed.id, deployed.document);
-        document = deployed.document;
-      }
+      const version: PinnedVersion = pinned ?? {
+        document: deployed.document,
+        versionId: deployed.versionId,
+        deployedByUserId: deployed.deployedByUserId,
+      };
+      if (!pinned) context.pinned.set(deployed.id, version);
+      document = version.document;
+      deployedBy = deployerHolderFor(deployed.id, version.versionId, version.deployedByUserId);
     } else {
       const draft = await notebooksService.findByIdOrName(reference, among);
       if (draft === null) throw new NotebookNotFoundError(reference);
@@ -455,7 +514,7 @@ export class NotebookExecutionService {
     // runs with the credentials of whoever owns *it*.
     const calleeOwner = await notebookAccessService.ownerOf(found.id);
     const sameOwner = calleeOwner === callerOwner;
-    const held = await secretsForRun(plan, calleeOwner, context.useDeployed, context.startedBy);
+    const held = await secretsForRun(plan, calleeOwner, context.useDeployed, context.startedBy, deployedBy);
     const secrets = held.values;
     // The callee's cells run as the callee's owner, as its secrets are the owner's.
     const host = await cellHostForOwner(calleeOwner, context.grants);
@@ -499,7 +558,7 @@ export class NotebookExecutionService {
       },
       held.redactor
     );
-    noteMissingSecrets(ee, held.missing);
+    noteMissingSecrets(ee, held.missing, held.deployed);
 
     // The callee's logs also surface on the cell that is waiting, labelled, so a failure
     // deep in a chain is readable without going looking for the nested run. Only for a
@@ -550,7 +609,7 @@ export class NotebookExecutionService {
   ): NotebookCaller {
     // One per root run, not per call: it is what makes the second call to a notebook see
     // the version the first one did.
-    const pinned = new Map<string, NotebookJson>();
+    const pinned = new Map<string, PinnedVersion>();
     return (request, log) =>
       this.callNotebook(request, {
         stack: [notebookId],
@@ -632,9 +691,8 @@ export class NotebookExecutionService {
     useDeployed: boolean
   ): Promise<StartedRun> {
     const notebookId = record.id;
-    const document = useDeployed
-      ? await notebooksService.getDeployedDocument(notebookId)
-      : notebooksService.parseDocument(record);
+    const deployedVersion = useDeployed ? await notebooksService.getDeployed(notebookId) : null;
+    const document = useDeployed ? deployedVersion?.document : notebooksService.parseDocument(record);
     if (!document) throw new NotebookNotDeployedError(record.name);
 
     const fullPlan = compileNotebook(document);
@@ -665,10 +723,18 @@ export class NotebookExecutionService {
       plan = single;
     }
 
-    // The owner's for the owner's own run and for anything production; the starter's own for
-    // somebody else's run of the draft (see `secretHolderFor`). An editor's cell can print
-    // whatever it is handed, so it is handed the editor's secrets and never the owner's.
-    const held = await secretsForRun(plan, record.owner_id, useDeployed, options.startedBy);
+    // The owner's for the owner's own run of the draft; the deployer's for anything production;
+    // the starter's own for somebody else's run of the draft (see `secretHolderFor`). A cell can
+    // print whatever it is handed, so an editor's cell is handed the editor's secrets and never the owner's.
+    const held = await secretsForRun(
+      plan,
+      record.owner_id,
+      useDeployed,
+      options.startedBy,
+      useDeployed
+        ? deployerHolderFor(notebookId, deployedVersion?.versionId, deployedVersion?.deployedByUserId)
+        : null
+    );
     const secrets = held.values;
     // Also the owner's: every cell of this notebook runs as their uid. Refused here, before a
     // run row exists, when there is none to give (no owner, or the uid range is full).
@@ -696,7 +762,7 @@ export class NotebookExecutionService {
       },
       held.redactor
     );
-    noteMissingSecrets(ee, held.missing);
+    noteMissingSecrets(ee, held.missing, held.deployed);
 
     // Detached: runNotebook reports its own outcome through terminal events and never
     // rejects for a cell failure. The gate slot is taken here rather than before the

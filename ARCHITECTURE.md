@@ -350,14 +350,20 @@ webhook, a share link) is the team's to read.
 
 Consequences that are deliberate, and worth knowing before inviting someone:
 
-- **Secrets belong to whoever made them, and the deployed version runs with its owner's.** The
-  owner's secrets go to the owner's own runs and to production runs of the *deployed* version (a
-  webhook, a schedule, a share link, a page, an app tool, and a notebook called from another
-  notebook, which uses the *callee's* owner's), because deploying is the step where a human
-  approves the code. A draft run by an editor uses the *editor's own* secrets of the same names;
-  if they have none by that name the cell sees it as missing and the run log says so. Cell code
-  can print or send anything it is handed, so an editor is never handed the owner's credentials
-  before a deploy.
+- **Secrets belong to whoever made them, and a deployed version runs with its deployer's.** The
+  owner's secrets go to the owner's own runs of the draft and to production runs of versions the
+  *owner* deployed. A production run (a webhook, a schedule, a share link, a page, an app tool, and
+  a notebook called from another notebook, which uses the *callee's* deployed version's deployer)
+  uses the secrets of whoever deployed that version (`notebook_versions.deployed_by_user_id`),
+  because deploying is the step where a human approves the code, and the approver's credentials
+  go only to code they approved. An editor who deploys therefore gets the editor's secrets in
+  production, never the owner's; the owner sees "production runs use X's secrets" in the deploy
+  state, and redeploying makes the owner the deployer. A version with no recorded deployer (a
+  legacy row) falls back to the owner and logs `secrets.deployer_unknown`. Transferring a notebook
+  does not change a version's deployer. A draft run by an editor uses the *editor's own* secrets of
+  the same names. In both cases, if the holder has none by that name the cell sees it as missing and
+  the run log says so. Cell code can print or send anything it is handed, so nobody is handed
+  credentials of someone who has not approved the code.
 - **Run output is redacted and projected.** The values of a run's secrets are replaced by
   `[secret:NAME]` in everything the run stores or sends (raw, JSON/URL/hex/base64 forms): an
   accident guard, not a defence against an author who wants a secret out (that is what the rule
