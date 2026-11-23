@@ -19,6 +19,7 @@ import { storageAccess } from "../middleware/storage-access.js";
 import { storageHeaders } from "../middleware/storage-headers.js";
 import { trustProxy, jsonBodyLimit, notebookJsonBodyLimit, declaredCorsOrigins } from "../config.js";
 import type { RunEventSink } from "../core/run-emitter.js";
+import { requestContext } from "../core/request-context.js";
 
 /** When this process came up. Restarts are the thing you are usually checking for. */
 const STARTED_AT = new Date().toISOString();
@@ -53,6 +54,10 @@ export function createApp(publishRunEvent: RunEventSink) {
   const app = express();
   // Behind nginx / the Vite proxy every request arrives from the proxy; see trustProxy().
   app.set("trust proxy", trustProxy());
+  // First, so every later handler — and every log line and audit event it writes — runs
+  // inside a context that knows the request id, the client address and, once a guard has
+  // established it, the actor.
+  app.use(requestContext);
   app.use(cors(corsPolicy()));
 
   // Small by default: /hooks, /mcp and /api/shared are parsed before anyone has proved who
