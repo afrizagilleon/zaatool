@@ -54,17 +54,18 @@ function recorder() {
   return { seen, res: res as never };
 }
 
-/** Runs `body` with `console.error` captured, so a test can assert on what was logged. */
+/** Runs `body` with the log's stderr stream captured, so a test can assert on what was logged. */
 async function withCapturedLog(body: () => Promise<void> | void): Promise<string> {
-  const original = console.error;
+  const original = process.stderr.write;
   let logged = "";
-  console.error = (...args: unknown[]) => {
-    logged += args.map(String).join(" ");
-  };
+  process.stderr.write = ((chunk: unknown) => {
+    logged += String(chunk);
+    return true;
+  }) as typeof process.stderr.write;
   try {
     await body();
   } finally {
-    console.error = original;
+    process.stderr.write = original;
   }
   return logged;
 }

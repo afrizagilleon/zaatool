@@ -26,8 +26,8 @@
 x-logging: &default-logging
   driver: json-file
   options:
-    max-size: ${LOG_MAX_SIZE:-10m}
-    max-file: "${LOG_MAX_FILE:-3}"
+    max-size: ${LOG_MAX_SIZE:-50m}
+    max-file: "${LOG_MAX_FILE:-10}"
 
 services:
   postgres:
@@ -63,6 +63,10 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-zaa_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB:-zaa_tool}
+      # The operational log: debug|info|warn|error, and json (one object per line, what a log
+      # shipper wants) or pretty (for reading by eye). See "Logs" in DEPLOY.md.
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      LOG_FORMAT: ${LOG_FORMAT:-json}
       # Off unless you are letting the first person in. Turn it on, register, turn it off.
       ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-false}
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-25}

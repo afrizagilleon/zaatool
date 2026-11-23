@@ -205,11 +205,21 @@ await check("T-05: reset-password takes a password, prompts for one, or generate
 
   await authService.createUser("zz-test-reset1", "password123456", "viewer");
 
-  // 1. --password: the caller already knows what they want.
-  execFileSync(process.execPath, run("zz-test-reset1", "--password", "flagpass123456"), {
+  // 1. --password-stdin: the caller already knows what they want. The plain `--password`
+  //    flag is refused (L-11): a password in argv sits in shell history and `ps`.
+  execFileSync(process.execPath, run("zz-test-reset1", "--password-stdin"), {
     cwd: process.cwd(),
+    input: "flagpass123456\n",
   });
   assert.ok((await authService.login("zz-test-reset1", "flagpass123456")).token);
+  const refused = spawnSync(process.execPath, run("zz-test-reset1", "--password", "argvpass123456"), {
+    cwd: process.cwd(),
+    encoding: "utf-8",
+  });
+  assert.notEqual(refused.status, 0);
+  assert.match(refused.stderr, /--password-stdin/);
+  assert.ok(!refused.stderr.includes("argvpass123456") && !refused.stdout.includes("argvpass123456"));
+  await assert.rejects(authService.login("zz-test-reset1", "argvpass123456"));
 
   // 2. --prompt: typed where nobody can read it off the screen or the shell history.
   const prompted = spawnSync(process.execPath, run("zz-test-reset1", "--prompt"), {
@@ -242,22 +252,33 @@ await check("T-05: reset-password takes a password, prompts for one, or generate
   );
 });
 
-await check("T-06: create-user script creates account with required --role and accepts --password", async () => {
+await check("T-06: create-user script creates account with required --role and reads the password from stdin and refuses --password", async () => {
   const { execFileSync, spawnSync } = await import("node:child_process");
 
   // 1. Missing --role fails
-  const noRoleProc = spawnSync(process.execPath, ["--import", "tsx", "scripts/create-user.ts", "zz-test-norole", "--password", "password123456"], {
+  const noRoleProc = spawnSync(process.execPath, ["--import", "tsx", "scripts/create-user.ts", "zz-test-norole", "--password-stdin"], {
     cwd: process.cwd(),
     encoding: "utf-8",
+    input: "password123456\n",
   });
   assert.notEqual(noRoleProc.status, 0);
 
   // 2. Success with --role viewer and --password
-  const proc = spawnSync(process.execPath, ["--import", "tsx", "scripts/create-user.ts", "zz-test-create1", "--role", "viewer", "--password", "userpass123456"], {
+  const proc = spawnSync(process.execPath, ["--import", "tsx", "scripts/create-user.ts", "zz-test-create1", "--role", "viewer", "--password-stdin"], {
+    cwd: process.cwd(),
+    encoding: "utf-8",
+    input: "userpass123456\n",
+  });
+  assert.equal(proc.status, 0);
+
+  // 3. --password is refused and creates nothing (L-11).
+  const argv = spawnSync(process.execPath, ["--import", "tsx", "scripts/create-user.ts", "zz-test-create2", "--role", "viewer", "--password", "userpass123456"], {
     cwd: process.cwd(),
     encoding: "utf-8",
   });
-  assert.equal(proc.status, 0);
+  assert.notEqual(argv.status, 0);
+  assert.match(argv.stderr, /--password-stdin/);
+  await assert.rejects(authService.login("zz-test-create2", "userpass123456"));
 
   const loginRes = await authService.login("zz-test-create1", "userpass123456");
 

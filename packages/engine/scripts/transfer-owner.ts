@@ -16,6 +16,7 @@
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
 import { notebookAccessService } from "../src/services/notebook-access.service.js";
+import { humanMessage } from "./cli-error.js";
 
 const USAGE =
   "Usage: transfer-owner <from-username | --orphaned> <to-username> [--notebook <id>]";
@@ -64,7 +65,7 @@ async function main(): Promise<void> {
 
 main()
   .catch((err: unknown) => {
-    console.error(`\n  ${(err as Error).message}\n`);
+    console.error(`\n  ${humanMessage(err)}\n`);
     process.exitCode = 1;
   })
   .finally(() => pool.end());

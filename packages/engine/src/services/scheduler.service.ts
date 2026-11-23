@@ -3,6 +3,7 @@ import { matchCron } from "../core/cron.js";
 import { cronTimezone } from "../config.js";
 import { notebookTriggersService, type TriggerRecord } from "./notebook-triggers.service.js";
 import { notebookExecutionService } from "./notebook-execution.service.js";
+import { logger } from "../core/logger.js";
 
 const MINUTE_MS = 60_000;
 
@@ -64,10 +65,11 @@ export class SchedulerService {
   begin(publishRunEvent: RunEventSink, now: Date) {
     this.publishRunEvent = publishRunEvent;
     this.lastMinute = Math.floor(now.getTime() / MINUTE_MS);
-    console.log(
-      `⏰ Background Scheduler Service started at ${now.toISOString()} (cron time zone ${cronTimezone()}); ` +
-        "schedules missed while the engine was down are not replayed."
-    );
+    logger.info("Scheduler started; schedules missed while the engine was down are not replayed.", {
+      event: "scheduler.started",
+      started_at: now.toISOString(),
+      cron_timezone: cronTimezone(),
+    });
   }
 
   private arm() {
@@ -95,11 +97,12 @@ export class SchedulerService {
 
     let first = this.lastMinute + 1;
     if (current - this.lastMinute > MAX_CATCH_UP_MINUTES) {
-      console.warn(
-        `⏰ Scheduler tick is ${current - this.lastMinute} minutes after the last one; ` +
-          `treating the gap as downtime and not replaying minutes ` +
-          `${new Date(first * MINUTE_MS).toISOString()} to ${new Date((current - 1) * MINUTE_MS).toISOString()}.`
-      );
+      logger.warn("Scheduler tick came long after the last one; treating the gap as downtime and not replaying it.", {
+        event: "scheduler.gap_skipped",
+        gap_minutes: current - this.lastMinute,
+        skipped_from: new Date(first * MINUTE_MS).toISOString(),
+        skipped_to: new Date((current - 1) * MINUTE_MS).toISOString(),
+      });
       first = current;
     }
     // Claimed before the first await, so a slow database cannot let the next tick see
@@ -118,10 +121,13 @@ export class SchedulerService {
           // A run that outlasts its period would otherwise add another copy of itself every
           // tick, each one waiting for a slot the slow one is holding.
           if (this.deps.hasRunInFlight?.(trigger.notebook_id)) {
-            console.warn(
-              `⏰ Notebook ${trigger.notebook_id} skipped the '${trigger.cron}' tick at ${at.toISOString()}: ` +
-                "its previous cron run is still running or waiting for a slot."
-            );
+            logger.warn("Cron tick skipped: the previous cron run is still running or waiting for a slot.", {
+              event: "scheduler.tick_skipped",
+              trigger_id: trigger.id,
+              notebook_id: trigger.notebook_id,
+              cron: trigger.cron,
+              tick_at: at.toISOString(),
+            });
             continue;
           }
 
@@ -130,20 +136,29 @@ export class SchedulerService {
               triggerSource: "cron",
               input: { trigger: { kind: "cron", cron: trigger.cron, firedAt: at.toISOString() } },
             });
-            console.log(`⏰ Notebook ${trigger.notebook_id} started run ${runId} ('${trigger.cron}')`);
+            logger.info("Cron run started.", {
+              event: "scheduler.run_started",
+              trigger_id: trigger.id,
+              notebook_id: trigger.notebook_id,
+              run_id: runId,
+              cron: trigger.cron,
+            });
           } catch (err: unknown) {
             // One misbehaving notebook must not stop the others from firing this minute. A full
             // gate does not land here until even the scheduled-run queue is full: until then a
             // cron run waits its turn rather than being dropped.
-            console.error(
-              `Failed to start notebook ${trigger.notebook_id} from cron '${trigger.cron}':`,
-              (err as Error).message
-            );
+            logger.error("Could not start a notebook from cron.", {
+              event: "scheduler.run_start_failed",
+              trigger_id: trigger.id,
+              notebook_id: trigger.notebook_id,
+              cron: trigger.cron,
+              err,
+            });
           }
         }
       }
     } catch (err) {
-      console.error("Scheduler tick error:", err);
+      logger.error("Scheduler tick failed.", { event: "scheduler.tick_failed", err });
     }
   }
 }

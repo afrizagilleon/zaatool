@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { skillsService } from "../services/skills.service.js";
+import { internalError } from "../core/http-errors.js";
 
 export class SkillsController {
   async getAll(req: Request, res: Response) {
@@ -7,8 +8,7 @@ export class SkillsController {
       const skills = await skillsService.getAll();
       res.json(skills);
     } catch (err: any) {
-      console.error("Skills controller error:", err);
-      res.status(500).json({ error: "Something went wrong. Please try again." });
+      internalError(res, err, "skills.request_failed");
     }
   }
 
@@ -18,8 +18,7 @@ export class SkillsController {
       const skill = await skillsService.create(name, description, content);
       res.json(skill);
     } catch (err: any) {
-      console.error("Skills controller error:", err);
-      res.status(500).json({ error: "Something went wrong. Please try again." });
+      internalError(res, err, "skills.request_failed");
     }
   }
 
@@ -29,8 +28,7 @@ export class SkillsController {
       const skill = await skillsService.update(String(req.params.id), name, description, content);
       res.json(skill);
     } catch (err: any) {
-      console.error("Skills controller error:", err);
-      res.status(500).json({ error: "Something went wrong. Please try again." });
+      internalError(res, err, "skills.request_failed");
     }
   }
 
@@ -39,8 +37,7 @@ export class SkillsController {
       const result = await skillsService.delete(String(req.params.id));
       res.json(result);
     } catch (err: any) {
-      console.error("Skills controller error:", err);
-      res.status(500).json({ error: "Something went wrong. Please try again." });
+      internalError(res, err, "skills.request_failed");
     }
   }
 }

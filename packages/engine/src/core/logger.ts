@@ -15,12 +15,12 @@ import { actorFields } from "./actor.js";
  * Because every value is JSON-encoded, a newline or terminal escape inside a user-chosen
  * name cannot forge a second line.
  *
- * `LOG_LEVEL` (debug|info|warn|error, default info) filters; `LOG_FORMAT=pretty` prints a
+ * `LOG_LEVEL` (debug|info|warn|error|fatal, default info) filters; `LOG_FORMAT=pretty` prints a
  * readable line instead of JSON for local development.
  */
 
-export type LogLevel = "debug" | "info" | "warn" | "error";
-const ORDER: Record<LogLevel, number> = { debug: 10, info: 20, warn: 30, error: 40 };
+export type LogLevel = "debug" | "info" | "warn" | "error" | "fatal";
+const ORDER: Record<LogLevel, number> = { debug: 10, info: 20, warn: 30, error: 40, fatal: 50 };
 
 /** Keys whose values are never written, at any depth. Matched case-insensitively. */
 const SECRET_KEY =
@@ -92,7 +92,7 @@ function write(level: LogLevel, msg: string, fields: LogFields = {}): void {
     ...(scrub(rest) as Record<string, unknown>),
     ...(err !== undefined ? { error: serializeError(err) } : {}),
   };
-  const stream = level === "error" || level === "warn" ? process.stderr : process.stdout;
+  const stream = level === "error" || level === "warn" || level === "fatal" ? process.stderr : process.stdout;
   stream.write(`${format(line)}\n`);
 }
 
@@ -109,4 +109,6 @@ export const logger = {
   info: (msg: string, fields?: LogFields) => write("info", msg, fields),
   warn: (msg: string, fields?: LogFields) => write("warn", msg, fields),
   error: (msg: string, fields?: LogFields) => write("error", msg, fields),
+  /** The process cannot continue; written just before it exits. */
+  fatal: (msg: string, fields?: LogFields) => write("fatal", msg, fields),
 };

@@ -102,6 +102,11 @@ touches Caddy or any other service for you.
    docker compose exec engine pnpm create-user <username> --role creator
    ```
 
+   It asks for the password at a hidden prompt. To script it, pipe the password in instead:
+   `printf '%s' "$PW" | docker compose exec -T engine pnpm create-user <username> --role creator --password-stdin`.
+   `--password <value>` is refused on purpose: a password on the command line lands in shell
+   history and in the process list.
+
    For automation, set `SETUP_CODE` in `.env` to a value of your own (long and random) and
    the engine uses it instead of the generated one. It stops meaning anything once there
    is an account, but remove it from `.env` afterwards anyway.
@@ -339,7 +344,9 @@ docker compose exec engine pnpm reset-password --list
 docker compose exec engine pnpm reset-password <username> --role creator
 ```
 
-A new password is generated and printed once. There is no email path and there will not be
+A new password is generated and printed once. To choose it yourself, `--prompt` asks at a
+hidden prompt and `--password-stdin` reads it from standard input (`--password <value>` is
+refused, for the same reason as in `create-user`). There is no email path and there will not be
 one — this project has no mail server, and a reset link is only as trustworthy as the
 mailbox it lands in. Whoever can reach this terminal owns the machine, which is the
 authority a reset email is trying, badly, to stand in for.
@@ -570,9 +577,10 @@ CPU and memory, the size of the data volumes and of `backups/`, the ports publis
 host, and where `.env` is. Postgres, engine and web all carry a healthcheck, and `web` waits
 for `engine` to be healthy, which waits for `postgres`.
 
-Logs rotate on their own: each container keeps at most 3 files of 10 MB (`LOG_MAX_SIZE`,
+Logs rotate on their own: each container keeps at most 10 files of 50 MB (`LOG_MAX_SIZE`,
 `LOG_MAX_FILE` in `.env`), so they cannot fill the disk. A changed value applies when the
-containers are recreated (`docker compose up -d --force-recreate`).
+containers are recreated (`docker compose up -d --force-recreate`). What the logs hold, and
+how to keep them longer, is under "Logs" below.
 
 Open **Resources**. The bottom line names the app's build and the engine's build.
 
@@ -582,6 +590,48 @@ The engine's own answer is also available without signing in:
 ```bash
 curl http://localhost:8080/api/health
 ```
+
+---
+
+## Logs
+
+zaatool keeps three different records, on purpose, because they answer different questions
+and have different readers.
+
+| Stream | Answers | Where it lives |
+|---|---|---|
+| **Operational log** | What did the engine do, and what went wrong? | The engine's stdout and stderr: `docker compose logs engine` |
+| **Audit trail** | Who changed what, and who was refused? | The `audit_events` table, read through `/api/audit` (a creator sees all of it, anyone else sees their own) |
+| **Cell output** | What did this run print? | With the run itself, in the app; never in the operational log |
+
+**The operational log** is one JSON object per line: `ts`, `level`, `service`, `event` (a
+stable dotted name such as `server.listening` or `http.request`), `msg`, and fields. Every
+request carries a `request_id`, the same value the caller receives in `X-Request-Id` and in
+the `requestId` of any 500, so a failure report can be found with one `grep`. Credentials are
+kept out of it: webhook slugs and share tokens are masked in request paths, values under
+credential-named keys are replaced, and a database error's `detail` (which quotes the failing
+row) is never written. Set `LOG_LEVEL` (`debug`, `info`, `warn`, `error`) and `LOG_FORMAT`
+(`json`, or `pretty` for reading by eye) in `.env`. The `web` container's nginx writes its
+access log as JSON too (`"service":"zaatool-web"`), with the same masking and the same
+`request_id`.
+
+One line is meant to be read by a person: when there are no accounts yet, `auth.setup_code`
+carries the setup code, because this log is the only way that code reaches you. It is random,
+held in memory, and worthless once the first account exists.
+
+**Shipping it to a SIEM.** Everything is on stdout, so any Docker-aware shipper works without
+touching zaatool. Either point a log driver at it (`driver: syslog`, `gelf`, `fluentd` or
+`awslogs` in place of `json-file` in `docker-compose.yml`'s `x-logging`; `docker compose logs`
+stops working with some of them), or leave `json-file` and run an agent (Vector, Fluent Bit,
+Promtail, Filebeat) that tails `/var/lib/docker/containers/*/*-json.log` and parses each
+`log` field as JSON. For the audit trail, a creator can pull it as JSON lines:
+`GET /api/audit/export?format=jsonl`.
+
+**Retention.** The files `docker` keeps are a buffer, not an archive: 10 x 50 MB per
+container, then the oldest is overwritten. How long that is depends on traffic; check
+`docker compose logs --since 24h engine | wc -c` and scale `LOG_MAX_SIZE` / `LOG_MAX_FILE` up
+if a day is more than a tenth of it. For a retention you can state (30 days, a year), ship the
+logs; the audit trail already lives in Postgres and is covered by `backup.sh`.
 
 ---
 

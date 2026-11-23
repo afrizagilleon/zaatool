@@ -3,6 +3,7 @@ import { AuthInputError, authService, isRole, RegistrationClosedError, SetupCode
 import { cronTimezone, registrationOpen } from "../config.js";
 import { pool } from "../db/connection.js";
 import { clearSessionCookie, setSessionCookie } from "../middleware/session-cookie.js";
+import { internalError } from "../core/http-errors.js";
 
 /**
  * The one place that decides what a failure is allowed to say out loud.
@@ -16,8 +17,7 @@ function refuse(res: Response, err: unknown, where: string, status = 400) {
   if (err instanceof AuthInputError) {
     return res.status(status).json({ error: err.message });
   }
-  console.error(`${where}:`, err);
-  return res.status(500).json({ error: "Something went wrong. Please try again." });
+  return internalError(res, err, "auth.request_failed", { where });
 }
 
 export class AuthController {
@@ -36,8 +36,7 @@ export class AuthController {
         cronTimezone: cronTimezone(),
       });
     } catch (err) {
-      console.error("Auth policy error:", err);
-      res.status(500).json({ error: "Something went wrong. Please try again." });
+      internalError(res, err, "auth.policy_failed");
     }
   }
 
@@ -77,8 +76,7 @@ export class AuthController {
     try {
       res.json({ success: true, users: await authService.listUsers() });
     } catch (err) {
-      console.error("List users error:", err);
-      res.status(500).json({ error: "Something went wrong. Please try again." });
+      internalError(res, err, "auth.list_users_failed");
     }
   }
 
@@ -113,8 +111,7 @@ export class AuthController {
       }
       res.json({ success: true, user: rows[0] });
     } catch (err) {
-      console.error("Get me error:", err);
-      res.status(500).json({ error: "Something went wrong. Please try again." });
+      internalError(res, err, "auth.get_me_failed");
     }
   }
 

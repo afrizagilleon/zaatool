@@ -17,6 +17,7 @@ import { notebookAccessService } from "../services/notebook-access.service.js";
 import { notebookRunsService } from "../services/notebook-runs.service.js";
 import { finishedRunEvent } from "../core/finished-run-event.js";
 import { onSessionsEnded } from "../core/session-events.js";
+import { logger } from "../core/logger.js";
 
 /** Guards against a single socket holding open an unbounded number of channels. */
 const MAX_SUBSCRIPTIONS_PER_SOCKET = 20;
@@ -75,7 +76,7 @@ async function identify(token: string): Promise<Caller | null> {
       };
     }
   } catch (err) {
-    console.error("WebSocket session check failed:", err);
+    logger.error("WebSocket session check failed.", { event: "ws.session_check_failed", err });
     return null;
   }
   const share = await notebookSharesService.resolve(token);
@@ -149,7 +150,7 @@ export class WebSocketManager {
     });
 
     this.wss.on("error", (err) => {
-      console.error("❌ WebSocket server error:", err.message);
+      logger.error("WebSocket server error.", { event: "ws.server_error", err });
     });
 
     this.wss.on("connection", (ws, req) => {
@@ -183,7 +184,7 @@ export class WebSocketManager {
       let decisions: Promise<void> = Promise.resolve();
       const decide = (task: () => Promise<void>) => {
         decisions = decisions.then(task).catch((err: unknown) => {
-          console.error("WebSocket delivery error:", (err as Error).message);
+          logger.error("WebSocket delivery failed.", { event: "ws.delivery_failed", err });
         });
       };
 
@@ -232,7 +233,7 @@ export class WebSocketManager {
             if (!now || !now.active || now.tokenVersion !== tokenVersion) end("This session was ended.");
           })
           .catch((err: unknown) => {
-            console.error("WebSocket session re-check failed:", (err as Error).message);
+            logger.error("WebSocket session re-check failed.", { event: "ws.session_recheck_failed", err });
           });
       };
 
@@ -383,7 +384,7 @@ export class WebSocketManager {
 
       ws.on("close", release);
       ws.on("error", (err) => {
-        console.error("WebSocket client error:", err.message);
+        logger.warn("WebSocket client error.", { event: "ws.client_error", err });
         release();
       });
     });

@@ -15,6 +15,7 @@
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
 import { agentTokensService, type AgentScope } from "../src/services/agent-tokens.service.js";
+import { humanMessage } from "./cli-error.js";
 
 const SCOPES: AgentScope[] = ["author", "reader"];
 
@@ -83,7 +84,7 @@ async function main(): Promise<void> {
 main()
   .then(() => pool.end())
   .catch(async (err: unknown) => {
-    console.error(`\n  ${(err as Error).message}\n`);
+    console.error(`\n  ${humanMessage(err)}\n`);
     await pool.end();
     process.exit(1);
   });

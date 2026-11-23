@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { secretsService } from "../services/secrets.service.js";
+import { internalError } from "../core/http-errors.js";
 
 /** Whose secrets these are: the account asking. `authMiddleware` has run, so there is one. */
 const ownerOf = (req: Request): string => (req as Request & { user: { id: string } }).user.id;
@@ -13,8 +14,7 @@ export class SecretsController {
       const secrets = await secretsService.getAll(ownerOf(req));
       res.json(secrets);
     } catch (err: any) {
-      console.error("Secrets controller error:", err);
-      res.status(500).json({ error: "Something went wrong. Please try again." });
+      internalError(res, err, "secrets.request_failed");
     }
   }
 
@@ -25,8 +25,7 @@ export class SecretsController {
       res.json(secret);
     } catch (err: any) {
       if (isDuplicateKey(err)) return res.status(409).json({ error: "You already have a secret with that name." });
-      console.error("Secrets controller error:", err);
-      res.status(500).json({ error: "Something went wrong. Please try again." });
+      internalError(res, err, "secrets.request_failed");
     }
   }
 
@@ -45,8 +44,7 @@ export class SecretsController {
       res.json(secret);
     } catch (err: any) {
       if (isDuplicateKey(err)) return res.status(409).json({ error: "You already have a secret with that name." });
-      console.error("Secrets controller error:", err);
-      res.status(500).json({ error: "Something went wrong. Please try again." });
+      internalError(res, err, "secrets.request_failed");
     }
   }
 
@@ -55,8 +53,7 @@ export class SecretsController {
       const result = await secretsService.delete(ownerOf(req), String(req.params.id));
       res.json(result);
     } catch (err: any) {
-      console.error("Secrets controller error:", err);
-      res.status(500).json({ error: "Something went wrong. Please try again." });
+      internalError(res, err, "secrets.request_failed");
     }
   }
 }

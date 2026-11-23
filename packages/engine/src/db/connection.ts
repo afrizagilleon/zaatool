@@ -1,4 +1,5 @@
 import pg from "pg";
+import { logger } from "../core/logger.js";
 
 const { Pool } = pg;
 
@@ -34,5 +35,5 @@ export const pool = new Pool(connectionOptions());
  * outage while doing it.
  */
 pool.on("error", (err) => {
-  console.error("PostgreSQL pool error:", err);
+  logger.error("PostgreSQL pool error.", { event: "db.pool_error", err });
 });

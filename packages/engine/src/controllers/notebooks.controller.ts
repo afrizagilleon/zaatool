@@ -31,6 +31,7 @@ import type {
   NotebookPage,
   NotebookPageAction,
 } from "@zaa-tool/shared";
+import { internalError } from "../core/http-errors.js";
 
 /** Who is asking. `authMiddleware` ran before any of these handlers, so there is always one. */
 interface Caller {
@@ -206,8 +207,7 @@ function respondWithError(res: Response, err: unknown) {
       currentRevision: err.currentRevision,
     });
   }
-  console.error("Notebooks controller error:", err);
-  return res.status(500).json({ error: "Something went wrong. Please try again." });
+  return internalError(res, err, "notebooks.request_failed");
 }
 
 export class NotebooksController {
