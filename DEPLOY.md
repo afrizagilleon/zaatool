@@ -90,6 +90,9 @@ touches Caddy or any other service for you.
    docker compose logs engine | grep -i setup
    ```
 
+   The log is JSON, one object per line; the code is in the `msg` of the line whose
+   `event` is `auth.setup_code`. (The installer's own `grep -i setup` finds it the same way.)
+
 5. **Create the first account.** Open `https://zaa.example.com`, choose *Create the first
    one*, enter the setup code with your username and password. That account is the creator.
    Anyone who opens the URL before you cannot take it: without the code, registration
@@ -332,7 +335,8 @@ random one-time setup code to its log at startup, and the first registration mus
 docker compose logs engine | grep -i setup
 ```
 
-Open the app, choose *Create the first one*, enter the code. A missing or wrong code is a
+Open the app, choose *Create the first one*, enter the code (it is in the `msg` of the
+`auth.setup_code` line; the log is JSON). A missing or wrong code is a
 403. The code is kept in memory only (a restart makes a new one), and means nothing once an
 account exists. `SETUP_CODE` in `.env` replaces the random code, and
 `pnpm create-user <name> --role creator` inside the engine container needs no code at all.
@@ -626,6 +630,23 @@ stops working with some of them), or leave `json-file` and run an agent (Vector,
 Promtail, Filebeat) that tails `/var/lib/docker/containers/*/*-json.log` and parses each
 `log` field as JSON. For the audit trail, a creator can pull it as JSON lines:
 `GET /api/audit/export?format=jsonl`.
+
+**The audit trail in practice.** Creators read it on the **Audit** page or at
+`GET /api/audit`; everybody else sees only what they did or what concerns their own
+notebooks. It is kept for `AUDIT_RETENTION_DAYS` (default 400; `0` keeps everything) and a
+daily job removes older rows. Run cell output is kept for `RUN_RETENTION_DAYS` (default 90).
+To check that nobody altered the trail:
+
+```bash
+docker compose exec engine pnpm audit-verify
+```
+
+It exits 0 when the hash chain is intact and 1 when it is not, naming the first bad row, so it
+can run from cron. The chain cannot show that the *newest* rows were deleted, and whoever
+controls the database can rewrite all of it: keep a JSONL export
+(`GET /api/audit/export?format=jsonl`, creator only) somewhere the server cannot reach,
+on a schedule, if you need that guarantee. A failed audit write is logged as
+`audit.write_failed` and never blocks the action.
 
 **Retention.** The files `docker` keeps are a buffer, not an archive: 10 x 50 MB per
 container, then the oldest is overwritten. How long that is depends on traffic; check

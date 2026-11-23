@@ -78,6 +78,11 @@ instead of at write time.
 | `notebook-edit.ts` | apply one cell edit to a document |
 | `notebook-map.ts` | who calls whom, which trigger fires what |
 | `notebook-packages.ts` | the package allow-list and version pinning |
+| `actor.ts` | the typed *actor* (user, agent, webhook, cron, share, cli, system, anonymous) |
+| `request-context.ts` | per-request context (AsyncLocalStorage): request id, actor, ip |
+| `logger.ts` | the one way to write the operational log: JSON lines, redaction |
+| `secret-redactor.ts` | replaces a run's secret values with `[secret:NAME]` |
+| `run-projection.ts` | what a given reader may see of a run |
 
 ---
 
@@ -266,7 +271,7 @@ engine. That needs `SYS_RESOURCE`, which compose grants; without it the engine w
   `process.kill`.) A production start on Windows warns about this. Windows is not a deploy target.
 - **Cells of the same owner share files, not processes.** Two notebooks of one account can read
   and write each other's files in the owner's shared folders (temp, home, package cache); the
-  owner is one domain of trust (an editor's cells run as the owner's uid, though not with the owner's secrets). They cannot
+  owner is one domain of trust (an editor's cells run as the owner's uid, though a draft run by an editor gets the editor's own secrets, not the owner's). They cannot
   signal or read each other's processes. A cell can also fill the shared temp folder (up to the
   owner's disk quota, which it shares with the owner's other cells) or poison the shared package
   cache for its owner's next cells. A file a cell deliberately makes mode 0700 cannot be cleaned
@@ -305,14 +310,15 @@ are unrestricted by name.
 | Table | Holds |
 |---|---|
 | `notebooks` | the draft document, name, runtime, tags, `updated_at`, `owner_id`, `app_visibility` |
-| `notebook_versions` | deployed snapshots |
+| `notebook_versions` | deployed snapshots, with `deployed_by_user_id` (whose secrets a production run uses) |
 | `notebook_access` | who a notebook is shared with: `editor` or `app` rows |
-| `notebook_runs` | run history, logs, outputs, `started_by` |
+| `notebook_runs` | run history, logs, outputs, `started_by`, and who really started it (`actor_type`, `agent_token_id`, `agent_client`, `trigger_id`, `share_id`) |
 | `notebook_triggers` | index of triggers, rebuilt from the document on every save |
 | `notebook_shares` | shared page links and password hashes |
 | `secrets` | secret values, referenced by name from notebooks; each belongs to one account (`owner_id`) |
 | `agent_tokens` | scoped MCP tokens, each acting as one account (`user_id`) |
 | `users` | accounts (`creator` / `viewer`) |
+| `audit_events` | the audit trail: append-only, hash-chained, no foreign keys (see "Logs and audit") |
 | `files` | uploaded files |
 | `skills` | reusable snippets |
 
@@ -396,6 +402,108 @@ There is no administrator in the app. Recovery is on the server:
 (or `--orphaned` for notebooks nobody owns) moves notebooks and copies the secrets they name to the
 new owner.
 
+
+### Secrets: the short version
+
+- **Who sees a value.** Nobody through the app: the Secrets page lists names, never values. A
+  value reaches exactly one place, the process of a run whose binding names it.
+- **Binding.** The owner's own runs use the owner's secrets. A draft run by an editor uses the
+  *editor's* secrets of the same names. A production run (webhook, schedule, share link, page,
+  app tool, nested call) uses the secrets of whoever *deployed* that version. A name the holder
+  does not have is missing to the cell, and the run log says so. Details above, under "Who sees what".
+- **Who sees a run.** Owners and editors see the whole run. App users, share visitors, webhook
+  callers, other users' agents and cross-owner callers get status, timings, declared outputs and
+  a generic error (`core/run-projection.ts`). The WebSocket applies the same rule: a share link's
+  socket follows only runs started through that link (`notebook_runs.share_id`), and a
+  non-editor socket receives only `run:done` and `run:error`.
+- **Redaction is accident prevention, not a boundary.** One function (`core/secret-redactor.ts`)
+  replaces a secret's value with `[secret:NAME]` in everything a run stores or sends: raw, JSON,
+  URL-encoded, hex, and base64/base64url at every alignment, for values of at least 6 characters.
+  Cell code that wants to leak a secret (split it, reverse it, post it to a server) can; that
+  is why a secret is handed only to code its holder has approved. A secret spread over several
+  log lines (a multi-line key) is not recognised.
+- **Scrub and retention.** Changing or deleting a secret rewrites its old value out of stored
+  runs. Finished runs are deleted after `RUN_RETENTION_DAYS` (default 90). Runs made before
+  redaction show empty outputs on public pages, on purpose, with no fallback.
+- **Public pages are not progressive.** Because non-editors get only the final projection, a
+  shared page shows results when the run ends, not cell by cell.
+
+### Logs and audit
+
+Three streams, kept apart because they answer different questions and have different readers.
+
+| Stream | Answers | Lives in | Kept |
+|---|---|---|---|
+| Operational log | What did the engine do, what went wrong? | stdout of `engine` and `web` (nginx) | Docker's rotation (10 x 50 MB), or wherever you ship it |
+| Audit trail | Who changed what, who was refused? | table `audit_events` | `AUDIT_RETENTION_DAYS`, default 400 (`0` keeps everything) |
+| Run output | What did this run print and return? | `notebook_runs` | `RUN_RETENTION_DAYS`, default 90, and the 50 newest per notebook |
+
+A cell's output never goes into the operational log, and the operational log is never a record
+of who did what to a notebook; that is the audit trail's job.
+
+**Operational log** (`core/logger.ts`; `console.*` is gone from production paths and
+`CONTRIBUTING.md` forbids it). One JSON object per line: `ts`, `level`, `service`, `event`
+(stable dotted name), `msg`, the actor (`actor.type`, `actor.user_id`, ...) when known, and the
+request's `request_id`, which is also the `X-Request-Id` response header and the `requestId`
+in a 500. `http.request` is the access log; webhook slugs and share tokens are masked in the
+path. Redaction: values under credential-named keys (password, token, secret, authorization,
+cookie, api key, slug, setup code, signature...) are replaced at any depth, and a Postgres
+error's `detail` (it quotes the failing row) is dropped. Unhandled errors end in one global
+handler that logs the real error and answers a generic 500 with the request id.
+`LOG_LEVEL` (`debug|info|warn|error`) and `LOG_FORMAT` (`json|pretty`) tune it. nginx writes
+the same shape (`"service":"zaatool-web"`), masks `/hooks/`, `/a/` and `/api/shared/` and drops
+the query string. The only credential deliberately logged is the setup code, as one
+`auth.setup_code` line while no account exists.
+
+**Actor model** (`core/actor.ts`). Every entry point sets an actor, so every log line and audit
+row says who, in one vocabulary: `user` (session), `agent` (an MCP token: its id and label, the
+owning user, and the `clientInfo` the client announced, which is self-reported and never
+trusted), `webhook` and `cron` (identified by the trigger row, never by the slug), `share`
+(the share row), `cli` (command and OS user), `system` (boot, reconciliation, cleanup) and
+`anonymous`. Identity is the id; names are stored as they were at the time, so a row still
+reads after a rename or delete. Runs carry the same attribution, and notebook authorship is
+typed (`kind`, `userId`, `tokenId`) rather than a free-text name.
+
+**Audit trail** (`services/audit.service.ts`). Each row: id, time, action (`noun.verb`),
+outcome (`success`, `failure`, `denied`), actor, target (type, id, owner, name at the time), ip,
+user agent, request id and a small `meta` (names and facts, never a value; strings are cleaned
+of control characters and capped). What is recorded: sign-in, sign-out, register, first-account
+setup, password change, logout everywhere, user create and role change; agent token issue,
+revoke, session start and failed authentication; notebook deploy, undeploy, delete, transfer
+and access changes; share create, revoke and failed share passwords; secret create, update and
+delete, and `secrets_key.rotate`; run cancel; webhook receipt; authorisation refusals
+(`authz.denied`); engine start; and the trail's own `audit.prune` and `audit.suppressed` (a
+burst of identical refusals is collapsed into one row that counts them). Failed sign-ins are
+recorded with outcome `failure`. Running a notebook is not an audit event: that is the run history.
+
+*Tamper evidence.* The table has no foreign keys (a row about a deleted user or notebook is
+the one somebody wants later), and a trigger refuses `UPDATE`, `DELETE` and `TRUNCATE` except
+for the retention job. Each row stores `prev_hash` and `hash` (sha256 over its content and the
+previous hash), so a changed or removed row in the middle breaks the chain.
+`pnpm --filter @zaa-tool/engine audit-verify` recomputes it (exit 0 intact, 1 broken, naming
+the first bad row). After pruning, the oldest remaining row is the anchor and its `prev_hash` is
+printed, to compare with an export or the `audit.prune` event. **Limit:** a chain cannot show
+that the newest rows were deleted, and whoever holds database superuser access can rewrite the
+whole chain. Keep periodic JSONL exports (or ship them to a SIEM) somewhere the database host
+cannot reach.
+
+*Failure to write.* An audit write that fails is logged as `audit.write_failed` and does not
+block the action. A full disk should not lock everybody out, including the creator who must
+fix it. A lost row is visible in the operational log. This is a decision, not an oversight.
+
+*Reading it.* `GET /api/audit` (filters: `action` prefix, `actorType`, `targetType`,
+`targetId`, `outcome`; paged) and the **Audit** page in the app. A `creator` sees everything;
+anyone else sees the events they performed and the events about things they own. No route
+writes or deletes. `GET /api/audit/export?format=jsonl` streams JSON lines, oldest first, for
+creators only: the way to a SIEM. A failed sign-in records the username that was typed (up to
+64 characters), which can be a mistyped password; the visibility rule is what limits that.
+
+**Revision rule on save.** Saving a notebook that already exists must say which revision it is
+based on. A save with none is refused `428` (`code: "revision_required"`, with
+`currentRevision`) and a stale one `409` (`code: "conflict"`). Editors with the notebook open are
+told when someone else saves (`catalog:changed` carries `revision` and `by`), so they reload
+instead of overwriting.
+
 ---
 
 ## 6. Agents (MCP)
@@ -465,7 +573,7 @@ current notebook" was, depending on render order.
 
 | | |
 |---|---|
-| `packages/engine/tests` | 35 files — `node:test` + `tsx`, against a real Postgres |
+| `packages/engine/tests` | 98 files — `node:test` + `tsx`, against a real Postgres |
 | `packages/web/tests` | 25 files, 179 tests — Vitest + Testing Library |
 
 Conventions that exist because their absence cost something real:

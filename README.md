@@ -157,7 +157,7 @@ Download it first (`curl -fsSLO` the same URL), read it, then `bash install.sh -
 Open `http://localhost:8080` (the port listens on this machine only; a server behind Caddy is
 in [DEPLOY.md](DEPLOY.md)). **The first account you create becomes the creator** — you enter
 the setup code from the log to create it, and open registration is closed after that by design. Full instructions, backup, restore and upgrade
-procedures live in [DEPLOY.md](DEPLOY.md).
+procedures live in [DEPLOY.md](DEPLOY.md). Logs, the audit trail and what each run exposes to whom are described in [ARCHITECTURE.md](ARCHITECTURE.md#logs-and-audit) and [DEPLOY.md](DEPLOY.md#logs).
 
 Look at it with `scripts/status.sh`; remove it with `scripts/uninstall.sh` (data stays unless you
 add `--purge`). Running from source instead? See [DEVELOPMENT.md](DEVELOPMENT.md).
@@ -230,7 +230,7 @@ Said plainly so nobody plans around a thing that is not here.
 - **No integration library.** Calling Slack means writing the fetch. There is no connector catalogue.
 - **Single node.** One engine process. No horizontal scaling, no distributed queue.
 - **No SSO / no email.** Accounts are creator/viewer; password reset is a CLI command, because there is no mail infrastructure to send a link through.
-- **Not audited.** Notebooks run code on your server. Only give `creator` to people you would give a shell to.
+- **Not a place for untrusted authors.** Notebooks run code on your server. Only give `creator` to people you would give a shell to. What people do is recorded in a tamper-evident audit trail (see [Logs and audit](ARCHITECTURE.md#logs-and-audit)), which tells you afterwards; it does not contain them.
 - **Sandboxed, but not a hardened boundary.** In the Docker image every cell is a process of its own, run as an unprivileged uid of its own with memory, process, file-size and disk limits. It cannot read the engine's environment, source or the storage folder (it gets copies of the input files it was granted), cannot signal or read another cell, and a firewall keeps it off the engine's port, the database, other containers and the cloud metadata address; the internet stays open to it. JavaScript cells are also confined by node's permission model on every platform. What remains: the engine runs as root inside the container; cells of one owner share their files; the firewall does not exist with `network_mode: host` or `CELL_EGRESS_FIREWALL=off`; and a Python cell on Windows or a dev machine runs as the user who started the engine, with no isolation and no memory, process or file-size limits (only the timeout). See [Sandboxing, honestly](ARCHITECTURE.md#sandboxing-honestly).
 - **Run-until-this-cell does not exist.** The run API takes one cell or all of them. It is on the list, honestly, and it starts in the engine.
 - **One typeface decision is still open.** Cosmetic, known, unfixed.
