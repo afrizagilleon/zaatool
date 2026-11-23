@@ -2,11 +2,18 @@ import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import { notebookSharesService, type ShareRow } from "../services/notebook-shares.service.js";
 import { notebookFilesService } from "../services/notebook-files.service.js";
-import { maxUploadBytes } from "../config.js";
+import {
+  maxUploadBytes,
+  loginRateLimitWindowMs,
+  sharePasswordIpMax,
+  sharePasswordLinkMax,
+} from "../config.js";
+import { AttemptLimiter } from "../core/attempt-limiter.js";
 import { notebooksService } from "../services/notebooks.service.js";
 import {
   notebookExecutionService,
   NotebookNotDeployedError,
+  OwnerInactiveError,
   NotebookNotFoundError,
   TooManyRunsError,
 } from "../services/notebook-execution.service.js";
@@ -42,6 +49,18 @@ const WINDOW_MS = 60 * 60 * 1000;
  * only job is to be written on every request.
  */
 const recentRuns = new Map<string, number[]>();
+
+/**
+ * Password guesses, counted per client address and per link.
+ *
+ * A wrong password is a bcrypt comparison, and bcrypt runs on a thread pool of four shared
+ * with everything else in the process, so unbounded guessing is both a way into a protected
+ * page and a way to starve the engine. Both counters are taken *before* the comparison, in
+ * one synchronous step, so a burst of parallel guesses cannot all slip in ahead of the
+ * count; a correct password gives its places back.
+ */
+const guessesByAddress = new AttemptLimiter(sharePasswordIpMax, loginRateLimitWindowMs);
+const guessesByLink = new AttemptLimiter(sharePasswordLinkMax, loginRateLimitWindowMs);
 
 /** One file, in memory, size-limited. Where it lands is not this route's decision. */
 const attachment = multer({
@@ -129,9 +148,30 @@ export function createShareRouter(publishRunEvent: RunEventSink): Router {
     }
 
     const password = req.header("x-share-password") ?? undefined;
+    // Only an actual guess is counted: opening the page to be asked for the password is not
+    // one, and a person who reloads should not use their attempts up doing it.
+    const guessing = Boolean(share.password_hash) && Boolean(password);
+    const addressKey = req.ip ?? "unknown";
+    if (guessing) {
+      const byAddress = guessesByAddress.reserve(addressKey);
+      const byLink = guessesByLink.reserve(share.id);
+      if (!byAddress || !byLink) {
+        // Over the limit still counts, so persistence does not buy a fresh window; what is
+        // refused here never reaches bcrypt.
+        res
+          .status(429)
+          .set("Retry-After", String(guessesByAddress.retryAfterSeconds(addressKey)))
+          .json({ error: "Too many password attempts. Try again later." });
+        return null;
+      }
+    }
     if (!(await notebookSharesService.checkPassword(share, password))) {
       res.status(401).json({ error: "This page needs a password.", needsPassword: true });
       return null;
+    }
+    if (guessing) {
+      guessesByAddress.refund(addressKey);
+      guessesByLink.refund(share.id);
     }
 
     const document = await notebooksService.getDeployedDocument(share.notebook_id);
@@ -215,7 +255,7 @@ export function createShareRouter(publishRunEvent: RunEventSink): Router {
       if (err instanceof TooManyRunsError) {
         return res.status(429).json({ error: err.message });
       }
-      if (err instanceof NotebookNotDeployedError) {
+      if (err instanceof NotebookNotDeployedError || err instanceof OwnerInactiveError) {
         return res.status(409).json({ error: err.message });
       }
       if (err instanceof NotebookNotFoundError) {

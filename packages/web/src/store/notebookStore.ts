@@ -12,6 +12,8 @@ function emptyRun(): CellRunState {
 
 export const useNotebookStore = create<NotebookState>((set, get) => ({
   id: '',
+  revision: null,
+  saveConflict: null,
   name: 'Untitled Notebook',
   runtime: 'node',
   secrets: [],
@@ -39,6 +41,8 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
     const firstCell = tree.newCell();
     set({
       id: uuidv4(),
+      revision: null,
+      saveConflict: null,
       name: 'Untitled Notebook',
       runtime,
       secrets: [],
@@ -65,6 +69,8 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   loadNotebook: (document) => {
     set({
       id: document.id,
+      revision: document.revision ?? null,
+      saveConflict: null,
       name: document.name,
       runtime: document.runtime,
       secrets: document.secrets ?? [],
@@ -93,10 +99,12 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   },
 
   getDocument: (): NotebookJson => {
-    const { id, name, runtime, secrets, packages, tags, triggers, inputs, outputs, layout, actions, steps } =
+    const { id, revision, name, runtime, secrets, packages, tags, triggers, inputs, outputs, layout, actions, steps } =
       get();
     return {
       version: NOTEBOOK_VERSION, id, name, runtime, secrets, triggers, inputs, outputs, steps,
+      // What this copy was read at, so the engine can tell it from one somebody has since replaced.
+      ...(revision !== null ? { revision } : {}),
       // Omitted when nobody arranged it, so a notebook nobody laid out stays free of it.
       ...(layout.length > 0 ? { layout } : {}),
       ...(actions.length > 0 ? { actions } : {}),
@@ -292,7 +300,19 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   },
 
   setSaving: (isSaving) => set({ isSaving }),
-  markSaved: (id) => set({ id, isDirty: false, isSaving: false }),
+  markSaved: (id, revision) =>
+    set({ id, isDirty: false, isSaving: false, saveConflict: null, ...(revision !== undefined ? { revision } : {}) }),
+
+  setSaveConflict: (message, currentRevision) =>
+    set({ saveConflict: { message, currentRevision }, isSaving: false }),
+
+  overwriteAfterConflict: () => {
+    const conflict = get().saveConflict;
+    set({
+      saveConflict: null,
+      ...(conflict?.currentRevision != null ? { revision: conflict.currentRevision } : {}),
+    });
+  },
 
   startRun: (runId, onlyCellId) => {
     // Clear results this run will replace, so nothing on screen can be mistaken

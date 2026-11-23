@@ -18,6 +18,7 @@ import { ContractError } from "../src/core/notebook-contract.js";
 import { STORAGE_DIR } from "../src/services/storage.service.js";
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
+import { dropOwner, testOwner } from "./owners.js";
 
 let passed = 0;
 let failed = 0;
@@ -35,6 +36,8 @@ async function check(name: string, run: () => Promise<void> | void): Promise<voi
 }
 
 await initDb();
+// Where cells change uid a notebook needs an owner to run as (FX-17); this test is about files, not owners.
+const owner = (await testOwner("f3")).id;
 
 const OUTSIDE_TEXT = "zz-f3-OUTSIDE-SECRET";
 const INSIDE_TEXT = "zz-f3-inside-content";
@@ -71,7 +74,8 @@ async function store(runtime: "node" | "python"): Promise<string> {
         ...body,
       ].join("\n")
     ),
-    "test"
+    "test",
+    owner
   );
   await notebooksService.deploy(saved.id, "test");
   created.push(saved.id);
@@ -120,6 +124,7 @@ try {
   for (const id of created) await notebooksService.delete(id).catch(() => {});
   fs.rmSync(insideDir, { recursive: true, force: true });
   fs.rmSync(outsideDir, { recursive: true, force: true });
+  await dropOwner("f3");
   await pool.end();
 }
 

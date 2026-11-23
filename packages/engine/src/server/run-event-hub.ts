@@ -58,6 +58,15 @@ export class RunEventHub {
   }
 
   /**
+   * Whether this hub still holds anything for `runId`. False for a run that finished long
+   * enough ago to have been dropped — and for one that has not emitted anything yet, which
+   * is why the caller must still look the run up before concluding it is over.
+   */
+  hasChannel(runId: string): boolean {
+    return this.channels.has(runId);
+  }
+
+  /**
    * Starts delivering `runId`'s events to `listener`, replaying whatever the run
    * already emitted. Returns the unsubscribe handle.
    */

@@ -2,12 +2,33 @@ import { pool } from "../db/connection.js";
 import { v4 as uuidv4 } from "uuid";
 import { secretsKey } from "../config.js";
 import { decryptValue, encryptValue, isEncrypted } from "../core/secrets-crypto.js";
+import { LOCK_KEYS } from "../core/advisory-locks.js";
 
 /** The key does not open what the database holds. Never "fixed" by overwriting. */
 export class SecretsKeyMismatchError extends Error {
-  constructor() {
-    super("SECRETS_KEY tidak cocok dengan secret di database");
+  /** The rows the key could not open, by id: enough to find them, never what they hold. */
+  readonly failedIds: string[];
+
+  constructor(failedIds: string[] = []) {
+    super(
+      failedIds.length === 0
+        ? "SECRETS_KEY tidak cocok dengan secret di database"
+        : `SECRETS_KEY tidak cocok dengan secret di database (${failedIds.length} baris tidak bisa dibuka: ${failedIds.join(", ")})`
+    );
     this.name = "SecretsKeyMismatchError";
+    this.failedIds = failedIds;
+  }
+}
+
+/** A rotation was asked for while an engine (or another rotation) holds the database. */
+export class EngineRunningError extends Error {
+  constructor() {
+    super(
+      "The engine is running (or another rotation is), and re-encrypting secrets under it would break it: " +
+        "it keeps the old key in memory and would seal every new secret with a key the database no longer matches. " +
+        "Stop the engine first (docker compose stop engine), rotate, put the new key in .env, then start it again."
+    );
+    this.name = "EngineRunningError";
   }
 }
 
@@ -134,16 +155,22 @@ export class SecretsService {
     const k = secretsKey();
     if (!k) return 0;
 
-    const { rows: sample } = await pool.query<{ owner_id: string; key: string; value: string }>(
-      "SELECT owner_id, key, value FROM secrets WHERE value LIKE 'enc:v1:%' AND owner_id IS NOT NULL LIMIT 1"
+    // Every encrypted row, not a sample. One that opens says nothing about the rest: a row
+    // sealed under a different key (a rotation that raced a running engine, a restored
+    // backup) sits beside rows that open fine, and would be found later, at the moment a
+    // notebook asks for that secret. They are named by id so they can be found.
+    const { rows: sealed } = await pool.query<{ id: string; owner_id: string; key: string; value: string }>(
+      "SELECT id, owner_id, key, value FROM secrets WHERE value LIKE 'enc:v1:%' AND owner_id IS NOT NULL"
     );
-    if (sample[0]) {
+    const failedIds: string[] = [];
+    for (const row of sealed) {
       try {
-        decryptValue(k, sample[0].owner_id, sample[0].key, sample[0].value);
+        decryptValue(k, row.owner_id, row.key, row.value);
       } catch {
-        throw new SecretsKeyMismatchError();
+        failedIds.push(row.id);
       }
     }
+    if (failedIds.length > 0) throw new SecretsKeyMismatchError(failedIds);
 
     const client = await pool.connect();
     try {
@@ -173,6 +200,17 @@ export class SecretsService {
    */
   async rotateKey(oldKey: Buffer, newKey: Buffer): Promise<number> {
     const client = await pool.connect();
+    // Taken on the connection that does the work and held until it is done: the engine holds
+    // the shared form of this lock for as long as it lives, so this is refused while one is
+    // running, and an engine started meanwhile is refused in turn.
+    const { rows: lock } = await client.query<{ got: boolean }>(
+      "SELECT pg_try_advisory_lock(hashtextextended($1, 0)) AS got",
+      [LOCK_KEYS.engineAlive]
+    );
+    if (!lock[0]?.got) {
+      client.release();
+      throw new EngineRunningError();
+    }
     try {
       await client.query("BEGIN");
       const { rows } = await client.query<{ id: string; owner_id: string | null; key: string; value: string }>(
@@ -185,7 +223,9 @@ export class SecretsService {
         try {
           plain = decryptValue(oldKey, row.owner_id, row.key, row.value);
         } catch {
-          throw new Error(`The old SECRETS_KEY cannot open secret "${row.key}"; nothing was changed.`);
+          throw new Error(
+            `The old SECRETS_KEY cannot open secret "${row.key}" (id ${row.id}); nothing was changed.`
+          );
         }
         await client.query("UPDATE secrets SET value = $1 WHERE id = $2", [
           encryptValue(newKey, row.owner_id, row.key, plain),
@@ -198,6 +238,9 @@ export class SecretsService {
       await client.query("ROLLBACK").catch(() => undefined);
       throw err;
     } finally {
+      await client
+        .query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [LOCK_KEYS.engineAlive])
+        .catch(() => undefined);
       client.release();
     }
   }

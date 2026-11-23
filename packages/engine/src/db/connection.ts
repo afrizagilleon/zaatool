@@ -8,13 +8,18 @@ pg.types.setTypeParser(1114, (strVal) => {
   return new Date(strVal.replace(" ", "T") + "Z");
 });
 
-export const pool = new Pool({
-  user: process.env.POSTGRES_USER || "zaa_user",
-  password: process.env.POSTGRES_PASSWORD || "zaa_password",
-  host: process.env.POSTGRES_HOST || "localhost",
-  port: Number.parseInt(process.env.POSTGRES_PORT || "5432"),
-  database: process.env.POSTGRES_DB || "zaa_tool",
-});
+/** Where the database is. Shared with anything that needs a connection of its own, outside the pool. */
+export function connectionOptions() {
+  return {
+    user: process.env.POSTGRES_USER || "zaa_user",
+    password: process.env.POSTGRES_PASSWORD || "zaa_password",
+    host: process.env.POSTGRES_HOST || "localhost",
+    port: Number.parseInt(process.env.POSTGRES_PORT || "5432"),
+    database: process.env.POSTGRES_DB || "zaa_tool",
+  };
+}
+
+export const pool = new Pool(connectionOptions());
 
 /**
  * The listener that keeps a database restart from being an engine restart.

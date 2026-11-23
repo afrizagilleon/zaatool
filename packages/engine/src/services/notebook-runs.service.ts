@@ -16,9 +16,13 @@ const MAX_LOG_LENGTH = 2_000;
 /**
  * Runs kept per notebook. A cron firing every minute would otherwise add ~1,440 rows
  * a day, so retention is bounded automatically rather than left to someone remembering
- * to prune. Old runs are dropped when a new one starts.
+ * to prune. Old runs are dropped when a new one starts — finished ones only: a run that
+ * is still going is not history yet, and deleting its row would lose its result and make
+ * it impossible to cancel.
  */
 const MAX_RUNS_PER_NOTEBOOK = 50;
+
+export const INTERRUPTED_RUN_ERROR = "the engine restarted while this run was in progress";
 
 const SUMMARY_COLUMNS =
   "id, notebook_id, status, trigger_source, cell_id, parent_run_id, started_by, error, started_at, finished_at";
@@ -65,14 +69,31 @@ export class NotebookRunsService {
     await pool.query(
       `DELETE FROM notebook_runs
        WHERE notebook_id = $1
+         AND status <> 'running'
          AND id NOT IN (
            SELECT id FROM notebook_runs
-           WHERE notebook_id = $1
+           WHERE notebook_id = $1 AND status <> 'running'
            ORDER BY started_at DESC
            LIMIT $2
          )`,
       [notebookId, MAX_RUNS_PER_NOTEBOOK]
     );
+  }
+
+  /**
+   * Called once at boot, before the engine takes any request. Every run left `running` by a
+   * previous process died with it (the process tree is gone, nothing will ever finish the
+   * row), so it is closed as failed instead of hanging in the history and answering a cancel
+   * with "Run is not active" forever.
+   */
+  async failInterrupted(): Promise<number> {
+    const { rowCount } = await pool.query(
+      `UPDATE notebook_runs
+       SET status = 'failed', error = $1, finished_at = CURRENT_TIMESTAMP
+       WHERE status = 'running'`,
+      [INTERRUPTED_RUN_ERROR]
+    );
+    return rowCount ?? 0;
   }
 
   async deleteByNotebook(notebookId: string): Promise<{ deleted: number }> {

@@ -336,6 +336,15 @@ export interface NotebookLayoutItem {
 export interface NotebookJson {
   version: string;
   id: string;
+  /**
+   * Which save of this notebook the copy was read at. **Never stored in the document.**
+   *
+   * The engine adds it when it hands a notebook out and removes it when one is saved, and a
+   * save that carries it is refused if somebody saved since — which is how two editors, or an
+   * editor and an agent, stop silently overwriting each other. A client that does not send
+   * it is not refused: it overwrites, as every client did before this existed.
+   */
+  revision?: number;
   name: string;
   runtime: NotebookRuntime;
   /** Secret keys this notebook may read; undeclared means none. */

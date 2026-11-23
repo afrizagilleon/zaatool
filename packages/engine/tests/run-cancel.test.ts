@@ -35,6 +35,9 @@ const wd = watchdog(150_000);
 const { check, tally } = makeCheck();
 const spawned: number[] = [];
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "zz-k10-"));
+// Where cells change uid they are another user: this is the folder a cell writes its pid to, so it
+// must be one any user can write (the engine, root, reads it).
+fs.chmodSync(dir, 0o777);
 
 await initDb();
 await cleanupNotebooks();

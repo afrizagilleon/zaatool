@@ -20,11 +20,14 @@ interface SchedulerDeps {
     publish: RunEventSink,
     options: { triggerSource: "cron"; input: Record<string, unknown> }
   ) => Promise<{ runId: string }>;
+  /** True while a cron run of this notebook is running or waiting for a slot. */
+  hasRunInFlight?: (notebookId: string) => boolean;
 }
 
 const defaultDeps: SchedulerDeps = {
   listCron: () => notebookTriggersService.listEnabledCron(),
   startRun: (notebookId, publish, options) => notebookExecutionService.start(notebookId, publish, options),
+  hasRunInFlight: (notebookId) => notebookExecutionService.hasCronRunInFlight(notebookId),
 };
 
 /**
@@ -111,6 +114,16 @@ export class SchedulerService {
         const at = new Date(minute * MINUTE_MS);
         for (const trigger of triggers) {
           if (!trigger.cron || !matchCron(trigger.cron, at, zone)) continue;
+
+          // A run that outlasts its period would otherwise add another copy of itself every
+          // tick, each one waiting for a slot the slow one is holding.
+          if (this.deps.hasRunInFlight?.(trigger.notebook_id)) {
+            console.warn(
+              `⏰ Notebook ${trigger.notebook_id} skipped the '${trigger.cron}' tick at ${at.toISOString()}: ` +
+                "its previous cron run is still running or waiting for a slot."
+            );
+            continue;
+          }
 
           try {
             const { runId } = await this.deps.startRun(trigger.notebook_id, publish, {

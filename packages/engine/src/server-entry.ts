@@ -8,10 +8,16 @@ import { schedulerService } from "./services/scheduler.service.js";
 import { notebookTriggersService } from "./services/notebook-triggers.service.js";
 import { activeSandboxConfig, configProblems, isProduction, registrationOpen, secretsKey, usingDevSecret } from "./config.js";
 import { secureStorageRoot } from "./core/cell-workspace.js";
+import { migrateOwnerHomes } from "./core/owner-home-migration.js";
+import { oomGuardWarning } from "./core/oom-guard.js";
 import { STORAGE_DIR } from "./core/storage-root.js";
 import { secretsService, SecretsKeyMismatchError } from "./services/secrets.service.js";
+import { holdEngineLock } from "./services/engine-lock.service.js";
 import { authService } from "./services/auth.service.js";
+import { notebookRunsService } from "./services/notebook-runs.service.js";
 import { sandboxWarnings } from "./core/sandbox-identity.js";
+import { egressFirewallProblems, egressFirewallWarnings } from "./core/egress-firewall.js";
+import { windowsProductionWarnings } from "./core/windows-production.js";
 
 /**
  * Addresses on this machine another device could actually dial.
@@ -37,21 +43,60 @@ export async function startServer(port = 4000) {
     process.exit(1);
   }
 
+  // Cells must not reach the engine's own port, the database or the rest of the network. The
+  // entrypoint installs the firewall; this proves it by trying to get through as a cell uid.
+  const getuid = process.getuid?.bind(process);
+  const egress = await egressFirewallProblems(process.platform, process.env, getuid);
+  if (egress.length > 0) {
+    console.error("\n❌ Refusing to start:\n");
+    for (const problem of egress) console.error(`   • ${problem}\n`);
+    process.exit(1);
+  }
+  for (const warning of egressFirewallWarnings(process.platform, process.env, getuid)) {
+    console.warn(`⚠️  ${warning}`);
+  }
+
   if (!isProduction() && usingDevSecret()) {
     console.warn("⚠️  JWT_SECRET is not set; using the development secret.");
   }
   if (secretsKey() === null) {
     console.warn("⚠️  SECRETS_KEY is not set; secrets are stored in plaintext in the database.");
   }
-  for (const warning of sandboxWarnings(process.platform, process.env)) console.warn(`⚠️  ${warning}`);
+  for (const warning of [...sandboxWarnings(process.platform, process.env), ...windowsProductionWarnings(process.platform, process.env)]) {
+    console.warn(`⚠️  ${warning}`);
+  }
   // Cells change uid: the storage folder becomes root's and closed, so what a cell can read is
   // only what the engine copies into its own folder. Before anything is served.
   try {
     if (secureStorageRoot(activeSandboxConfig(), STORAGE_DIR)) {
-      console.log("🔒 Storage folder is root-only; cells run as one user per owner.");
+      console.log("🔒 Storage folder is root-only; cells run as one user per process.");
     }
   } catch (err: unknown) {
     console.error("❌ Could not close the storage folder to cells:", (err as Error).message);
+    process.exit(1);
+  }
+  // Homes made when every owner had a uid of its own become root's with the owner's group, and
+  // the folders of processes the last engine did not get to remove are cleared. Before anything
+  // is served, so no cell is running while it changes owners by path.
+  try {
+    const sandbox = activeSandboxConfig();
+    if (sandbox) {
+      const oomWarning = oomGuardWarning();
+      if (oomWarning) console.warn(`⚠️  ${oomWarning}`);
+      const report = migrateOwnerHomes(sandbox);
+      if (report.converted.length > 0) {
+        console.log(`🔒 Converted ${report.converted.length} owner folder(s) to one group per owner.`);
+      }
+      if (report.clearedProcessFolders > 0) {
+        console.log(`🧹 Removed ${report.clearedProcessFolders} cell folder(s) left by the last run.`);
+      }
+      if (report.problems.length > 0) {
+        // Not fatal: that owner's runs refuse to start, by name, and nobody else is affected.
+        for (const problem of report.problems) console.warn(`⚠️  ${problem}`);
+      }
+    }
+  } catch (err: unknown) {
+    console.error("❌ Could not prepare the owners' folders:", (err as Error).message);
     process.exit(1);
   }
   if (registrationOpen()) {
@@ -63,6 +108,15 @@ export async function startServer(port = 4000) {
     await initDb();
   } catch (err: unknown) {
     console.error("❌ Failed to initialize database:", (err as Error).message);
+    process.exit(1);
+  }
+
+  // Says to the database that an engine is alive, so a key rotation refuses to run under it
+  // (and an engine refuses to start while one is running). Before the secrets are touched.
+  try {
+    await holdEngineLock();
+  } catch (err: unknown) {
+    console.error(`❌ Refusing to start: ${(err as Error).message}`);
     process.exit(1);
   }
 
@@ -81,6 +135,17 @@ export async function startServer(port = 4000) {
     } else {
       console.error("❌ Failed to protect secrets:", (err as Error).message);
     }
+    process.exit(1);
+  }
+
+  // Before anything is served or can fire: a run that was in progress when the previous
+  // process stopped will never be finished by anyone, so its row is closed rather than left
+  // saying `running`. Not in `initDb()`, which creates tables and never touches rows.
+  try {
+    const interrupted = await notebookRunsService.failInterrupted();
+    if (interrupted > 0) console.warn(`⚠️  Marked ${interrupted} run(s) that were in progress at shutdown as failed.`);
+  } catch (err: unknown) {
+    console.error("❌ Failed to close interrupted runs:", (err as Error).message);
     process.exit(1);
   }
 

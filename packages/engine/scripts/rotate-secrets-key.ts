@@ -3,10 +3,15 @@
  *
  *   SECRETS_KEY=<old> NEW_SECRETS_KEY=<new> pnpm --filter @zaa-tool/engine rotate-secrets-key
  *
+ * The engine must be stopped first (`docker compose stop engine`): a running engine holds a
+ * lock in the database and this refuses to run while it does, because an engine that keeps
+ * the old key in memory would seal every secret it saves from then on with a key the
+ * database no longer matches.
+ *
  * Every row is decrypted with the old key and encrypted with the new one in a single
  * transaction: either all of them change or none do. Afterwards put the new key in `.env` as
- * `SECRETS_KEY` and restart the engine — until then it still holds the old key and will refuse
- * to start against the re-encrypted rows. Keep the new key apart from your database backups;
+ * `SECRETS_KEY` and start the engine — started with the old key it would refuse to run
+ * against the re-encrypted rows. Keep the new key apart from your database backups;
  * a key that is lost takes every secret with it.
  */
 import { pool } from "../src/db/connection.js";
@@ -24,7 +29,7 @@ async function main(): Promise<void> {
 
   const count = await secretsService.rotateKey(oldKey, newKey);
   console.log(`\n  Re-encrypted ${count} secret(s) with the new key.`);
-  console.log("  Next: set SECRETS_KEY in .env to the new key, then restart the engine");
+  console.log("  Next: set SECRETS_KEY in .env to the new key, then start the engine");
   console.log("  (docker compose up -d). Keep a copy of the key apart from your backups.\n");
 }
 

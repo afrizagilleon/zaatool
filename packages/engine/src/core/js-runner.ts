@@ -8,7 +8,7 @@ import type { FileWriter } from "./notebook-files.js";
 import { abortMessage } from "./run-abort.js";
 import { cellLimits, maxCellMemoryMb } from "../config.js";
 import { explainMemoryRefusal, limitedCommand } from "./cell-limits.js";
-import { withUidLease } from "./uid-sweep.js";
+import { guardCellFromOom } from "./oom-guard.js";
 import { defaultCellHost, type CellHost, type CellWorkspace } from "./cell-workspace.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -65,14 +65,14 @@ export function runJsNode(
   /** Whose process this is: its uid and its folders. Without one, a plain temp folder. */
   host: CellHost = defaultCellHost()
 ): Promise<RunResult> {
-  // Holds a lease on the owner's uid for the life of the run; the last one out sweeps (uid-sweep).
-  return withUidLease(host.spawn.options, () => new Promise<RunResult>((resolve) => {
+  return new Promise<RunResult>((resolve) => {
     const startTime = Date.now();
     const logs: RunResult["logs"] = [];
     const memoryMb = maxCellMemoryMb();
 
     // This process's own folder, made before it starts and removed when it is over. On Linux
-    // with the sandbox on it belongs to the owner's uid, and so does the process.
+    // with the sandbox on it also leases the process a uid of its own (see `cell-workspace`), swept and
+    // returned when `dispose` is called.
     let workspace: CellWorkspace;
     try {
       workspace = host.open(inputs);
@@ -116,6 +116,10 @@ export function runJsNode(
         ...identity.options,
       }
     );
+
+    // Before the cell is handed any work: make it the first thing the kernel kills when memory
+    // runs out, and the engine not (S-17).
+    guardCellFromOom(proc.pid, identity.options.uid !== undefined);
 
     let timer: NodeJS.Timeout | undefined;
     let settled = false;
@@ -292,5 +296,5 @@ export function runJsNode(
       staged: workspace.staged,
       secrets,
     });
-  }));
+  });
 }

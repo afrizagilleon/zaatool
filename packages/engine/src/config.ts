@@ -135,6 +135,21 @@ export function loginRateLimitMax(): number {
   return Number.isFinite(raw) && raw > 0 ? raw : 10;
 }
 
+/**
+ * Password guesses allowed at shared pages, per client address and per link, in the login
+ * window. Each guess is a bcrypt comparison on a thread pool of four, so the number is the
+ * cost an anonymous caller may impose, not only a guard against guessing.
+ */
+export function sharePasswordIpMax(): number {
+  const raw = Number(process.env.SHARE_PASSWORD_IP_MAX);
+  return Number.isFinite(raw) && raw > 0 ? raw : 10;
+}
+
+export function sharePasswordLinkMax(): number {
+  const raw = Number(process.env.SHARE_PASSWORD_LINK_MAX);
+  return Number.isFinite(raw) && raw > 0 ? raw : 30;
+}
+
 export function hookRateLimitWindowMs(): number {
   const raw = Number(process.env.HOOK_RATE_LIMIT_WINDOW_MS);
   return Number.isFinite(raw) && raw > 0 ? raw : 15 * 60 * 1000;
@@ -212,16 +227,27 @@ export function maxCellMemoryMb(): number {
 }
 
 /**
- * The hard limits a cell process gets on Linux when the sandbox uid is on (see
+ * Megabytes of private memory one Python cell process may hold (Linux, sandbox on; Python has
+ * no heap cap of its own, so this is the whole limit). Its own variable because a numeric
+ * cell (pandas, numpy) legitimately needs more than a JavaScript one: 1024, where JavaScript
+ * keeps `MAX_CELL_MEMORY_MB`.
+ */
+export function maxPythonCellMemoryMb(): number {
+  return positiveInt("MAX_PYTHON_CELL_MEMORY_MB", 1024);
+}
+
+/**
+ * The hard limits a JavaScript cell process gets on Linux when the sandbox uid is on (see
  * `core/cell-limits`): memory is `MAX_CELL_MEMORY_MB` again, now enforced by the kernel on
- * the whole process (V8 heap, Buffers, numpy arrays), not only the V8 heap.
+ * the whole process (V8 heap, Buffers), not only the V8 heap. {@link pythonCellLimits} is the
+ * same for Python, with its own memory.
  *
- * `MAX_CELL_PROCESSES` is the number of processes *and threads* one owner's uid may have, all
- * of that owner's running cells together (the kernel counts per uid, and every owner has
- * their own since FX-20). A Node cell is about a dozen threads and a Python cell with numpy
- * a handful, so the default leaves room for about twenty concurrent cells of one owner while
- * stopping a fork bomb long before it matters to anyone else: with the run gate's four
- * concurrent runs, four owners at the limit stay well inside the container's ENGINE_PIDS_LIMIT.
+ * `MAX_CELL_PROCESSES` is the number of processes *and threads* one cell process may have,
+ * the cell and everything it starts (the kernel counts per uid, and every cell process has a
+ * uid of its own). A Node cell is about a dozen threads and a Python cell with numpy a
+ * handful, so 128 leaves room for a cell that starts workers and stops a fork bomb at that
+ * size. It is also what keeps the container's `ENGINE_PIDS_LIMIT` honest: the run gate's
+ * 24 cells at the limit is 3072, inside the 4096 default.
  *
  * `MAX_CELL_FILE_MB` is the largest single file a cell may write. It is generous on purpose:
  * it stops one runaway `write` from filling the disk in a single file, not a notebook
@@ -230,8 +256,42 @@ export function maxCellMemoryMb(): number {
 export function cellLimits(): { memoryMb: number; processes: number; fileMb: number } {
   return {
     memoryMb: maxCellMemoryMb(),
-    processes: positiveInt("MAX_CELL_PROCESSES", 256),
+    processes: positiveInt("MAX_CELL_PROCESSES", 128),
     fileMb: positiveInt("MAX_CELL_FILE_MB", 1024),
+  };
+}
+
+/**
+ * Disk one notebook owner's cells may occupy outside kept files (`MAX_OWNER_DISK_MB`, default
+ * 2048): their temp folder and package cache, measured before each cell (see `core/owner-disk`).
+ * Over it, the owner's next cell is refused until the idle cleanup has emptied their temp folder.
+ */
+export function maxOwnerDiskBytes(): number {
+  return positiveInt("MAX_OWNER_DISK_MB", 2048) * 1024 * 1024;
+}
+
+/** The limits of a Python cell process: {@link cellLimits} with {@link maxPythonCellMemoryMb}. */
+export function pythonCellLimits(): { memoryMb: number; processes: number; fileMb: number } {
+  return { ...cellLimits(), memoryMb: maxPythonCellMemoryMb() };
+}
+
+/**
+ * The limits of `uv` installing a notebook's packages (at deploy, and when a run first needs
+ * an environment), on Linux with the sandbox on. Looser than a cell's because the work is
+ * different: resolving, downloading and unpacking wheels (and building from source) takes
+ * memory the notebook never holds, `uv` runs a thread per core and more, and a wheel such as
+ * torch is over a gigabyte. They are still limits: a package whose build script forks without
+ * end, or writes without end, stops here instead of taking the container with it.
+ *
+ *  - `MAX_INSTALL_MEMORY_MB` (default 4096): private memory of `uv` and what it builds.
+ *  - `MAX_INSTALL_PROCESSES` (default 1024): processes and threads, `uv` and its builds together.
+ *  - `MAX_INSTALL_FILE_MB` (default 4096): the largest single file it may write.
+ */
+export function installLimits(): { memoryMb: number; processes: number; fileMb: number } {
+  return {
+    memoryMb: positiveInt("MAX_INSTALL_MEMORY_MB", 4096),
+    processes: positiveInt("MAX_INSTALL_PROCESSES", 1024),
+    fileMb: positiveInt("MAX_INSTALL_FILE_MB", 4096),
   };
 }
 
@@ -261,7 +321,7 @@ export function configProblems(): string[] {
   // Not behind the production check: a half-set sandbox is wrong in development too, and
   // the cost of finding out is every cell failing.
   const problems: string[] = sandboxProblems(process.platform, process.env, process.getuid?.bind(process));
-  // Cells are started under `prlimit` whenever they are dropped to an owner's uid; without
+  // Cells are started under `prlimit` whenever they are dropped to a uid of their own; without
   // it every one of them would fail to start, so this is as much a startup error as a
   // half-set sandbox.
   if (activeSandboxConfig() && !prlimitAvailable()) {
@@ -305,4 +365,18 @@ export function configProblems(): string[] {
   }
 
   return problems;
+}
+
+/**
+ * How many of the engine's run slots one account's notebooks may hold at once. Without a
+ * share, one owner (one webhook hit in a loop) fills the whole gate and everyone else is
+ * refused. `fallback` is half the slots, rounded up, and never less than one.
+ */
+export function maxRunsPerOwner(fallback: number): number {
+  return positiveInt("MAX_RUNS_PER_OWNER", fallback);
+}
+
+/** How many runs one account may have waiting for a slot, with the same reasoning as above. */
+export function maxQueuedRunsPerOwner(fallback: number): number {
+  return positiveInt("MAX_QUEUED_RUNS_PER_OWNER", fallback);
 }

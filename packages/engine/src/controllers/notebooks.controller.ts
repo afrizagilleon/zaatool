@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { randomUUID } from "crypto";
 import { fromMarkdown, toMarkdown } from "../core/notebook-text.js";
-import { notebooksService, DeployRefusedError } from "../services/notebooks.service.js";
+import { notebooksService, DeployRefusedError, NotebookConflictError } from "../services/notebooks.service.js";
 import { notebookFilesService } from "../services/notebook-files.service.js";
 import { buildNotebookMap } from "../core/notebook-map.js";
 import { outputSpecs } from "../core/notebook-outputs.js";
@@ -18,6 +18,7 @@ import {
   NotebookNotFoundError,
   CellNotFoundError,
   NotebookNotDeployedError,
+  OwnerInactiveError,
   TooManyRunsError,
 } from "../services/notebook-execution.service.js";
 import { NotebookCompileError } from "../core/notebook-compiler.js";
@@ -188,13 +189,22 @@ function respondWithError(res: Response, err: unknown) {
   }
   // Not a bad request and not a missing one: the notebook exists, but nobody has said
   // this version may run unattended.
-  if (err instanceof NotebookNotDeployedError) {
+  if (err instanceof NotebookNotDeployedError || err instanceof OwnerInactiveError) {
     return res.status(409).json({ error: err.message });
   }
   // The author can fix this one — a clashing name or an unguarded, guessable webhook —
   // and the message says which.
   if (err instanceof DeployRefusedError) {
     return res.status(409).json({ error: err.message });
+  }
+  // Somebody else saved first. `code` is what a client keys on to offer a reload instead of
+  // showing the sentence as a failure.
+  if (err instanceof NotebookConflictError) {
+    return res.status(409).json({
+      error: err.message,
+      code: "conflict",
+      currentRevision: err.currentRevision,
+    });
   }
   console.error("Notebooks controller error:", err);
   return res.status(500).json({ error: "Something went wrong. Please try again." });
@@ -286,7 +296,9 @@ export class NotebooksController {
       }
       const record = await notebooksService.getById(id);
       if (!record) return res.status(404).json(NOT_FOUND);
-      res.json(notebooksService.parseDocument(record));
+      // The revision travels beside the document, never inside what is stored: a save says
+      // which one it was made from, and is refused if it is no longer the current one.
+      res.json({ ...notebooksService.parseDocument(record), revision: record.revision });
     } catch (err: unknown) {
       respondWithError(res, err);
     }
@@ -305,7 +317,13 @@ export class NotebooksController {
       if (taken && !(await notebookAccessService.canEdit(user.id, taken.id))) {
         return res.status(404).json(NOT_FOUND);
       }
-      res.json(await notebooksService.save(req.body, user.username, user.id));
+      // A client that predates revisions sends none and still overwrites, as it always did.
+      const { revision, ...document } = req.body as NotebookJson & { revision?: unknown };
+      res.json(
+        await notebooksService.save(document, user.username, user.id, {
+          expectedRevision: typeof revision === "number" ? revision : undefined,
+        })
+      );
     } catch (err: unknown) {
       respondWithError(res, err);
     }
@@ -684,7 +702,7 @@ export class NotebooksController {
    */
   saveText = async (req: Request, res: Response) => {
     try {
-      const { text, asNew } = req.body ?? {};
+      const { text, asNew, revision } = req.body ?? {};
       if (typeof text !== "string" || text.trim() === "") {
         return res.status(400).json({ error: "No text provided" });
       }
@@ -710,7 +728,11 @@ export class NotebooksController {
         }
       }
 
-      res.json(await notebooksService.save(document, user.username, user.id));
+      res.json(
+        await notebooksService.save(document, user.username, user.id, {
+          expectedRevision: !asNew && typeof revision === "number" ? revision : undefined,
+        })
+      );
     } catch (err: unknown) {
       respondWithError(res, err);
     }
@@ -772,10 +794,17 @@ export class NotebooksController {
         return res.status(409).json({ error: "This run was started by another run — cancel the run that started it" });
       }
 
-      const stopped = notebookExecutionService.cancel(runId, user.username);
+      const result = await notebookExecutionService.cancel(runId, user.username);
       // Marked running in the history but not active here: it finished a moment ago, or the
       // engine restarted under it. Either way there is nothing left to stop.
-      if (!stopped) return res.status(409).json({ error: "Run is not active" });
+      if (result.outcome === "not-active") return res.status(409).json({ error: "Run is not active" });
+      // It ended before the cancel was heard, so it did not end cancelled — say how it ended.
+      if (result.outcome === "finished") {
+        return res.status(409).json({
+          error: `Run finished before it could be cancelled (${result.status})`,
+          status: result.status,
+        });
+      }
       res.status(202).json({ cancelled: true });
     } catch (err: unknown) {
       respondWithError(res, err);

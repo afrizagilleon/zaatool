@@ -1,12 +1,13 @@
 /**
- * The per-uid sweep: when an owner's last cell process ends, everything of that uid is
- * killed, and never while another process of the same owner is running or starting.
- * Driven with a fake sweeper, so it needs neither Linux nor root.
+ * The pool of one-off uids: every cell process leases its own, a uid is not handed out again
+ * before it has been swept, and a sweep that cannot be confirmed retires the uid rather than
+ * risking it. Driven with a fake sweeper, so it needs neither Linux nor root. (That the real
+ * sweep kills what a cell leaves behind is proven on Linux: tests/sandbox-linux-root.test.ts.)
  *
  *   pnpm --filter @zaa-tool/engine test uid-sweep
  */
 import assert from "node:assert/strict";
-import { createUidLedger } from "../src/core/uid-sweep.js";
+import { createUidPool, SWEEP_SCRIPT, UidPoolExhaustedError, type SweepTarget } from "../src/core/uid-sweep.js";
 
 let passed = 0;
 let failed = 0;
@@ -26,118 +27,149 @@ async function check(name: string, run: () => Promise<void> | void): Promise<voi
 const tick = (): Promise<void> => new Promise((r) => setImmediate(r));
 
 /** A sweeper that records calls and ends only when told to. */
-function fakeSweeper() {
-  const calls: number[] = [];
-  const ends: Array<() => void> = [];
+function fakeSweeper(result = true) {
+  const calls: SweepTarget[] = [];
+  const ends: Array<(clean: boolean) => void> = [];
   return {
     calls,
-    finishNext: () => ends.shift()?.(),
-    sweeper: (t: { uid: number }) => {
-      calls.push(t.uid);
-      return new Promise<void>((resolve) => ends.push(resolve));
+    finishNext: (clean = result) => ends.shift()?.(clean),
+    sweeper: (t: SweepTarget) => {
+      calls.push(t);
+      return new Promise<boolean>((resolve) => ends.push(resolve));
     },
   };
 }
 
-await check("a lone process sweeps its uid when it ends", async () => {
+const pool = (f: { sweeper: (t: SweepTarget) => Promise<boolean> }, count = 5, extra = {}) =>
+  createUidPool({ base: 20000, count, sweeper: f.sweeper, start: 0, retryDelayMs: 0, onProblem: () => undefined, ...extra });
+
+await check("every lease gets a uid of its own", () => {
+  const p = pool(fakeSweeper());
+  const uids = [p.lease(30000), p.lease(30000), p.lease(30001)].map((l) => l.uid);
+  assert.equal(new Set(uids).size, 3);
+  assert.ok(uids.every((uid) => uid >= 20000 && uid < 20005));
+  assert.equal(p.inUse(), 3);
+});
+
+await check("the uid is swept, with its group and folder, when the process ends", async () => {
   const f = fakeSweeper();
-  const ledger = createUidLedger(f.sweeper);
-  const release = await ledger.acquire({ uid: 20000, gid: 1 });
+  const p = pool(f);
+  const lease = p.lease(30007);
   assert.deepEqual(f.calls, []);
-  release();
-  assert.deepEqual(f.calls, [20000]);
+  const released = lease.release("/home/sandbox/owners/30007/cells/abc");
+  assert.deepEqual(f.calls, [{ uid: lease.uid, gid: 30007, dir: "/home/sandbox/owners/30007/cells/abc" }]);
   f.finishNext();
+  await released;
 });
 
-await check("no sweep while another process of the same owner still runs", async () => {
+await check("a uid is not reusable while its sweep runs, and is after it is confirmed", async () => {
   const f = fakeSweeper();
-  const ledger = createUidLedger(f.sweeper);
-  const a = await ledger.acquire({ uid: 20000 });
-  const b = await ledger.acquire({ uid: 20000 });
-  a();
-  assert.deepEqual(f.calls, [], "b is still running");
-  b();
-  assert.deepEqual(f.calls, [20000]);
-  f.finishNext();
+  const p = pool(f, 1);
+  const lease = p.lease(30000);
+  const released = lease.release();
+  assert.throws(() => p.lease(30000), UidPoolExhaustedError, "handed out again before the sweep ended");
+  f.finishNext(true);
+  await released;
+  assert.equal(p.lease(30000).uid, lease.uid);
 });
 
-await check("another owner's processes do not hold the sweep back or get swept", async () => {
+await check("the next uid is the one after the last, so a uid does not come back until the range is used", async () => {
   const f = fakeSweeper();
-  const ledger = createUidLedger(f.sweeper);
-  const a = await ledger.acquire({ uid: 20000 });
-  const other = await ledger.acquire({ uid: 20001 });
-  a();
-  assert.deepEqual(f.calls, [20000]);
-  other();
-  assert.deepEqual(f.calls, [20000, 20001]);
-  f.finishNext();
-  f.finishNext();
-});
-
-await check("a release is counted once", async () => {
-  const f = fakeSweeper();
-  const ledger = createUidLedger(f.sweeper);
-  const a = await ledger.acquire({ uid: 20000 });
-  const b = await ledger.acquire({ uid: 20000 });
-  a();
-  a();
-  assert.deepEqual(f.calls, [], "the second call of a() must not count for b");
-  b();
-  assert.deepEqual(f.calls, [20000]);
-  f.finishNext();
-});
-
-await check("a new process of the same owner waits for a running sweep", async () => {
-  const f = fakeSweeper();
-  const ledger = createUidLedger(f.sweeper);
-  (await ledger.acquire({ uid: 20000 }))();
-  let started = false;
-  const next = ledger.acquire({ uid: 20000 }).then((release) => {
-    started = true;
-    return release;
-  });
-  await tick();
-  assert.equal(started, false, "must not start while the sweep runs");
-  f.finishNext();
-  const release = await next;
-  assert.equal(started, true);
-  assert.deepEqual(f.calls, [20000], "the new process is not swept");
-  release();
-  assert.deepEqual(f.calls, [20000, 20000], "and it sweeps in its turn");
-  f.finishNext();
-});
-
-await check("a process of another owner does not wait for the sweep", async () => {
-  const f = fakeSweeper();
-  const ledger = createUidLedger(f.sweeper);
-  (await ledger.acquire({ uid: 20000 }))();
-  const other = await ledger.acquire({ uid: 20001 });
-  other();
-  f.finishNext();
-  f.finishNext();
-});
-
-await check("a sweeper that fails does not wedge the owner", async () => {
-  const ledger = createUidLedger(() => Promise.reject(new Error("boom")));
-  (await ledger.acquire({ uid: 20000 }))();
-  const again = await ledger.acquire({ uid: 20000 });
-  again();
-});
-
-await check("withLease holds the lease for the run, releases on failure, skips without a uid", async () => {
-  const f = fakeSweeper();
-  const ledger = createUidLedger(f.sweeper);
-  await ledger.withLease({}, async () => undefined);
-  await ledger.withLease({ uid: 0 }, async () => undefined);
-  assert.deepEqual(f.calls, [], "no uid, or root: never a sweep");
-  if (process.platform === "win32") {
-    await ledger.withLease({ uid: 20000 }, async () => undefined);
-    assert.deepEqual(f.calls, [], "never on Windows");
-    return;
+  const p = pool(f, 4);
+  const seen: number[] = [];
+  for (let i = 0; i < 8; i += 1) {
+    const lease = p.lease(30000);
+    seen.push(lease.uid);
+    const released = lease.release();
+    f.finishNext();
+    await released;
   }
-  await assert.rejects(ledger.withLease({ uid: 20000 }, async () => Promise.reject(new Error("x"))));
-  assert.deepEqual(f.calls, [20000]);
+  assert.deepEqual(seen, [20000, 20001, 20002, 20003, 20000, 20001, 20002, 20003]);
+});
+
+await check("a start offset wraps inside the range", () => {
+  const p = createUidPool({ base: 20000, count: 3, sweeper: async () => true, start: 7 });
+  assert.equal(p.lease(1).uid, 20001);
+  assert.equal(p.lease(1).uid, 20002);
+  assert.equal(p.lease(1).uid, 20000);
+});
+
+await check("an exhausted pool throws an error that names SANDBOX_UID_COUNT", () => {
+  const p = pool(fakeSweeper(), 2);
+  p.lease(30000);
+  p.lease(30000);
+  assert.throws(() => p.lease(30000), (err: unknown) => err instanceof UidPoolExhaustedError && /SANDBOX_UID_COUNT/.test(err.message));
+});
+
+await check("releasing twice sweeps once", async () => {
+  const f = fakeSweeper();
+  const p = pool(f);
+  const lease = p.lease(30000);
+  const a = lease.release();
+  const b = lease.release();
+  assert.equal(a, b);
+  assert.equal(f.calls.length, 1);
   f.finishNext();
+  await a;
+});
+
+await check("a sweep that is not confirmed is tried again, and a uid that never is is retired", async () => {
+  const problems: string[] = [];
+  const f = fakeSweeper(false);
+  const p = pool(f, 2, { retries: 2, onProblem: (m: string) => problems.push(m) });
+  const lease = p.lease(30000);
+  const released = lease.release();
+  for (let i = 0; i < 3; i += 1) {
+    await tick();
+    f.finishNext(false);
+  }
+  await released;
+  assert.equal(f.calls.length, 3, "one sweep and two retries");
+  assert.equal(p.retired(), 1);
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], new RegExp(String(lease.uid)));
+  // The retired uid is never handed out again; the other one is.
+  const next = p.lease(30000);
+  assert.notEqual(next.uid, lease.uid);
+  assert.throws(() => p.lease(30000), UidPoolExhaustedError);
+});
+
+await check("a sweeper that throws counts as not confirmed, and does not wedge the pool", async () => {
+  const p = createUidPool({
+    base: 20000,
+    count: 3,
+    sweeper: () => Promise.reject(new Error("boom")),
+    start: 0,
+    retries: 0,
+    onProblem: () => undefined,
+  });
+  const lease = p.lease(1);
+  await lease.release();
+  assert.equal(p.retired(), 1);
+  assert.equal(p.lease(1).uid, 20001);
+});
+
+await check("a retry that succeeds frees the uid", async () => {
+  let attempts = 0;
+  const p = createUidPool({
+    base: 20000,
+    count: 1,
+    sweeper: async () => (attempts += 1) >= 2,
+    start: 0,
+    retryDelayMs: 0,
+    onProblem: () => undefined,
+  });
+  const lease = p.lease(1);
+  await lease.release();
+  assert.equal(p.retired(), 0);
+  assert.equal(p.lease(1).uid, lease.uid);
+});
+
+await check("the sweep script kills as the uid, waits for it to be empty, and removes only what the uid owns", () => {
+  assert.match(SWEEP_SCRIPT, /process\.kill\(-1, "SIGKILL"\)/);
+  assert.match(SWEEP_SCRIPT, /\/dev\/shm/);
+  assert.match(SWEEP_SCRIPT, /lstatSync\(shared \+ "\/" \+ name\)\.uid === me/);
+  assert.doesNotMatch(SWEEP_SCRIPT, /recursive/, "it removes with its own walk, as the uid, not with a recursive rm");
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

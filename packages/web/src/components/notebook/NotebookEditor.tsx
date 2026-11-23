@@ -17,6 +17,7 @@ import { DeployButton } from './DeployButton';
 import { ExportButton } from './ExportButton';
 import { AccessButton } from './AccessDialog';
 import { RunErrorBanner } from './RunErrorBanner';
+import { SaveConflictBanner } from './SaveConflictBanner';
 import { TriggerPanel } from './TriggerPanel';
 import { ContractPanel } from './ContractPanel';
 import { OutlinePanel } from './OutlinePanel';
@@ -82,7 +83,8 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
   const runId = useNotebookStore((s) => s.runId);
   const restoreRun = useNotebookStore((s) => s.restoreRun);
 
-  const { run, runAll, save } = useNotebookRun();
+  const { run, runAll, save, reloadFromServer, overwriteStored } = useNotebookRun();
+  const saveConflict = useNotebookStore((s) => s.saveConflict);
   // What this notebook is doing when it is not this browser doing it: a schedule firing,
   // an agent calling the deployed tool. Only used to know when the run history is out of
   // date, which is the one thing the editor could not previously find out.
@@ -422,6 +424,14 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
             Back to latest
           </Button>
         </div>
+      )}
+
+      {saveConflict && (
+        <SaveConflictBanner
+          message={saveConflict.message}
+          onReload={reloadFromServer}
+          onOverwrite={overwriteStored}
+        />
       )}
 
       {runError && (

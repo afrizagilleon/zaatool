@@ -336,11 +336,15 @@ await check("deploying a python notebook pins packages to locked_packages in dat
   );
   for (const row of leftovers) await notebooksService.delete(row.id);
 
+  // Where cells change uid the install runs as the notebook's owner, so it needs one.
+  const { testOwner, dropOwner } = await import("./owners.js");
+  const lockOwner = await testOwner("seclock");
+
   const nb = await notebooksService.save({
     name: "zz-python-lock-test",
     runtime: "python",
     packages: ["cowsay"],
-  });
+  }, "test", lockOwner.id);
 
   const deployRes = await notebooksService.deploy(nb.id, "test");
   assert.ok(deployRes?.versionId);
@@ -377,6 +381,7 @@ await check("deploying a python notebook pins packages to locked_packages in dat
   assert.deepEqual(draftDoc.packages, ["cowsay"]);
 
   await notebooksService.delete(nb.id);
+  await dropOwner("seclock");
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

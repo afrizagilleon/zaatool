@@ -36,15 +36,17 @@ const set = { SANDBOX_GID: "10001" };
 
 console.log("\nsandbox-identity (the spawn decision)");
 
-await check("linux + gid set + root: the range has defaults, the owner's uid and home come from it", () => {
+await check("linux + gid set + root: the range has defaults; the process's uid, its owner's gid and home come from it", () => {
   const config = activeSandbox("linux", set, root)!;
   assert.deepEqual(config, { uidBase: 20000, uidCount: 40000, gid: 10001, home: "/home/sandbox" });
-  const got = ownerSpawnIdentity(config, 20003);
-  assert.deepEqual(got.options, { uid: 20003, gid: 10001 });
+  const got = ownerSpawnIdentity(config, 20003, 20500);
+  assert.deepEqual(got.options, { uid: 20500, gid: 20003 });
   assert.deepEqual(got.env, {
-    HOME: "/home/sandbox/owners/20003",
+    HOME: "/home/sandbox/owners/20003/home",
     TMPDIR: "/home/sandbox/owners/20003/tmp",
     UV_CACHE_DIR: "/home/sandbox/owners/20003/.cache/uv",
+    USER: "sandbox",
+    LOGNAME: "sandbox",
   });
 });
 
@@ -61,13 +63,15 @@ await check("SANDBOX_HOME, SANDBOX_UID_BASE and SANDBOX_UID_COUNT move the range
     SANDBOX_UID_COUNT: "10",
   })!;
   assert.equal(ownerHomePath(config, 50009), "/srv/cells/owners/50009");
-  assert.equal(ownerSpawnIdentity(config, 50009).options.uid, 50009);
+  assert.deepEqual(ownerSpawnIdentity(config, 50009, 50001).options, { uid: 50001, gid: 50009 });
 });
 
-await check("a uid outside the range is refused rather than used", () => {
+await check("a uid or gid outside the range is refused rather than used", () => {
   const config = readSandboxConfig({ ...set, SANDBOX_UID_COUNT: "10" })!;
-  assert.throws(() => ownerSpawnIdentity(config, 20010), /outside 20000\.\.20009/);
-  assert.throws(() => ownerSpawnIdentity(config, 0), /outside/);
+  assert.throws(() => ownerSpawnIdentity(config, 20010, 20000), /gid 20010 is outside 20000\.\.20009/);
+  assert.throws(() => ownerSpawnIdentity(config, 20000, 20010), /uid 20010 is outside 20000\.\.20009/);
+  assert.throws(() => ownerSpawnIdentity(config, 20000, 0), /outside/);
+  assert.throws(() => ownerSpawnIdentity(config, 0, 20000), /outside/);
 });
 
 await check("linux + gid unset: nothing", () => {

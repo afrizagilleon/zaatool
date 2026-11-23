@@ -41,6 +41,13 @@ export type CellSection = 'note' | 'code' | 'output';
 
 export interface NotebookState {
   id: string;
+  /**
+   * Which save of this notebook the editor's copy came from; null for one never saved. Sent
+   * with every save so the engine can refuse it when somebody else saved in between.
+   */
+  revision: number | null;
+  /** Set when a save was refused because the stored notebook moved on; the editor offers a way out. */
+  saveConflict: { message: string; currentRevision: number | null } | null;
   name: string;
   runtime: NotebookRuntime;
   secrets: string[];
@@ -132,7 +139,11 @@ export interface NotebookState {
   restoreRun: (run: import('@zaa-tool/shared').NotebookRunDetail, asLatest?: boolean) => void;
 
   setSaving: (isSaving: boolean) => void;
-  markSaved: (id: string) => void;
+  markSaved: (id: string, revision?: number) => void;
+  /** A refused save: keeps the message and the revision the engine says is current, and saves nothing until resolved. */
+  setSaveConflict: (message: string, currentRevision: number | null) => void;
+  /** "Save anyway": takes the engine's current revision as the base, knowingly, and clears the conflict. */
+  overwriteAfterConflict: () => void;
 
   /** `onlyCellId` limits the reset to that cell, so a single-cell run leaves other results intact. */
   startRun: (runId: string, onlyCellId?: string) => void;

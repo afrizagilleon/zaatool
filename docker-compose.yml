@@ -73,11 +73,24 @@ services:
       # The one time zone cron triggers are read in. See DEPLOY.md.
       CRON_TZ: ${CRON_TZ:-UTC}
       UV_LOCK_TIMEOUT_SECONDS: ${UV_LOCK_TIMEOUT_SECONDS:-120}
-      # Per-cell hard limits (memory, processes per owner, largest file). Empty means the
-      # engine's own default; see .env.example.
+      # Per-cell hard limits (memory, processes per cell, largest file), and the looser ones
+      # for the `uv` that installs a notebook's packages. Empty means the engine's own
+      # default; see .env.example.
       MAX_CELL_MEMORY_MB: ${MAX_CELL_MEMORY_MB:-}
+      MAX_PYTHON_CELL_MEMORY_MB: ${MAX_PYTHON_CELL_MEMORY_MB:-}
       MAX_CELL_PROCESSES: ${MAX_CELL_PROCESSES:-}
       MAX_CELL_FILE_MB: ${MAX_CELL_FILE_MB:-}
+      # What cells may reach on the private networks, which the image's firewall otherwise
+      # refuses them (the engine's own port, the database, other containers, the cloud
+      # metadata address). Comma-separated CIDRs or host:port; empty means nothing. See
+      # DEPLOY.md.
+      CELL_EGRESS_ALLOW: ${CELL_EGRESS_ALLOW:-}
+      # `off` starts the engine without that firewall, loudly. Leave it on.
+      CELL_EGRESS_FIREWALL: ${CELL_EGRESS_FIREWALL:-on}
+      MAX_OWNER_DISK_MB: ${MAX_OWNER_DISK_MB:-}
+      MAX_INSTALL_MEMORY_MB: ${MAX_INSTALL_MEMORY_MB:-}
+      MAX_INSTALL_PROCESSES: ${MAX_INSTALL_PROCESSES:-}
+      MAX_INSTALL_FILE_MB: ${MAX_INSTALL_FILE_MB:-}
       # Read by the login and webhook limiters to tell clients apart behind nginx. One hop:
       # nginx, and nobody behind it. Not the engine's own default (private networks), because
       # nginx can see a client on a private address too (Docker Desktop, rootless Docker, a
@@ -88,13 +101,26 @@ services:
       # Replaces the random setup code printed to the log while no account exists. Leave it
       # unset unless a script has to create the first account without reading the log.
       SETUP_CODE: ${SETUP_CODE:-}
+    # The two capabilities the engine's sandbox needs on top of Docker's defaults:
+    #   NET_ADMIN    the entrypoint installs the iptables rules that keep cells off the engine's
+    #                own port, the database and the rest of the network (S-06), then drops
+    #                this capability from the engine, so nothing it runs can remove them. The
+    #                engine refuses to start if the rules are not there.
+    #   SYS_RESOURCE the engine pins each cell's oom_score_adj at 1000, so a container that
+    #                runs out of memory kills a cell rather than the engine (S-17). Writing it
+    #                needs this capability, and without it a cell could lower its own value
+    #                again. The engine keeps it.
+    # Neither lets a cell do anything: cells run as unprivileged uids with no capabilities.
+    cap_add:
+      - NET_ADMIN
+      - SYS_RESOURCE
     # A runaway cell or a pile of nested runs should slow zaatool down, not the other
     # services on this machine. Change them in .env.
     mem_limit: ${ENGINE_MEMORY_LIMIT:-2g}
     cpus: ${ENGINE_CPU_LIMIT:-2}
     # Processes and threads in the whole container, the engine's and every cell's. Without a
     # bound, one fork bomb in a cell exhausts the host's pids rather than this container's.
-    # Each owner's cells are bounded separately by MAX_CELL_PROCESSES (256).
+    # Each cell process is bounded separately by MAX_CELL_PROCESSES (128).
     pids_limit: ${ENGINE_PIDS_LIMIT:-4096}
     volumes:
       # Everything notebooks write, and everything sent to them. Without this, every file

@@ -4,8 +4,8 @@
  * The container's `mem_limit` and `pids_limit` are shared by the engine and every cell, so
  * on their own a fork bomb or a huge allocation by one owner can still take the engine
  * down. These limits are per process (memory, file size) and per uid (process count, which
- * is therefore per owner since FX-20), and they are set by `prlimit` *before* the cell's
- * own code is executed. A non-root process cannot raise a hard limit, so nothing the cell
+ * is therefore per cell process, since every process has a uid of its own: S-16), and they
+ * are set by `prlimit` *before* the cell's own code is executed. A non-root process cannot raise a hard limit, so nothing the cell
  * does can undo them.
  *
  * Done with `prlimit` in front of the command rather than `resource.setrlimit` inside the
@@ -18,12 +18,19 @@
  * and nothing else, so it measures what a cell really consumes. `RLIMIT_AS` also counts
  * address space that is only reserved, which is a lot for V8 and for OpenBLAS.
  *
+ * The same chain also sets `umask 007` (a `sh` that `exec`s the command, so the pid is still
+ * the same). Every cell of an owner is a different uid in the owner's group, and what one
+ * writes into the owner's shared folders (the `uv` cache above all) has to be group-writable
+ * for the next: with the usual 022 a second cell cannot enter a cache directory the first
+ * created ("Permission denied" in `sdists-v9`), and with 077 nobody could.
+ *
  * Pure functions of their inputs, like `sandbox-identity`, so they can be tested anywhere.
  */
 import { existsSync } from "node:fs";
 
 /** Where util-linux puts it on Debian. Absolute so `PATH` never decides what runs. */
 export const PRLIMIT_PATH = "/usr/bin/prlimit";
+const SH_PATH = "/bin/sh";
 
 const MB = 1024 * 1024;
 
@@ -48,13 +55,18 @@ const THREAD_VARS = ["OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS
 export interface CellLimits {
   /** Megabytes of private memory a cell may hold; for JS, on top of {@link JS_RUNTIME_RESERVE_MB}. */
   memoryMb: number;
-  /** Processes and threads the owner's uid may have, all of its running cells together. */
+  /** Processes and threads the cell's uid may have: the cell and everything it starts. */
   processes: number;
   /** Largest single file, in megabytes, a cell may write. */
   fileMb: number;
 }
 
-export type CellKind = "js" | "python";
+/**
+ * `install` is `uv` fetching, building and unpacking a notebook's packages: its own, looser
+ * limits (see `installLimits` in config), because installing a large wheel is not the
+ * notebook's own memory and `uv` itself runs many threads.
+ */
+export type CellKind = "js" | "python" | "install";
 
 /** Arguments for `prlimit` that apply `limits` to a cell of `kind`. */
 export function prlimitArgs(limits: CellLimits, kind: CellKind): string[] {
@@ -68,6 +80,9 @@ export function prlimitArgs(limits: CellLimits, kind: CellKind): string[] {
   ];
 }
 
+/** Group-writable, nothing for others: see the note at the top. `exec` keeps the pid. */
+const UMASK_SCRIPT = 'umask 007; exec "$@"';
+
 export interface Command {
   bin: string;
   args: string[];
@@ -75,23 +90,27 @@ export interface Command {
 
 /**
  * `command` run under the limits, or unchanged when they do not apply. They apply when the
- * cell is dropped to an owner's uid (see `sandbox-identity`): that is the production shape,
+ * cell is dropped to a uid of its own (see `sandbox-identity`): that is the production shape,
  * and without it the process is the engine's own user, which a developer's laptop is.
  *
- * `numericThreads` is for Python cells only (see {@link PYTHON_NUMERIC_THREADS}).
+ * Python cells get their numeric thread caps (see {@link PYTHON_NUMERIC_THREADS}). `umask`
+ * is off only for a command that already runs under another `limitedCommand` that has it
+ * (the interpreter `uv` runs).
  */
 export function limitedCommand(
   command: Command,
   kind: CellKind,
   limits: CellLimits,
   applies: boolean,
-  prlimit: string = PRLIMIT_PATH
+  prlimit: string = PRLIMIT_PATH,
+  options: { umask?: boolean } = {}
 ): Command {
   if (!applies) return command;
   const env = kind === "python" ? ["/usr/bin/env", ...THREAD_VARS.map((name) => `${name}=${PYTHON_NUMERIC_THREADS}`)] : [];
+  const inner = options.umask === false ? [command.bin, ...command.args] : [SH_PATH, "-c", UMASK_SCRIPT, "sh", command.bin, ...command.args];
   return {
     bin: prlimit,
-    args: [...prlimitArgs(limits, kind), ...env, command.bin, ...command.args],
+    args: [...prlimitArgs(limits, kind), ...env, ...inner],
   };
 }
 

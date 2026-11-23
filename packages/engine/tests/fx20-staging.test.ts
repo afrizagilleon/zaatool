@@ -11,10 +11,12 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createCellHost, type WorkspaceFs } from "../src/core/cell-workspace.js";
+import { createCellHost } from "../src/core/cell-workspace.js";
 import { runJsNode } from "../src/core/js-runner.js";
 import { runPythonNode } from "../src/core/python-runner.js";
 import type { SandboxConfig } from "../src/core/sandbox-identity.js";
+import { createUidPool } from "../src/core/uid-sweep.js";
+import { fakeWorkspaceFs } from "./fake-workspace-fs.js";
 import { STORAGE_DIR } from "../src/services/storage.service.js";
 import { notebooksService } from "../src/services/notebooks.service.js";
 import { notebookExecutionService } from "../src/services/notebook-execution.service.js";
@@ -138,26 +140,22 @@ try {
     assert.equal(fs.readFileSync(path.join(dirInStorage, "a.txt"), "utf8"), "zz-fx20s-A");
   });
 
-  console.log("\nsandbox mode (recorded): the copy is the owner's and 0600");
-  await check("a staged file and its folder are chowned to the owner's uid and closed to everyone else", () => {
+  console.log("\nsandbox mode (recorded): the copy is made by the process's own uid, never by root");
+  await check("a staged file is copied by a helper that is the process's uid, into the process's own folder", () => {
     const config: SandboxConfig = { uidBase: 20000, uidCount: 40000, gid: 10001, home: "/home/sandbox" };
-    const calls: string[] = [];
-    const recording: WorkspaceFs = {
-      mkdirSync: () => undefined,
-      chmodSync: (target, mode) => void calls.push(`chmod ${mode.toString(8)} ${target}`),
-      chownSync: (target, uid, gid) => void calls.push(`chown ${uid}:${gid} ${target}`),
-      rmSync: () => undefined,
-      copyFileSync: (source, target) => void calls.push(`copy ${path.basename(source)} -> ${target}`),
-      statSync: (target) => fs.statSync(target),
-    };
-    const ws = createCellHost({ sandbox: { config, uid: 20005 }, fs: recording, grants: new Set([A]) }).open({ path: A });
-    const copy = /-> (.+)$/.exec(calls.find((call) => call.startsWith("copy"))!)![1];
-    assert.match(copy, /^\/home\/sandbox\/owners\/20005\/cells\/[0-9a-f]{32}\/files\/1-a\.txt$/);
-    assert.ok(calls.includes(`chown 20005:10001 ${copy}`));
-    assert.ok(calls.includes(`chmod 600 ${copy}`));
-    assert.ok(calls.includes(`chown 20005:10001 ${path.posix.dirname(copy)}`));
-    assert.ok(calls.includes(`chmod 700 ${path.posix.dirname(copy)}`));
-    ws.dispose();
+    const rec = fakeWorkspaceFs();
+    const pool = createUidPool({ base: 20000, count: 100, sweeper: async () => true, start: 0, retryDelayMs: 0 });
+    const ws = createCellHost({ sandbox: { config, gid: 20005, pool }, fs: rec.fs, grants: new Set([A]) }).open({ path: A });
+    assert.equal(rec.stageCalls.length, 1);
+    const stage = rec.stageCalls[0];
+    assert.equal(stage.uid, ws.spawn.options.uid);
+    assert.equal(stage.gid, 20005);
+    assert.equal(stage.into, `${ws.dir}/files`);
+    assert.match(stage.files[0][1], /^\/home\/sandbox\/owners\/20005\/cells\/[0-9a-f]{32}\/files\/1-a\.txt$/);
+    assert.equal(ws.staged[A], stage.files[0][1]);
+    // C-01: root copies, chowns and chmods nothing inside the folder a cell can write to.
+    assert.deepEqual(rec.rootOpsInside([ws.dir]), []);
+    void ws.dispose();
   });
 
   console.log("\nthrough the engine: `input` seeding cannot make the engine copy a file nobody admitted");

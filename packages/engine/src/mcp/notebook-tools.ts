@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { notebooksService, type NotebookRecord } from "../services/notebooks.service.js";
+import {
+  notebooksService,
+  NotebookConflictError,
+  type NotebookRecord,
+} from "../services/notebooks.service.js";
 import { notebookRunsService } from "../services/notebook-runs.service.js";
 import { notebookAccessService } from "../services/notebook-access.service.js";
 import { secretsService } from "../services/secrets.service.js";
@@ -103,6 +107,11 @@ function explain(err: unknown): ToolReply {
   }
   // Their messages are the whole explanation, and already name what would break.
   if (err instanceof CellEditError || err instanceof SetupEditError) return refuse(err.message);
+  // Somebody saved between this tool's read and its write. Nothing was written, and the
+  // remedy is the one sentence an agent needs: read it again.
+  if (err instanceof NotebookConflictError) {
+    return refuse(`${err.message} Call notebook_read again, then repeat your change on what it shows.`);
+  }
   return refuse((err as Error).message ?? String(err));
 }
 
@@ -742,7 +751,16 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
       const judged = judgeDocument(edited, document);
       if ("error" in judged) return judged.error;
 
-      const saved = await notebooksService.save(judged.document, deps.writer, deps.userId);
+      // Saved from the revision this tool read, so an edit made by somebody else while it
+      // was working is refused rather than overwritten.
+      let saved: { id: string; name: string };
+      try {
+        saved = await notebooksService.save(judged.document, deps.writer, deps.userId, {
+          expectedRevision: resolved.record.revision,
+        });
+      } catch (err: unknown) {
+        return explain(err);
+      }
 
 
       return reply(
@@ -864,7 +882,14 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
         );
       }
 
-      const saved = await notebooksService.save(edited, deps.writer, deps.userId);
+      let saved: { id: string; name: string };
+      try {
+        saved = await notebooksService.save(edited, deps.writer, deps.userId, {
+          expectedRevision: resolved.record.revision,
+        });
+      } catch (err: unknown) {
+        return explain(err);
+      }
 
       const lines = [
         `${action} on **${saved.name}** \`${saved.id}\``,
@@ -1003,7 +1028,16 @@ export function registerNotebookTools(server: McpServer, deps: McpToolDeps, scop
       const before = existing ? notebooksService.parseDocument(existing) : null;
       if (before) document = fromMarkdown(text, { id: fallbackId, previous: before });
 
-      const saved = await notebooksService.save(document, deps.writer, deps.userId);
+      let saved: { id: string; name: string };
+      try {
+        // From the revision just read: an existing notebook changed since is refused, a new
+        // one has nothing to conflict with.
+        saved = await notebooksService.save(document, deps.writer, deps.userId, {
+          expectedRevision: existing?.revision,
+        });
+      } catch (err: unknown) {
+        return explain(err);
+      }
 
       const lines = [
         `${existing ? "Updated" : "Created"} **${saved.name}** \`${saved.id}\``,

@@ -231,7 +231,7 @@ Said plainly so nobody plans around a thing that is not here.
 - **Single node.** One engine process. No horizontal scaling, no distributed queue.
 - **No SSO / no email.** Accounts are creator/viewer; password reset is a CLI command, because there is no mail infrastructure to send a link through.
 - **Not audited.** Notebooks run code on your server. Only give `creator` to people you would give a shell to.
-- **Not a hardened sandbox.** JavaScript cells cannot touch your disk or start processes (node's permission model), and in Docker every cell runs as an unprivileged user. But the network is open to them — they can reach anything the server can, the database port included — Python on a dev machine has no isolation, storage files are readable across notebooks, and the engine itself runs as root in the container. See [Sandboxing, honestly](ARCHITECTURE.md#sandboxing-honestly).
+- **Not a hardened sandbox.** JavaScript cells cannot touch your disk or start processes (node's permission model), and in Docker every cell runs as an unprivileged user. On Linux in Docker a firewall also keeps cells off the engine, the database and the rest of the internal network (the internet stays open to them). Python on a dev machine has no isolation, storage files are readable across notebooks, and the engine itself runs as root in the container. See [Sandboxing, honestly](ARCHITECTURE.md#sandboxing-honestly).
 - **Run-until-this-cell does not exist.** The run API takes one cell or all of them. It is on the list, honestly, and it starts in the engine.
 - **One typeface decision is still open.** Cosmetic, known, unfixed.
 

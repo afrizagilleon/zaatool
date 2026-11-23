@@ -5,14 +5,10 @@ import { abortMessage } from "./run-abort.js";
 import { randomBytes } from "node:crypto";
 import { PY_RPC_PREFIX, pyRpcPrefix, type NotebookCaller } from "./notebook-call.js";
 import type { FileWriter } from "./notebook-files.js";
-import { withUidLease } from "./uid-sweep.js";
+import { guardCellFromOom } from "./oom-guard.js";
 import { defaultCellHost, type CellHost, type CellWorkspace } from "./cell-workspace.js";
-import { cellLimits } from "../config.js";
+import { installLimits, pythonCellLimits } from "../config.js";
 import { limitedCommand } from "./cell-limits.js";
-import type { CellSpawnIdentity } from "./sandbox-identity.js";
-
-/** What a cell runs as when there is no sandbox: no uid switch, nothing added to the environment. */
-const NO_IDENTITY: CellSpawnIdentity = { options: {}, env: {} };
 
 /**
  * Whether the code defines its own top-level `main` (`def main(` or `async def main(` at
@@ -66,6 +62,9 @@ export function definesMain(code: string): boolean {
   return false;
 }
 
+/** The file the cell's program is written to, in its own folder, when the sandbox is on. */
+const CELL_SCRIPT = "cell.py";
+
 /** How long a cell that announced its result may take to exit before its tree is killed. */
 const GRACE_MS = 2000;
 
@@ -79,18 +78,29 @@ function uvLockTimeoutMs(): number {
 }
 
 /**
- * `identity` is the notebook owner's (see `CellHost.spawn`): the install runs as them, with
- * their package cache, exactly as their cells will.
+ * `host` is the notebook owner's (see `CellHost`): the install is a process like a cell, with
+ * a uid and a folder of its own, in the owner's group with their package cache, so what it
+ * leaves in the cache is what their cells will use. It is held to the install limits
+ * (`installLimits`), because installing runs arbitrary package code.
  */
 export function resolvePythonLockedPackages(
   packages: string[],
-  identity: CellSpawnIdentity = NO_IDENTITY
+  host: CellHost = defaultCellHost()
 ): Promise<string[]> {
   if (!Array.isArray(packages) || packages.length === 0) {
     return Promise.resolve([]);
   }
 
-  return withUidLease(identity.options, () => new Promise<string[]>((resolve, reject) => {
+  return new Promise<string[]>((resolve, reject) => {
+    let workspace: CellWorkspace;
+    try {
+      workspace = host.open();
+    } catch (err) {
+      reject(err);
+      return;
+    }
+    const identity = workspace.spawn;
+
     const pyScript = `import json, importlib.metadata, re
 reqs = ${JSON.stringify(packages)}
 locked = []
@@ -117,13 +127,21 @@ print(json.dumps(locked))
     ];
 
     // Installing declared packages runs arbitrary package code (build scripts, setup.py),
-    // so it gets what the cell itself gets: no engine environment, and not root.
-    const proc = spawn(bin, args, {
+    // so it gets what the cell itself gets: no engine environment, not root, a uid of its own,
+    // and (on Linux with the sandbox on) the install limits.
+    const command = limitedCommand(
+      { bin, args },
+      "install",
+      installLimits(),
+      identity.options.uid !== undefined
+    );
+    const proc = spawn(command.bin, command.args, {
       env: { ...buildSandboxEnv({}), ...identity.env },
       // Its own process group, so a timeout takes down the build scripts and python too.
       ...TREE_SPAWN_OPTIONS,
       ...identity.options,
     });
+    guardCellFromOom(proc.pid, identity.options.uid !== undefined);
     let stdout = "";
     proc.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
@@ -139,11 +157,13 @@ print(json.dumps(locked))
 
     proc.on("error", () => {
       clearTimeout(timer);
+      void workspace.dispose();
       resolve(packages);
     });
 
     proc.on("close", (code) => {
       clearTimeout(timer);
+      void workspace.dispose();
       if (timedOut) {
         reject(
           new Error(
@@ -165,7 +185,7 @@ print(json.dumps(locked))
       }
       resolve(packages);
     });
-  }));
+  });
 }
 
 
@@ -184,12 +204,12 @@ export function runPythonNode(
   /** Whose process this is: its uid and its folders. Without one, a plain temp folder. */
   host: CellHost = defaultCellHost()
 ): Promise<{ output?: Record<string, unknown>; logs: any[]; error?: string; ms: number }> {
-  // Holds a lease on the owner's uid for the life of the run; the last one out sweeps (uid-sweep).
-  return withUidLease(host.spawn.options, () => new Promise<{ output?: Record<string, unknown>; logs: any[]; error?: string; ms: number }>((resolve) => {
+  return new Promise<{ output?: Record<string, unknown>; logs: any[]; error?: string; ms: number }>((resolve) => {
     const startTime = Date.now();
     const logs: any[] = [];
 
-    // This process's own folder, made before it starts and removed when it is over; see js-runner.
+    // This process's own folder (and, in the sandbox, its own uid), made before it starts and
+    // removed when it is over; see js-runner.
     let workspace: CellWorkspace;
     try {
       workspace = host.open(inputs);
@@ -208,6 +228,7 @@ export function runPythonNode(
       finalCode = `def main(inputs):\n${indented}`;
     }
 
+    const memoryLimitMb = pythonCellLimits().memoryMb;
     const wrapper = `
 import json, sys, os, base64, traceback, posixpath
 
@@ -412,17 +433,51 @@ try:
     result = main(wrapped_inputs)
     _zaa_send({"type": "done", "output": result})
 except MemoryError:
-    _zaa_send({"type": "error", "error": "MemoryError: the cell ran out of memory (limit ${cellLimits().memoryMb} MB)."})
+    _zaa_send({"type": "error", "error": "MemoryError: the cell ran out of memory (limit ${memoryLimitMb} MB)."})
 except Exception as err:
     _zaa_send({"type": "error", "error": "".join(traceback.format_exception_only(type(err), err)).strip()})
 `;
 
     const identity = workspace.spawn;
-    // Under `uv` the limits go on the interpreter, not on `uv` itself: installing a large
-    // wheel is not the notebook's own memory. `prlimit` and `uv run` both replace
-    // themselves with what they run, so the pid is still the group leader.
+    const sandboxed = identity.options.uid !== undefined;
+
+    // The cell's code must not be on the command line: `/proc/<pid>/cmdline` is readable by
+    // every user (S-18). With the sandbox on, the program goes in a file in the process's own
+    // folder (0600, its uid's) and is named by a relative path, the folder being the working
+    // directory. Without one there is no other user to hide it from.
+    let script: string[];
+    if (sandboxed) {
+      try {
+        workspace.writeScript(CELL_SCRIPT, wrapper);
+      } catch (err) {
+        void workspace.dispose();
+        resolve({ error: err instanceof Error ? err.message : String(err), logs, ms: Date.now() - startTime });
+        return;
+      }
+      script = [CELL_SCRIPT];
+    } else {
+      script = ["-c", wrapper];
+    }
+
+    // Under `uv` the cell's limits go on the interpreter, and `uv` itself gets the (looser)
+    // install limits: installing a large wheel is not the notebook's own memory. A limit set
+    // inside another can only be lower, so the interpreter's are capped by the install's.
+    // `prlimit` and `uv run` both replace themselves with what they run, so the pid is still
+    // the group leader.
+    const cell = pythonCellLimits();
+    const install = installLimits();
+    const interpreterLimits =
+      packages.length > 0
+        ? {
+            memoryMb: Math.min(cell.memoryMb, install.memoryMb),
+            processes: Math.min(cell.processes, install.processes),
+            fileMb: Math.min(cell.fileMb, install.fileMb),
+          }
+        : cell;
     const interpreter = (bin: string) =>
-      limitedCommand({ bin, args: ["-c", wrapper] }, "python", cellLimits(), identity.options.uid !== undefined);
+      limitedCommand({ bin, args: script }, "python", interpreterLimits, sandboxed, undefined, {
+        umask: packages.length === 0,
+      });
 
     /**
      * A notebook that declares packages runs under `uv`, which builds the environment it
@@ -438,17 +493,22 @@ except Exception as err:
      */
     const command =
       packages.length > 0
-        ? {
-            bin: process.env.UV_PATH || "uv",
-            args: [
-              "run",
-              "--no-project",
-              "--quiet",
-              ...packages.flatMap((requirement) => ["--with", requirement]),
-              "--",
-              ...[interpreter("python")].flatMap((inner) => [inner.bin, ...inner.args]),
-            ],
-          }
+        ? limitedCommand(
+            {
+              bin: process.env.UV_PATH || "uv",
+              args: [
+                "run",
+                "--no-project",
+                "--quiet",
+                ...packages.flatMap((requirement) => ["--with", requirement]),
+                "--",
+                ...[interpreter("python")].flatMap((inner) => [inner.bin, ...inner.args]),
+              ],
+            },
+            "install",
+            install,
+            sandboxed
+          )
         : interpreter(process.platform === "win32" ? "python" : "python3");
 
     const proc = spawn(command.bin, command.args, {
@@ -458,6 +518,9 @@ except Exception as err:
       ...TREE_SPAWN_OPTIONS,
       ...identity.options,
     });
+    // Before the cell is handed any work (the first payload is sent below): make it the first
+    // thing the kernel kills when memory runs out, and the engine not (S-17).
+    guardCellFromOom(proc.pid, sandboxed);
 
     // Fresh per spawn, 256 bits. Reaches the child only in the first stdin payload, so it
     // is in no argv, env, input or log. Lines without this exact prefix are plain logs.
@@ -654,5 +717,5 @@ except Exception as err:
       // Exited cleanly without a result frame: main returned nothing at all.
       finish({ output: undefined });
     });
-  }));
+  });
 }

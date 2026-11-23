@@ -121,6 +121,51 @@ export async function initDb() {
       END $$;
     `);
 
+    // A counter that moves on every save, so two people (or a person and an agent) editing
+    // the same notebook cannot silently overwrite each other: a save says which revision it
+    // was made from, and one made from an older revision is refused. Existing rows start at 1.
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE notebooks ADD COLUMN revision INTEGER NOT NULL DEFAULT 1;
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
+
+    // The name the deployed version goes by, kept on the notebook so the database itself can
+    // say "no two deployed notebooks share a name" with a unique index — the check made in
+    // code reads and then writes, and two deploys in parallel both read "free". Written by
+    // `deploy`, cleared by `undeploy` and `delete`. The backfill runs once, with the column.
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE notebooks ADD COLUMN deployed_name VARCHAR(255);
+
+        UPDATE notebooks n
+        SET deployed_name = v.document::jsonb ->> 'name'
+        FROM notebook_versions v
+        WHERE v.id = n.deployed_version_id;
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
+
+    // An installation that already has two deployed notebooks under one name (the check used
+    // to be racy) cannot take a unique index, and a migration must not refuse to start it or
+    // delete somebody's notebook to make room. It warns and goes on: `deploy` still checks
+    // the name under a lock, and the index appears once someone renames one of the two.
+    await client.query(`
+      DO $$
+      BEGIN
+        CREATE UNIQUE INDEX IF NOT EXISTS notebooks_deployed_name_idx
+        ON notebooks (deployed_name) WHERE deployed_name IS NOT NULL;
+      EXCEPTION
+        WHEN unique_violation THEN
+          RAISE WARNING 'notebooks_deployed_name_idx not created: two deployed notebooks share a name. Rename one and restart.';
+      END $$;
+    `);
+
     // Notebook triggers, indexed rather than discovered by scanning documents —
     // the scheduler queries this table instead of parsing every notebook each minute.
     await client.query(`
@@ -243,9 +288,12 @@ export async function initDb() {
       END $$;
     `);
 
-    // The uid this account's notebooks' cells run as on Linux (FX-20), handed out the first
-    // time one of them runs. UNIQUE: two owners sharing a uid would share everything the
-    // kernel keeps apart. Null until then, and always null where cells do not change uid.
+    // The id this account's notebooks' cells run under on Linux, handed out the first time
+    // one of them runs. Since S-16 it is the owner's *gid* (every cell process has a uid of
+    // its own); it was the owner's uid (FX-20), and keeps its name and numbers so an
+    // existing installation keeps its owners and their folders. UNIQUE: two owners sharing
+    // one would share everything the kernel keeps apart. Null until then, and always null
+    // where cells do not change uid.
     await client.query(`
       DO $$
       BEGIN
@@ -255,9 +303,9 @@ export async function initDb() {
       END $$;
     `);
 
-    // The highest sandbox uid ever handed out, per range. It never goes down: the highest uid
+    // The highest sandbox id ever handed out, per range. It never goes down: the highest id
     // still on `users` would drop when its account is deleted, and the next owner would then
-    // get that uid — and every file the old owner's cells left in its home folder.
+    // get that id — and every file the old owner's cells left in its home folder.
     await client.query(`
       CREATE TABLE IF NOT EXISTS sandbox_uid_highwater (
         uid_base INTEGER PRIMARY KEY,

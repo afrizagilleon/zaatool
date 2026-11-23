@@ -1,136 +1,249 @@
 /**
- * Cleans up after the last running process of a cell owner.
+ * The pool of one-off uids cell processes run as, and the sweep that cleans one up (S-16).
  *
  * Killing a cell's process group is not enough on Linux: a child that calls `setsid()` (or
  * double-forks) leaves the group, and a child that outlives its parent is no longer reachable
- * from the engine's pid at all. Every cell of an owner runs as the owner's uid (FX-20), so the
- * one handle that always reaches whatever such a cell left behind is that uid.
+ * from the engine's pid at all. The one handle that always reaches whatever a cell left
+ * behind is its uid. So every cell process (JavaScript, Python, the `uv` that resolves its
+ * packages) is given a uid of its own, and:
  *
- * This module counts the processes an owner has running (cells, and the `uv` that resolves
- * their packages). When the count falls to zero it spawns a tiny helper *as that uid* that
- * sends SIGKILL to "every process I may signal" (`kill(-1)`). On Linux that never includes the
- * caller, and being the owner's uid it can touch nothing of anyone else's, root's or the
- * engine's. It is skipped whenever there is no uid to switch to (Windows, no sandbox).
+ *  - when the process is over, a tiny helper is spawned *as that uid* that kills everything
+ *    of that uid (`kill(-1)`, which on Linux never includes the caller and, being that uid,
+ *    can touch nothing of anyone else's, root's or the engine's), waits until nothing is
+ *    left, and removes what the uid left in the folders everybody can write to
+ *    (`/dev/shm`, `/tmp`, `/var/tmp`) and in the process's own folder. Everything it deletes it
+ *    deletes as that uid, so a symlink the cell planted cannot turn the clean-up into a
+ *    root-powered delete;
+ *  - only then is the uid free again. A uid is never reused before its sweep has succeeded,
+ *    and the next uid is always the one after the last handed out, so a uid is not handed out
+ *    again until the whole range has been used. A sweep that cannot be confirmed retires the
+ *    uid for the life of this engine instead of risking it.
  *
- * Two races matter and are closed here:
- *  - a new process of the same owner must not start while a sweep is running, or the sweep
- *    would kill it: {@link UidLedger.acquire} waits for the sweep to end;
- *  - the sweep must not start while a process is running: it only starts at count zero, and
- *    the check and the start happen in one synchronous step.
+ * Nothing here is held across a run: the pool is only a list of which numbers are taken.
+ * The decision of who needs a uid, and the folders, belong to `cell-workspace`.
  */
 import { spawn } from "node:child_process";
 
-/** The part of a spawn identity the sweep needs: `CellSpawnIdentity.options`. */
 export interface SweepTarget {
-  uid?: number;
-  gid?: number;
+  uid: number;
+  /** The group the helper runs as: the owner's, so it can remove what its files' group owns. */
+  gid: number;
+  /** The process's own folder: its contents are removed (the folder itself is the caller's). */
+  dir?: string;
 }
 
-/** Runs the sweep for one owner. Must resolve (not reject) when it is over. */
-export type Sweeper = (target: { uid: number; gid?: number }) => Promise<void>;
+/** Sweeps one uid. Resolves true only when nothing of that uid is left running; never rejects. */
+export type Sweeper = (target: SweepTarget) => Promise<boolean>;
 
 /** How long a sweep helper may take before it is given up on. */
-const SWEEP_TIMEOUT_MS = 5000;
+const SWEEP_TIMEOUT_MS = 8000;
 
 /**
- * The real sweeper: node, as the owner, killing everything of that owner. Failures are
- * swallowed on purpose: the sweep is a safety net on a path that is already finishing a run,
- * and nothing the caller could do about a failure would be better than carrying on.
+ * What the helper runs, as the uid it cleans. Plain JavaScript run with `node -e`, so it needs
+ * no file the uid could not read. `process.argv[1]` is the folder to empty ("" for none).
+ *
+ * It loops because a fork bomb can start a child between `kill(-1)` walking the process table
+ * and returning; it stops when `/proc` shows no live process of this uid but itself. A
+ * zombie does not count: it is only waiting for its parent (the engine) to collect it.
  */
-export const spawnKillAll: Sweeper = ({ uid, gid }) =>
-  new Promise<void>((resolve) => {
+export const SWEEP_SCRIPT = String.raw`
+const fs = require("fs");
+const me = process.getuid();
+const self = process.pid;
+const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+function alive() {
+  let names = [];
+  try { names = fs.readdirSync("/proc"); } catch { return 0; }
+  let count = 0;
+  for (const name of names) {
+    if (!/^[0-9]+$/.test(name) || Number(name) === self) continue;
     try {
-      const helper = spawn(process.execPath, ["-e", "try{process.kill(-1,'SIGKILL')}catch{}"], {
+      if (fs.statSync("/proc/" + name).uid !== me) continue;
+      const stat = fs.readFileSync("/proc/" + name + "/stat", "latin1");
+      const state = stat[stat.lastIndexOf(")") + 2];
+      if (state !== "Z" && state !== "X") count += 1;
+    } catch { /* gone while we looked */ }
+  }
+  return count;
+}
+
+let clean = false;
+for (let round = 0; round < 40 && !clean; round += 1) {
+  try { process.kill(-1, "SIGKILL"); } catch { /* nothing to signal */ }
+  clean = alive() === 0;
+  if (!clean) sleep(25);
+}
+
+function remove(target) {
+  let info;
+  try { info = fs.lstatSync(target); } catch { return; }
+  if (info.isDirectory()) {
+    try { fs.chmodSync(target, 0o700); } catch { /* ours, but not always changeable */ }
+    let names = [];
+    try { names = fs.readdirSync(target); } catch { /* unreadable: left */ }
+    for (const name of names) remove(target + "/" + name);
+    try { fs.rmdirSync(target); } catch { /* not empty, or not ours */ }
+  } else {
+    try { fs.unlinkSync(target); } catch { /* not ours */ }
+  }
+}
+
+const dir = process.argv[1] || "";
+if (dir !== "") {
+  try { for (const name of fs.readdirSync(dir)) remove(dir + "/" + name); } catch { /* gone already */ }
+}
+for (const shared of ["/dev/shm", "/tmp", "/var/tmp"]) {
+  let names = [];
+  try { names = fs.readdirSync(shared); } catch { continue; }
+  for (const name of names) {
+    try { if (fs.lstatSync(shared + "/" + name).uid === me) remove(shared + "/" + name); } catch { /* gone */ }
+  }
+}
+process.exit(clean ? 0 : 2);
+`;
+
+/** The real sweeper: node, as the uid, running {@link SWEEP_SCRIPT}. */
+export const spawnSweep: Sweeper = ({ uid, gid, dir }) =>
+  new Promise<boolean>((resolve) => {
+    try {
+      const helper = spawn(process.execPath, ["-e", SWEEP_SCRIPT, dir ?? ""], {
         uid,
         gid,
-        // The engine's folder may not be readable by the owner, and the helper needs nothing.
+        // The engine's folder may not be readable by the uid, and the helper needs nothing.
         cwd: "/",
         env: {},
         stdio: "ignore",
       });
       const timer = setTimeout(() => {
         helper.kill("SIGKILL");
-        resolve();
+        resolve(false);
       }, SWEEP_TIMEOUT_MS);
       timer.unref();
       helper.on("error", () => {
         clearTimeout(timer);
-        resolve();
+        resolve(false);
       });
-      helper.on("close", () => {
+      helper.on("close", (code) => {
         clearTimeout(timer);
-        resolve();
+        resolve(code === 0);
       });
     } catch {
-      resolve();
+      resolve(false);
     }
   });
 
-export interface UidLedger {
+/** Every uid in the range is taken by a running (or retired) process. Says what to change. */
+export class UidPoolExhaustedError extends Error {
+  constructor(count: number) {
+    super(
+      `All ${count} sandbox process ids are in use, so this cell cannot start. ` +
+        "Raise SANDBOX_UID_COUNT, or run fewer cells at once."
+    );
+    this.name = "UidPoolExhaustedError";
+  }
+}
+
+export interface UidLease {
+  readonly uid: number;
   /**
-   * Registers one running process of `target.uid`. Waits first if a sweep of that uid is in
-   * progress. Returns the release to call once the process is over (calling it twice does
-   * nothing); the last release starts the sweep.
+   * Gives the uid back: sweeps it (and empties `dir`), and frees it only if the sweep is
+   * confirmed. Safe to call twice; both calls get the same promise. Never rejects.
    */
-  acquire(target: { uid: number; gid?: number }): Promise<() => void>;
-  /** Runs `run` while holding a lease, or just runs it when there is no uid to sweep. */
-  withLease<T>(target: SweepTarget, run: () => Promise<T>): Promise<T>;
+  release(dir?: string): Promise<void>;
 }
 
-export function createUidLedger(sweeper: Sweeper): UidLedger {
-  const active = new Map<number, number>();
-  const sweeping = new Map<number, Promise<void>>();
+export interface UidPool {
+  /** A uid nobody is using, for a process whose group is `gid`. Throws when none is free. */
+  lease(gid: number): UidLease;
+  /** How many uids are leased right now, or still being swept. */
+  inUse(): number;
+  /** How many uids were retired because a sweep could not be confirmed. */
+  retired(): number;
+}
 
-  async function acquire(target: { uid: number; gid?: number }): Promise<() => void> {
-    const { uid } = target;
-    // Loop: after one sweep ends, another may already have started before this resumes.
-    for (let sweep = sweeping.get(uid); sweep; sweep = sweeping.get(uid)) await sweep;
-    active.set(uid, (active.get(uid) ?? 0) + 1);
+export interface UidPoolOptions {
+  base: number;
+  count: number;
+  sweeper: Sweeper;
+  /** Where in the range to start (an offset). Random by default, so a restart is no pattern. */
+  start?: number;
+  /** Extra sweeps tried when one is not confirmed. */
+  retries?: number;
+  retryDelayMs?: number;
+  /** Told when a uid is retired. */
+  onProblem?: (message: string) => void;
+}
 
-    let released = false;
-    return () => {
-      if (released) return;
-      released = true;
-      const left = (active.get(uid) ?? 1) - 1;
-      if (left > 0) {
-        active.set(uid, left);
-        return;
-      }
-      active.delete(uid);
-      const sweep = sweeper(target)
-        .catch(() => undefined)
-        .finally(() => sweeping.delete(uid));
-      sweeping.set(uid, sweep);
-    };
-  }
+export function createUidPool(options: UidPoolOptions): UidPool {
+  const { base, count, sweeper } = options;
+  const retries = options.retries ?? 2;
+  const retryDelayMs = options.retryDelayMs ?? 250;
+  const onProblem = options.onProblem ?? ((message: string) => console.warn(`⚠️  ${message}`));
 
-  async function withLease<T>(target: SweepTarget, run: () => Promise<T>): Promise<T> {
-    if (!sweepable(target)) return run();
-    const release = await acquire({ uid: target.uid, gid: target.gid });
-    try {
-      return await run();
-    } finally {
-      release();
+  // Leased, being swept, or retired. A uid leaves it only after a confirmed sweep.
+  const taken = new Set<number>();
+  const retired = new Set<number>();
+  let cursor = (options.start ?? Math.floor(Math.random() * count)) % count;
+
+  async function sweepUntilClean(target: SweepTarget): Promise<boolean> {
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+      if (attempt > 0 && retryDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+      if (await sweeper(target).catch(() => false)) return true;
     }
+    return false;
   }
 
-  return { acquire, withLease };
+  return {
+    lease(gid: number): UidLease {
+      let uid: number | undefined;
+      // Always on from the uid after the last one handed out: a uid comes round again only
+      // when every other one has been used.
+      for (let step = 0; step < count; step += 1) {
+        const candidate = base + ((cursor + step) % count);
+        if (!taken.has(candidate)) {
+          uid = candidate;
+          cursor = (candidate - base + 1) % count;
+          break;
+        }
+      }
+      if (uid === undefined) throw new UidPoolExhaustedError(count);
+      const leased = uid;
+      taken.add(leased);
+
+      let done: Promise<void> | undefined;
+      return {
+        uid: leased,
+        release(dir?: string): Promise<void> {
+          done ??= (async () => {
+            if (await sweepUntilClean({ uid: leased, gid, dir })) {
+              taken.delete(leased);
+              return;
+            }
+            retired.add(leased);
+            onProblem(
+              `Sandbox uid ${leased} could not be swept clean and is retired until the engine restarts ` +
+                "(a process of it may still be running)."
+            );
+          })();
+          return done;
+        },
+      };
+    },
+    inUse: () => taken.size - retired.size,
+    retired: () => retired.size,
+  };
 }
 
-/** Never root, never without a uid: sweeping as uid 0 would kill the engine itself. */
-function sweepable(target: SweepTarget): target is { uid: number; gid?: number } {
-  return (
-    process.platform !== "win32" &&
-    typeof target.uid === "number" &&
-    Number.isInteger(target.uid) &&
-    target.uid > 0
-  );
-}
+const pools = new Map<string, UidPool>();
 
-/** The ledger the runners use, sweeping for real. */
-export const uidLedger: UidLedger = createUidLedger(spawnKillAll);
-
-/** `uidLedger.withLease`, so a runner needs one import and one line. */
-export function withUidLease<T>(target: SweepTarget, run: () => Promise<T>): Promise<T> {
-  return uidLedger.withLease(target, run);
+/** The pool of this engine for `config`'s range: one per range, made on first use. */
+export function sharedUidPool(config: { uidBase: number; uidCount: number }): UidPool {
+  const key = `${config.uidBase}:${config.uidCount}`;
+  let pool = pools.get(key);
+  if (!pool) {
+    pool = createUidPool({ base: config.uidBase, count: config.uidCount, sweeper: spawnSweep });
+    pools.set(key, pool);
+  }
+  return pool;
 }

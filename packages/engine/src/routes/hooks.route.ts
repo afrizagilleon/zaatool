@@ -1,16 +1,17 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { createHash, timingSafeEqual } from "node:crypto";
 import multer from "multer";
-import rateLimit from "express-rate-limit";
 import { notebookTriggersService } from "../services/notebook-triggers.service.js";
 import { notebookFilesService } from "../services/notebook-files.service.js";
 import { maxUploadBytes, hookRateLimitWindowMs, hookRateLimitMax } from "../config.js";
 import {
   notebookExecutionService,
   NotebookNotDeployedError,
+  OwnerInactiveError,
   NotebookNotFoundError,
   TooManyRunsError,
 } from "../services/notebook-execution.service.js";
+import { AttemptLimiter } from "../core/attempt-limiter.js";
 import { NotebookCompileError } from "../core/notebook-compiler.js";
 import { ContractError } from "../core/notebook-contract.js";
 import { secretsService } from "../services/secrets.service.js";
@@ -53,18 +54,57 @@ export async function isSecretAuthenticatedWebhook(slug: string, secretHeader?: 
   return timingSafeEqual(sha(secretHeader), sha(expected));
 }
 
-export const hookLimiter = rateLimit({
-  windowMs: hookRateLimitWindowMs(),
-  limit: () => hookRateLimitMax(),
-  message: { error: "Too many unauthenticated webhook requests. Please try again later." },
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: async (req: Request) => {
-    const slug = String(req.params.slug ?? "");
-    const header = typeof req.headers["x-webhook-secret"] === "string" ? req.headers["x-webhook-secret"] : undefined;
-    return await isSecretAuthenticatedWebhook(slug, header);
-  },
-});
+const hookAttempts = new AttemptLimiter(hookRateLimitMax, hookRateLimitWindowMs);
+
+/**
+ * How far past the limit a client may keep asking to have a secret checked, as a multiple of
+ * the limit. Verifying a secret costs database queries, so a flood of requests that merely
+ * *claim* to carry one is cut off by the count alone once it is this far over.
+ */
+const HOOK_CHECK_CEILING_FACTOR = 20;
+
+/**
+ * Limits the webhooks that carry no valid secret, per client address.
+ *
+ * The order is the point. This used to ask the database whether the request was
+ * authenticated *before* counting it, so a flood of unauthenticated requests cost three
+ * queries each and was counted only after they had been paid for. Now the request is counted
+ * first, with no I/O at all:
+ *
+ *  - Within the limit it simply goes through. Nothing is looked up, because nothing has
+ *    to be decided yet.
+ *  - Past it, a request with no `X-Webhook-Secret` is refused outright: it cannot be
+ *    authenticated, so there is nothing to look up.
+ *  - Past it with a secret, the database is asked, and a request that proves itself is
+ *    given its place in the count back: authenticated callers are never limited, as before.
+ *    A caller that is only claiming to carry one is refused once it is far enough over
+ *    ({@link HOOK_CHECK_CEILING_FACTOR}) that checking it would be the attack.
+ */
+export const hookLimiter = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  const key = req.ip ?? "unknown";
+  const made = hookAttempts.count(key);
+  const refuse = () => {
+    res
+      .status(429)
+      .set("Retry-After", String(hookAttempts.retryAfterSeconds(key)))
+      .json({ error: "Too many unauthenticated webhook requests. Please try again later." });
+  };
+
+  if (made <= hookRateLimitMax()) return next();
+
+  const header = typeof req.headers["x-webhook-secret"] === "string" ? req.headers["x-webhook-secret"] : undefined;
+  if (header === undefined || made > hookRateLimitMax() * HOOK_CHECK_CEILING_FACTOR) return refuse();
+
+  try {
+    if (await isSecretAuthenticatedWebhook(String(req.params.slug ?? ""), header)) {
+      hookAttempts.refund(key);
+      return next();
+    }
+  } catch (err: unknown) {
+    return next(err);
+  }
+  refuse();
+};
 
 
 /**
@@ -249,6 +289,10 @@ export function createHooksRouter(publishRunEvent: RunEventSink): Router {
       // The hook exists but its notebook was never deployed. Told plainly to the
       // caller *and* the log, because from outside this looks like the hook is broken.
       if (err instanceof NotebookNotDeployedError) {
+        console.error(`Webhook "${String(req.params.slug)}": ${err.message}`);
+        return res.status(409).json({ error: err.message });
+      }
+      if (err instanceof OwnerInactiveError) {
         console.error(`Webhook "${String(req.params.slug)}": ${err.message}`);
         return res.status(409).json({ error: err.message });
       }

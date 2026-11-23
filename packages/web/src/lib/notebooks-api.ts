@@ -12,6 +12,21 @@ import type {
   RunStartedResponse,
 } from "@zaa-tool/shared";
 
+/**
+ * The engine refused a save because the notebook was saved by somebody else after this copy
+ * was opened. Its own type so the editor can offer to reload or overwrite instead of showing
+ * a failure.
+ */
+export class SaveConflictError extends Error {
+  readonly currentRevision: number | null;
+
+  constructor(message: string, currentRevision: number | null) {
+    super(message);
+    this.name = 'SaveConflictError';
+    this.currentRevision = currentRevision;
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const { headers: initHeaders, ...restInit } = init ?? {};
 
@@ -31,6 +46,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // The compiler reports why a notebook is not runnable; surface that instead
     // of a bare status code.
     const detail = await res.json().catch(() => null);
+    if (res.status === 409 && detail?.code === 'conflict') {
+      throw new SaveConflictError(
+        detail.error,
+        typeof detail.currentRevision === 'number' ? detail.currentRevision : null
+      );
+    }
     throw new Error(detail?.error ?? `API ${path} failed: ${res.status}`);
   }
 
@@ -62,7 +83,7 @@ export const notebooksApi = {
 
   getById: (id: string): Promise<NotebookJson> => request(`/api/notebooks/${id}`),
 
-  save: (document: NotebookJson): Promise<{ id: string; name: string }> =>
+  save: (document: NotebookJson): Promise<{ id: string; name: string; revision: number }> =>
     request("/api/notebooks", { method: "POST", body: JSON.stringify(document) }),
 
   delete: (id: string): Promise<{ success: boolean }> =>

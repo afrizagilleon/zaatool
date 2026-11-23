@@ -1,3 +1,4 @@
+import type { PoolClient } from "pg";
 import { pool } from "../db/connection.js";
 import type { NotebookJson, NotebookTrigger } from "@zaa-tool/shared";
 
@@ -91,22 +92,30 @@ export class NotebookTriggersService {
    * is the **deployed** version's, never the draft's: the index is what production
    * listens to, and only a deploy changes production.
    */
-  async syncForNotebook(notebookId: string, triggers: NotebookTrigger[] = []): Promise<void> {
-    const client = await pool.connect();
+  async syncForNotebook(
+    notebookId: string,
+    triggers: NotebookTrigger[] = [],
+    within?: PoolClient
+  ): Promise<void> {
+    // `within` is a deploy's own transaction: the index is then written in the same unit as
+    // the version and the pointer, so a clash found here undoes all three instead of leaving
+    // a notebook pinned to a version whose triggers never arrived. Without it the method
+    // keeps its own transaction, as it always had.
+    const client = within ?? (await pool.connect());
     try {
-      await client.query("BEGIN");
+      if (!within) await client.query("BEGIN");
       await client.query("DELETE FROM notebook_triggers WHERE notebook_id = $1", [notebookId]);
 
       for (const row of rowsFor(notebookId, triggers)) {
         await client.query(INSERT_ROW, rowParams(row));
       }
 
-      await client.query("COMMIT");
+      if (!within) await client.query("COMMIT");
     } catch (err) {
-      await client.query("ROLLBACK");
+      if (!within) await client.query("ROLLBACK");
       throw err;
     } finally {
-      client.release();
+      if (!within) client.release();
     }
   }
 
@@ -216,8 +225,8 @@ export class NotebookTriggersService {
     return rows[0] ?? null;
   }
 
-  async deleteByNotebook(notebookId: string): Promise<void> {
-    await pool.query("DELETE FROM notebook_triggers WHERE notebook_id = $1", [notebookId]);
+  async deleteByNotebook(notebookId: string, within?: PoolClient): Promise<void> {
+    await (within ?? pool).query("DELETE FROM notebook_triggers WHERE notebook_id = $1", [notebookId]);
   }
 }
 

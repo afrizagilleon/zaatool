@@ -111,6 +111,26 @@ refusing it would make every first attempt fail.
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
 ```
 
+## The suite on Linux, as root, sandbox on
+
+A Windows or macOS run does not exercise the per-process uids, `prlimit`, `/proc` or symlink
+rules the real image has, and has hidden Linux-only bugs before. `scripts/test-in-docker.sh`
+builds the engine image from this checkout and runs the whole engine suite in it as root with
+the sandbox on, started as production starts it: through the image's entrypoint (tini, then the
+cell firewall) with `--cap-add NET_ADMIN --cap-add SYS_RESOURCE`. It uses a throwaway Postgres on a
+throwaway network; everything is removed at the end, also when it fails or is interrupted.
+
+```bash
+./scripts/test-in-docker.sh              # whole suite
+./scripts/test-in-docker.sh owner-disk   # one file, as `pnpm test owner-disk`
+IMAGE=zaatool-engine:x ./scripts/test-in-docker.sh   # an image you already built
+EXTRA_DOCKER_ARGS="--cpus 2" ./scripts/test-in-docker.sh   # more `docker run` arguments
+```
+
+The image holds only `packages/engine` and `packages/shared`, so the script mounts, read-only,
+the few repository files some tests read: `docker-compose.yml` and, from `packages/web`,
+`nginx.conf`, `vite.config.ts` and `src/lib`.
+
 ## Docker images
 
 `docker-compose.yml` pulls released images from GHCR. To run your own changes in the compose

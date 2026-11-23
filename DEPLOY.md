@@ -497,15 +497,21 @@ leaks does not open them.
   own key protects nothing, and a key that is only on the machine dies with the machine.
 - The engine refuses to start in production without a valid key, and refuses to start with a
   key that does not open the secrets already in the database
-  (`SECRETS_KEY tidak cocok dengan secret di database`). It never overwrites an encrypted
+  (`SECRETS_KEY tidak cocok dengan secret di database`, followed by the ids of the rows it could
+  not open: every encrypted row is checked at start, not a sample). It never overwrites an encrypted
   secret. Restoring a backup therefore needs the `SECRETS_KEY` from when it was taken.
 - Upgrading an installation that already has secrets: set `SECRETS_KEY` in `.env` and start.
   Secrets stored in plaintext are encrypted on that start (the log says how many).
-- **Changing the key** is not an edit of `.env`. Re-encrypt first, in one transaction (all or
-  nothing), then switch:
+- **Changing the key** is not an edit of `.env`. Stop the engine, re-encrypt in one transaction
+  (all or nothing), then switch. The engine has to be down: it keeps the old key in memory, and
+  one left running would seal every secret saved during the rotation with a key the database no
+  longer matches. The rotation enforces this itself: the engine holds a lock in the database
+  for as long as it runs, and `rotate-secrets-key` refuses to start while that lock is held
+  (and an engine refuses to start while a rotation is running).
 
 ```bash
-docker compose exec -e SECRETS_KEY=<old> -e NEW_SECRETS_KEY=$(openssl rand -hex 32) engine   pnpm rotate-secrets-key
+docker compose stop engine
+docker compose run --rm -e SECRETS_KEY=<old> -e NEW_SECRETS_KEY=$(openssl rand -hex 32) engine pnpm rotate-secrets-key
 # it prints the next step: put the new key in .env as SECRETS_KEY, then
 docker compose up -d
 ```
@@ -706,35 +712,82 @@ engine, reviewed like any other, because a JavaScript package is read from the e
 Each cell is a process of its own. These settings shape it (all optional; the image sets the
 `SANDBOX_*` ones):
 
-- **`MAX_CELL_MEMORY_MB`** (default `512`) — memory limit of one cell. A cell that exceeds it
-  fails; the engine does not. JavaScript: the V8 heap everywhere, and on Linux with the
-  sandbox on the kernel also caps the whole process (large `Buffer`s included) at this plus
-  the roughly 640 MB a bare Node reserves. Python: on Linux with the sandbox on, the cell's
-  private memory (`RLIMIT_DATA`). Numeric libraries are held to four threads there, because
+- **`MAX_CELL_MEMORY_MB`** (default `512`) — memory limit of one JavaScript cell. A cell that
+  exceeds it fails; the engine does not. The V8 heap everywhere, and on Linux with the sandbox
+  on the kernel also caps the whole process (large `Buffer`s included) at this plus the
+  roughly 640 MB a bare Node reserves.
+- **`MAX_PYTHON_CELL_MEMORY_MB`** (default `1024`) — the same for one Python cell, which has no
+  heap cap of its own: on Linux with the sandbox on, the cell's private memory
+  (`RLIMIT_DATA`), numpy arrays included. Separate from the JavaScript one because a pandas
+  cell legitimately needs more. Numeric libraries are held to four threads there, because
   each thread costs about 40 MB.
-- **`MAX_CELL_PROCESSES`** (default `256`) — processes and threads one owner's uid may have,
-  all of that owner's running cells together (`RLIMIT_NPROC`; Linux, sandbox on). A fork bomb
-  stops here, for that owner only. **`MAX_CELL_FILE_MB`** (default `1024`) is the largest
-  single file a cell may write. Cells never dump core. **`ENGINE_PIDS_LIMIT`** (default
-  `4096`, compose) bounds the whole container the same way.
+- **`MAX_CELL_PROCESSES`** (default `128`) — processes and threads one cell process may have,
+  itself and everything it starts (`RLIMIT_NPROC`; Linux, sandbox on). The kernel counts per
+  uid and every cell process has a uid of its own, so a fork bomb stops here, in that cell
+  only: its neighbours, including the same owner's, are unaffected. **`MAX_CELL_FILE_MB`**
+  (default `1024`) is the largest single file a cell may write. Cells never dump core.
+  **`ENGINE_PIDS_LIMIT`** (default `4096`, compose) bounds the whole container the same way;
+  the run gate's 24 cells at `MAX_CELL_PROCESSES` come to 3072, inside it.
+- **`MAX_OWNER_DISK_MB`** (default `2048`) — disk one owner's cells may occupy: their temp
+  folder and package cache, i.e. `<SANDBOX_HOME>/owners/<gid>` (without the sandbox, the owner's
+  folder under the system temp). The engine, as root, only *measures* it (`lstat`, never
+  following a symlink, never deleting or changing anything inside). It is measured before each
+  cell, reused for 5 seconds, and the walk stops once it passes the limit; over it, the owner's
+  cell (and the owner's package install at deploy) is refused with a message and nobody else is
+  affected. Five minutes after an owner's last cell the temp folder is emptied and their `uv`
+  cache pruned (`uv cache prune`, emptied if still past half of the quota), by a process that
+  has a cell's identity (a uid from the pool, the owner's group, `umask 007`), never by root:
+  the owner's folders are group-writable and a cell controls their contents, so root does not
+  touch them. Files an owner keeps on purpose are limited separately, by
+  `MAX_NOTEBOOK_STORAGE_MB`.
+- **Windows is not a production target.** With `NODE_ENV=production` on Windows the engine
+  starts but logs a warning: there is no per-user sandbox there, so cells run with the engine's
+  own rights and can read its `.env`.
+- **`MAX_INSTALL_MEMORY_MB`** (default `4096`), **`MAX_INSTALL_PROCESSES`** (default `1024`),
+  **`MAX_INSTALL_FILE_MB`** (default `4096`) — the same three limits for the `uv` that
+  installs a notebook's packages, at deploy and when a run first needs the environment (Linux,
+  sandbox on). Looser than a cell's on purpose: `uv` runs a thread per core, builds from source
+  and unpacks wheels that can pass a gigabyte, none of which is the notebook's own work. They
+  still stop an install whose build script forks or writes without end. The cell that `uv`
+  then starts is held to the cell limits, never above the install ones.
+- **Out of memory.** The container's memory limit is shared by the engine and every cell. The
+  engine writes `1000` to each cell's `oom_score_adj` right after starting it, so the kernel
+  kills a cell, not the engine, when the limit is reached, and a cell cannot lower it again.
+  That needs `cap_add: [SYS_RESOURCE]` on the engine container (compose has it); without it a
+  cell can write the score back to 0 and the kernel may kill the engine instead, and the engine
+  says so in its log at start.
 - `/tmp` in the image is not writable by cells; they use their own `TMPDIR`. `/dev/shm`
   (64 MB by default in Docker, shared by every cell) is left writable for `multiprocessing`.
 - **`SANDBOX_UID_BASE`, `SANDBOX_UID_COUNT`, `SANDBOX_GID`, `SANDBOX_HOME`** — the
-  unprivileged users cells (and the `uv` run that installs packages) are spawned as, **one
-  per notebook owner**. The first time an account's notebook runs, the engine gives the account
-  the next free uid, starting at `SANDBOX_UID_BASE` (default `20000`) and counting up to
-  `SANDBOX_UID_COUNT` (default `40000`), and keeps it in the database (`users.sandbox_uid`).
-  Every cell of that account's notebooks runs as it, so one owner's cells cannot read another
-  owner's files, package cache or running cells' environment (secrets); the kernel refuses.
-  When the range is used up, a notebook of a new owner fails with a message that names
-  `SANDBOX_UID_COUNT`. `SANDBOX_GID` (default `10001`) is a group shared by all of them and
-  is never what lets one owner into another's folder. `SANDBOX_HOME` (default `/home/sandbox`)
-  holds `owners/<uid>`: each owner's HOME, temp folder, package cache and the folder every
-  cell process is given (removed when it ends), all closed to everyone else. A uid already
-  handed out that no longer fits the range after you change the base or count is replaced by a
-  new one. The image sets these and needs the engine to run as root, which it does; if you set
-  them on an engine that is not root, it refuses to start, because every cell would fail. On
-  Windows they are ignored, with a warning.
+  unprivileged users and groups cells (and the `uv` run that installs packages) are spawned as.
+  **Every notebook owner has a group of its own, and every cell process a uid of its own.**
+  The first time an account's notebook runs, the engine gives the account the next free
+  group id, starting at `SANDBOX_UID_BASE` (default `20000`) and counting up to
+  `SANDBOX_UID_COUNT` (default `40000`), and keeps it in the database (`users.sandbox_uid`:
+  the column kept its name and its numbers from when this was the owner's uid, so an
+  installation that already has owners keeps them). Each cell process takes a uid from the same
+  range for as long as it runs. When it ends, everything of that uid is killed and removed
+  (a child that started its own session, files left in `/dev/shm`) and only then can the uid be
+  used again; the next uid is always the one after the last, so one comes round again only after
+  the whole range has been used. So two cells of one owner cannot signal, trace or read each
+  other's environment (secrets), and nothing a cell leaves behind outlives it; cells of
+  different owners cannot read each other's files, package cache or running cells either; the
+  kernel refuses. What an owner's cells share, they share through the owner's group: the
+  package cache and temp folder, written with `umask 007`, so a package is installed once.
+  `SANDBOX_UID_COUNT` is also the most cell processes that can run at once, and when the
+  range is used up a cell fails with a message that names it, as does a notebook of a new owner
+  when the owners' groups are used up. `SANDBOX_GID` (default `10001`) is the sandbox's own
+  group: it switches the sandbox on and is the group files had before owners had one; cells do
+  not run as it. `SANDBOX_HOME` (default `/home/sandbox`) holds `owners/<gid>`: each owner's
+  shared folders (HOME, temp, package cache), which are root's and cannot be replaced by a
+  cell, and the folder every cell process is given (its own uid's, 0700, removed when it ends).
+  The image sets these and needs the engine to run as root, which it does; if you set them on
+  an engine that is not root, it refuses to start, because every cell would fail. On Windows
+  they are ignored, with a warning.
+  **Upgrading** an installation that ran one uid per owner needs nothing from you: at start the
+  engine re-owns each old `owners/<n>` folder (and what is in it, symlinks left alone) to root
+  and group `<n>`, keeps the package cache and files, and removes the process folders the last
+  run left. A folder it cannot convert is named in the log and refuses that owner's runs.
   **`SANDBOX_UID`, the old single-user variable, is no longer read:** an engine that still
   has it set refuses to start, so remove it from your `.env` and compose file.
 - A notebook **with no owner** does not run where cells change uid (there is no uid to give
@@ -746,9 +799,47 @@ Each cell is a process of its own. These settings shape it (all optional; the im
   folder is refused as "file not found". A file a notebook returns through `notebooks.run` is
   copied to the caller the same way.
 
-What this does not do: **the network is open** — a cell can connect to anything the server
-can, the database port included (though it cannot read the password). If that matters, put
-the engine on a network where the database is only reachable with credentials a cell does not
-have, and firewall egress. Cells of the *same* owner share a uid, so they can see each other
-(an owner's notebooks are one domain of trust), and the engine runs as root inside the
-container. See "Sandboxing, honestly" in ARCHITECTURE.md.
+### The cell firewall, and what it needs
+
+The image starts as `tini` (PID 1; it reaps the orphaned processes a cell leaves, which `pnpm`
+would leave as zombies until the container's pid limit is gone), then an entrypoint
+(`/usr/local/bin/zaatool-entrypoint`) which, as root, installs an iptables firewall for every cell
+uid and then drops `CAP_NET_ADMIN` before the engine starts. The compose file gives the engine
+`cap_add: [NET_ADMIN, SYS_RESOURCE]`: `NET_ADMIN` for the firewall (and nothing else uses it once
+the entrypoint has run), `SYS_RESOURCE` so the engine can pin each cell's `oom_score_adj` at 1000
+and an out-of-memory container kills a cell, not the engine. If you run the image without
+compose, pass both (`--cap-add NET_ADMIN --cap-add SYS_RESOURCE`).
+
+What a cell can reach, by default: the internet and DNS. **Refused:** the engine's own port
+(loopback), the database and every other container on the Docker network, the cloud metadata
+address `169.254.169.254`, and the private ranges `10/8`, `172.16/12`, `192.168/16`, `100.64/10`
+(and `fc00::/7`, `fe80::/10`, `::1`). This works on the compose network and on the default
+bridge. It does **not** apply with `network_mode: host`, where the container shares the host's
+network and its rules would be the host's.
+
+- **`CELL_EGRESS_ALLOW`** (default empty) — destinations cells may reach inside those ranges.
+  Comma or space separated: a CIDR (`10.1.2.0/24`, `fd00::/8`), a bare IPv4 address, or
+  `host:port` (`reports-api:8080`, `[::1]:443`; TCP and UDP). A name is resolved **once, when the
+  container starts**, so if that container gets a new address, restart the engine. A malformed
+  entry, or a name that does not resolve, stops the container with the reason in its log.
+  Put only what a notebook must reach there; each entry is a hole in the wall around your database.
+- **`CELL_EGRESS_FIREWALL`** (default `on`) — `off` starts the engine with no firewall and a
+  loud warning, for a host whose own network already stops cells from reaching things. With it
+  on, the engine tests the firewall at every start by connecting to its own loopback as a cell
+  uid, and **refuses to start** if that works (no `NET_ADMIN` given, a different entrypoint, a
+  runtime that ignores it). Not applied on Windows or a dev machine, where cells do not change
+  uid.
+
+Two things operators trip over. A shell from `docker compose exec` keeps the container's full
+capabilities, so `iptables -L` works there and can change the rules; that is you, not a cell. And
+`/tmp` in the image is `0755`: `apt-get` run as the unprivileged `_apt` user inside the container
+fails (it needs a writable `/tmp`). Install what you need into the image instead of into a running
+container, or `chmod 1777 /tmp` in your debug session and put it back; do not make it permanent,
+because a world-writable `/tmp` lets one cell leave files for another owner's cells and fill the
+disk (S-07).
+
+What this does not do: cells of the *same* owner share their owner's group, so they can read
+and write each other's files in the shared folders (an owner's notebooks are one domain of
+trust), but not each other's processes; the engine runs as root inside the container; and a
+cell can still do anything the internet allows (including sending data out). See "Sandboxing,
+honestly" in ARCHITECTURE.md.

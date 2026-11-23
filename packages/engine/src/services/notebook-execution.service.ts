@@ -1,9 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { maxNestedCalls, maxNestedConcurrency, maxRunMs } from "../config.js";
+import {
+  maxNestedCalls,
+  maxNestedConcurrency,
+  maxQueuedRunsPerOwner,
+  maxRunMs,
+  maxRunsPerOwner,
+} from "../config.js";
 import { abortMessage } from "../core/run-abort.js";
 import { FanOut, Slot } from "../core/nested-fanout.js";
 import { compileNotebook, selectPlanCell } from "../core/notebook-compiler.js";
-import { RunGate } from "../core/run-gate.js";
+import { RunGate, type RunTicket } from "../core/run-gate.js";
 import { runNotebook, type NotebookRunResult } from "../core/notebook-runner.js";
 import { notebookFilesService } from "./notebook-files.service.js";
 import { bindInputs } from "../core/notebook-contract.js";
@@ -14,6 +20,7 @@ import { NotebookRunRecorder } from "./notebook-run-recorder.js";
 import { secretsService } from "./secrets.service.js";
 import { notebookAccessService } from "./notebook-access.service.js";
 import { cellHostForOwner } from "./cell-host.service.js";
+import { authService } from "./auth.service.js";
 import type { NotebookCallRequest, NotebookCaller } from "../core/notebook-call.js";
 import type { NotebookPlan } from "../core/notebook-compiler.js";
 import type { NotebookJson, NotebookRunTrigger } from "@zaa-tool/shared";
@@ -49,12 +56,30 @@ export class TooManyRunsError extends Error {
   }
 }
 
+export class OwnerInactiveError extends Error {
+  constructor(name: string) {
+    super(
+      `Notebook "${name}" belongs to an account that has been deactivated, so it no longer ` +
+        `runs on its own. Give it to an active account (transfer-owner) or reactivate the owner.`
+    );
+    this.name = "OwnerInactiveError";
+  }
+}
+
 /** Shared by every entry point — the editor, webhooks and the scheduler alike. */
 const MAX_CONCURRENT_RUNS = 4;
 const MAX_QUEUED_RUNS = 20;
 /** Where a cron run is finally refused: past the webhook bound, but not unbounded. */
 const MAX_QUEUED_SCHEDULED_RUNS = MAX_QUEUED_RUNS * 5;
-const runGate = new RunGate(MAX_CONCURRENT_RUNS, MAX_QUEUED_RUNS, MAX_QUEUED_SCHEDULED_RUNS);
+/** Half of the slots and of the queue for any one owner: the other half stays for everybody else. */
+const half = (n: number): number => Math.max(1, Math.ceil(n / 2));
+const runGate = new RunGate({
+  maxConcurrent: MAX_CONCURRENT_RUNS,
+  maxQueued: MAX_QUEUED_RUNS,
+  maxQueuedScheduled: MAX_QUEUED_SCHEDULED_RUNS,
+  maxPerOwner: maxRunsPerOwner(half(MAX_CONCURRENT_RUNS)),
+  maxQueuedPerOwner: maxQueuedRunsPerOwner(half(MAX_QUEUED_RUNS)),
+});
 
 /**
  * How deep `notebooks.run` may nest.
@@ -64,6 +89,11 @@ const runGate = new RunGate(MAX_CONCURRENT_RUNS, MAX_QUEUED_RUNS, MAX_QUEUED_SCH
  * runaway from holding a worker per level.
  */
 const MAX_CALL_DEPTH = 5;
+
+export type CancelOutcome =
+  | { outcome: "cancelled" }
+  | { outcome: "finished"; status: NotebookRunResult["status"] }
+  | { outcome: "not-active" };
 
 export interface StartRunOptions {
   /** Values seeded into scope before the first cell runs. */
@@ -146,6 +176,12 @@ interface CallContext {
    * shared by every run in it: what one notebook was handed it may hand on.
    */
   grants: Set<string>;
+  /**
+   * The deployed document each notebook was first called with in this run, by notebook id,
+   * shared by the whole tree. A deploy that lands mid-run does not reach a callee the run
+   * already used: one production run is one version of what it calls, not a mixture.
+   */
+  pinned: Map<string, NotebookJson>;
 }
 
 /**
@@ -161,18 +197,40 @@ export class NotebookExecutionService {
    * signal their cells listen to. Only roots are here: a nested run belongs to the run that
    * started it and is stopped with it.
    */
-  private readonly activeRuns = new Map<string, AbortController>();
+  private readonly activeRuns = new Map<
+    string,
+    { controller: AbortController; completed: Promise<NotebookRunResult> }
+  >();
+
+  /**
+   * Cron runs that have been admitted and not yet settled, per notebook (waiting for a slot
+   * counts). The scheduler asks before it fires, so a run that takes longer than its period
+   * does not pile a new copy behind itself every tick.
+   */
+  private readonly cronInFlight = new Map<string, number>();
+
+  hasCronRunInFlight(notebookId: string): boolean {
+    return (this.cronInFlight.get(notebookId) ?? 0) > 0;
+  }
 
   /**
    * Stops a running root run: every cell in its chain is terminated and the run ends
-   * `failed` with "Cancelled by <who>". False when no such run is active here — it already
-   * finished, or it is not a root run.
+   * `failed` with "Cancelled by <who>".
+   *
+   * Resolves once the run is over, and says how it ended: `cancelled` only when it really
+   * ended on this cancel. A run that finished (or failed) in the instant before the signal
+   * was heard is `finished`, whatever it ended as — answering "cancelled" for a run that
+   * succeeded would be a false report. `not-active` when no such run is active here: it
+   * already finished, or it is not a root run.
    */
-  cancel(runId: string, who: string): boolean {
-    const controller = this.activeRuns.get(runId);
-    if (!controller || controller.signal.aborted) return false;
-    controller.abort(new Error(`Cancelled by ${who}`));
-    return true;
+  async cancel(runId: string, who: string): Promise<CancelOutcome> {
+    const entry = this.activeRuns.get(runId);
+    if (!entry || entry.controller.signal.aborted) return { outcome: "not-active" };
+    const reason = new Error(`Cancelled by ${who}`);
+    entry.controller.abort(reason);
+    const result = await entry.completed;
+    const ended = result.status === "failed" && result.errors.some((e) => e.includes(reason.message));
+    return ended ? { outcome: "cancelled" } : { outcome: "finished", status: result.status };
   }
 
   /**
@@ -247,7 +305,14 @@ export class NotebookExecutionService {
         throw new NotebookNotDeployedError(record?.name ?? reference);
       }
       found = deployed;
-      document = deployed.document;
+      // The first call in this run decides the version; synchronous with the lookup's
+      // result, so two parallel first calls cannot each pin a different one.
+      const pinned = context.pinned.get(deployed.id);
+      if (pinned) document = pinned;
+      else {
+        context.pinned.set(deployed.id, deployed.document);
+        document = deployed.document;
+      }
     } else {
       const draft = await notebooksService.findByIdOrName(reference, among);
       if (draft === null) throw new NotebookNotFoundError(reference);
@@ -313,6 +378,7 @@ export class NotebookExecutionService {
       fan: context.fan,
       parentSlot: slot,
       grants: context.grants,
+      pinned: context.pinned,
     };
 
     const recorder = new NotebookRunRecorder(runId, sourcesOf(plan));
@@ -362,6 +428,9 @@ export class NotebookExecutionService {
     grants: Set<string>,
     startedBy?: string
   ): NotebookCaller {
+    // One per root run, not per call: it is what makes the second call to a notebook see
+    // the version the first one did.
+    const pinned = new Map<string, NotebookJson>();
     return (request, log) =>
       this.callNotebook(request, {
         stack: [notebookId],
@@ -374,6 +443,7 @@ export class NotebookExecutionService {
         signal,
         fan,
         grants,
+        pinned,
       });
   }
 
@@ -393,6 +463,55 @@ export class NotebookExecutionService {
       options.triggerSource === "webhook" ||
       options.triggerSource === "tool" ||
       options.triggerSource === "page";
+
+    // A run nobody asked for, in the name of an account that is switched off, is the one
+    // thing deactivating an account is meant to stop: its cron, its webhooks and its pages
+    // would otherwise carry on with its secrets. A person pressing Run is a different case —
+    // they are there, and a deactivated creator cannot sign in to do it.
+    const unattended =
+      options.triggerSource === "cron" ||
+      options.triggerSource === "webhook" ||
+      options.triggerSource === "page";
+    if (unattended && record.owner_id) {
+      const owner = await authService.currentUser(record.owner_id);
+      if (owner && !owner.active) throw new OwnerInactiveError(record.name);
+    }
+
+    // The place in the gate is taken here, in the same step as the check, and given back on
+    // every way out below that is not a run that went on to hold it. The bound was once
+    // checked here and taken after several `await`s, so a burst saw an empty gate all at once.
+    // A cron run is let into the queue past the point where a webhook is turned away: the
+    // caller of a webhook can try again, but a missed tick is simply a run that never happened.
+    const scheduled = options.triggerSource === "cron";
+    const ticket = runGate.reserve(record.owner_id ?? "", scheduled);
+    if (!ticket) throw new TooManyRunsError();
+    if (scheduled) this.cronInFlight.set(notebookId, (this.cronInFlight.get(notebookId) ?? 0) + 1);
+    const forgetCron = (): void => {
+      if (!scheduled) return;
+      const left = (this.cronInFlight.get(notebookId) ?? 1) - 1;
+      if (left > 0) this.cronInFlight.set(notebookId, left);
+      else this.cronInFlight.delete(notebookId);
+    };
+
+    try {
+      return await this.launch(record, ticket, forgetCron, publish, options, useDeployed);
+    } catch (err: unknown) {
+      ticket.release();
+      forgetCron();
+      throw err;
+    }
+  }
+
+  /** Everything after the gate: validated, recorded, then detached. A throw leaves the ticket to `start`. */
+  private async launch(
+    record: NonNullable<Awaited<ReturnType<typeof notebooksService.getById>>>,
+    ticket: RunTicket,
+    forgetCron: () => void,
+    publish: RunEventSink,
+    options: StartRunOptions,
+    useDeployed: boolean
+  ): Promise<StartedRun> {
+    const notebookId = record.id;
     const document = useDeployed
       ? await notebooksService.getDeployedDocument(notebookId)
       : notebooksService.parseDocument(record);
@@ -425,11 +544,6 @@ export class NotebookExecutionService {
       if (!single) throw new CellNotFoundError(options.cellId);
       plan = single;
     }
-
-    // Refused before a run row exists, so a rejected burst leaves no history behind. A cron
-    // run is let into the queue past the point where a webhook is turned away: the caller of
-    // a webhook can try again, but a missed tick is simply a run that never happened.
-    if (runGate.isFull(options.triggerSource === "cron")) throw new TooManyRunsError();
 
     // The owner's, whoever pressed Run: an editor's run uses the notebook's secrets, not the
     // editor's own, and the editor never sees them.
@@ -470,10 +584,10 @@ export class NotebookExecutionService {
     // every cell, nested or not, listens to it.
     const controller = new AbortController();
     const fan = new FanOut(maxNestedConcurrency(), maxNestedCalls());
-    this.activeRuns.set(runId, controller);
+    this.activeRuns.set(runId, { controller, completed });
 
     void (async () => {
-      const release = await runGate.acquire();
+      await ticket.ready;
       // The clock starts when the run does, not when it joined the queue: waiting for a
       // slot is not the run's time to spend.
       const seconds = maxRunMs() / 1000;
@@ -511,7 +625,8 @@ export class NotebookExecutionService {
       } finally {
         clearTimeout(deadline);
         this.activeRuns.delete(runId);
-        release();
+        forgetCron();
+        ticket.release();
       }
     })();
 

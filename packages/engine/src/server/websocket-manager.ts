@@ -14,6 +14,9 @@ import { wsOriginAllowed } from "../middleware/ws-origin.js";
 import { readCookie, SESSION_COOKIE } from "../middleware/session-cookie.js";
 import { notebookSharesService } from "../services/notebook-shares.service.js";
 import { notebookAccessService } from "../services/notebook-access.service.js";
+import { notebookRunsService } from "../services/notebook-runs.service.js";
+import { finishedRunEvent } from "../core/finished-run-event.js";
+import { onSessionsEnded } from "../core/session-events.js";
 
 /** Guards against a single socket holding open an unbounded number of channels. */
 const MAX_SUBSCRIPTIONS_PER_SOCKET = 20;
@@ -54,14 +57,23 @@ function parseMessage(raw: unknown): RunClientMessage | null {
  * somebody who is not — it can follow a run, because a shared page runs its notebook and
  * has to show the result, but it cannot ask what else is happening here.
  */
-type Caller = { kind: "session"; userId: string } | { kind: "share"; notebookId: string };
+type Caller =
+  | { kind: "session"; userId: string; tokenVersion: number; expiresAt: number | null }
+  | { kind: "share"; notebookId: string };
 
 async function identify(token: string): Promise<Caller | null> {
   // Asked of the database, not just the signature: an ended session or a switched-off
   // account must not be able to open a stream because its token has not expired yet.
   try {
     const session = await authService.authenticate(token);
-    if (session.status === "ok") return { kind: "session", userId: session.user.id };
+    if (session.status === "ok") {
+      return {
+        kind: "session",
+        userId: session.user.id,
+        tokenVersion: session.tokenVersion,
+        expiresAt: session.expiresAt,
+      };
+    }
   } catch (err) {
     console.error("WebSocket session check failed:", err);
     return null;
@@ -107,7 +119,19 @@ function toActivity(event: RunEvent): RunActivityEvent | null {
 export class WebSocketManager {
   private wss: WebSocketServer;
 
+  /**
+   * The open sockets of each signed-in account, as the function that ends each one. A
+   * session is checked when a socket connects and not again, so this is how one that is
+   * revoked, switched off or expired afterwards is found and closed.
+   */
+  private readonly sessions = new Map<string, Set<(reason: string) => void>>();
+  private readonly stopListeningForRevocations: () => void;
+
   constructor(server: Server, private hub: RunEventHub) {
+    this.stopListeningForRevocations = onSessionsEnded((userId) => {
+      for (const end of [...(this.sessions.get(userId) ?? [])]) end("This session was ended.");
+    });
+
     // On a path of its own. Mounted at the server root, the upgrade request arrived at
     // `/` — which behind the deployed nginx is the single-page app, so the socket was
     // answered with `index.html` and the run stream could not connect at all. A named
@@ -163,6 +187,55 @@ export class WebSocketManager {
         });
       };
 
+      let stopTracking: () => void = () => {};
+
+      /**
+       * Takes a checked identity as the socket's own, and for a session, arranges for the
+       * socket to end when the session does: when it is revoked or its account switched off
+       * (announced by the auth service), when the token expires, and — covering the gap
+       * between the check and this registration — right now if it already has been.
+       */
+      const adopt = (identified: Caller) => {
+        stopTracking();
+        caller = identified;
+        if (identified.kind !== "session") return;
+
+        const { userId, tokenVersion, expiresAt } = identified;
+        const end = (reason: string) => {
+          stopTracking();
+          caller = null;
+          deny(reason, true);
+        };
+
+        const mine = this.sessions.get(userId) ?? new Set();
+        mine.add(end);
+        this.sessions.set(userId, mine);
+
+        // `setTimeout` cannot count past about 24 days, and a token that lives that long is
+        // not one this issues; capped so a surprising one ends early rather than at once.
+        const timer =
+          expiresAt === null
+            ? null
+            : setTimeout(() => end("This session has expired."), Math.min(Math.max(expiresAt - Date.now(), 0), 2 ** 31 - 1));
+        timer?.unref();
+
+        stopTracking = () => {
+          if (timer) clearTimeout(timer);
+          mine.delete(end);
+          if (mine.size === 0 && this.sessions.get(userId) === mine) this.sessions.delete(userId);
+          stopTracking = () => {};
+        };
+
+        void authService
+          .currentUser(userId)
+          .then((now) => {
+            if (!now || !now.active || now.tokenVersion !== tokenVersion) end("This session was ended.");
+          })
+          .catch((err: unknown) => {
+            console.error("WebSocket session re-check failed:", (err as Error).message);
+          });
+      };
+
       // A browser's session arrives with the upgrade request itself, as a cookie, so it
       // needs no `auth` message — and has no token it could hand to one, since the page's
       // script cannot read it. `auth` is still accepted afterwards, for a share token or
@@ -170,7 +243,7 @@ export class WebSocketManager {
       const cookie = readCookie(req.headers.cookie, SESSION_COOKIE);
       if (cookie) {
         checking = identify(cookie).then((identified) => {
-          if (identified) caller = identified;
+          if (identified) adopt(identified);
         });
       }
 
@@ -254,6 +327,21 @@ export class WebSocketManager {
             unsubscribes.delete(runId);
             return;
           }
+          // The hub forgets a finished run after a minute. Asked later, the run's own row is
+          // the only thing left that knows how it ended, so the client is told from there
+          // instead of being subscribed to a channel that will never say anything.
+          if (!this.hub.hasChannel(runId)) {
+            const ended = finishedRunEvent(await notebookRunsService.getById(runId));
+            if (ended) {
+              unsubscribes.delete(runId);
+              if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(ended));
+              return;
+            }
+            if (ws.readyState !== WebSocket.OPEN) {
+              unsubscribes.delete(runId);
+              return;
+            }
+          }
           unsubscribes.set(
             runId,
             this.hub.subscribe(runId, (event) => {
@@ -274,7 +362,7 @@ export class WebSocketManager {
           // is the one that stands.
           checking = (checking ?? Promise.resolve()).then(() => identify(message.token)).then((identified) => {
             if (!identified) return deny("That token was not accepted.", true);
-            caller = identified;
+            adopt(identified);
           });
           return;
         }
@@ -288,6 +376,7 @@ export class WebSocketManager {
 
       const release = () => {
         clearTimeout(graceTimer);
+        stopTracking();
         for (const unsubscribe of unsubscribes.values()) unsubscribe();
         unsubscribes.clear();
       };
@@ -301,6 +390,7 @@ export class WebSocketManager {
   }
 
   close() {
+    this.stopListeningForRevocations();
     this.wss.close();
   }
 }

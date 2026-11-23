@@ -181,22 +181,45 @@ the engine copied in) and the `node_modules` of the packages it declared; it can
 or a thread, or load a native addon. The runtime refuses these, so `module._load` and every
 other route around the `require` list ends in `ERR_ACCESS_DENIED` — the list is only the
 friendly message that comes first. Its environment is a small allow-list plus the secrets
-it declared, never the engine's. Its heap is capped (`MAX_CELL_MEMORY_MB`, default 512), and on Linux the kernel caps the whole process (`core/cell-limits`);
+it declared, never the engine's. Its heap is capped (`MAX_CELL_MEMORY_MB`, default 512; Python has `MAX_PYTHON_CELL_MEMORY_MB`, default 1024), and on Linux the kernel caps the whole process (`core/cell-limits`);
 a cell that outgrows it fails and the engine, a different process, carries on. Timeout,
 deadline and cancel kill the whole tree.
 
-**Enforced on Linux/Docker: the user, one per owner.** The image starts the engine as root and
-spawns every cell — JS, Python, and the `uv` run that installs a notebook's packages — as the
-uid of the **notebook's owner**. Each account gets its own uid the first time one of its
-notebooks runs (`SANDBOX_UID_BASE` + allocation order, kept in `users.sandbox_uid`), and its
-own home `${SANDBOX_HOME}/owners/<uid>` (0700): HOME, temp folder, `uv` cache. Every cell
-process also gets a folder of its own under it, made before the process starts and removed when
-it ends. So a cell cannot read the engine's environment or anything root-only, cannot write to
-`/app`, and cannot read another owner's files, package cache, or the `/proc/<pid>/environ` of
-another owner's running cell — which is where that owner's secrets are. The kernel enforces
-this; on JS cells node's permission model sits on top. Python cells, which have no equivalent
-of the permission model, rely on this layer alone. `packages:` for Python is still resolved
-against an allow-list and pinned to exact versions.
+**Enforced on Linux/Docker: one group per owner, one uid per process.** The image starts the
+engine as root and spawns every cell — JS, Python, and the `uv` run that installs a notebook's
+packages — in the **notebook owner's group** and as a **uid of its own**. Each account gets its
+own gid the first time one of its notebooks runs (`SANDBOX_UID_BASE` + allocation order, kept in
+`users.sandbox_uid`), and its own folder `${SANDBOX_HOME}/owners/<gid>`: HOME, temp folder and
+`uv` cache, shared by the owner's cells through the group (cells run with `umask 007`), and
+root's, so a cell cannot replace them (C-01: the engine never `chown`s, `chmod`s or copies by
+path inside anything a cell can write to; see `core/owner-home` and `core/workspace-fs`). Every
+cell process leases a uid from the pool in `core/uid-sweep` and a folder of its own (that uid's,
+0700) under the owner's; when it ends, a helper running as that uid kills everything the uid
+left (a `setsid` child, a double-forked daemon), waits until nothing is left, removes the
+folder's contents and the uid's files in `/dev/shm`, and only then is the uid used again. So a
+cell cannot read the engine's environment or anything root-only, cannot write to `/app`, cannot
+signal, trace or read the `/proc/<pid>/environ` of another cell — of its owner or any other,
+which is where secrets are — and cannot read another owner's files or package cache. The
+cell's own code is not on its command line (Python's wrapper is a file in its folder, 0600,
+because `/proc/<pid>/cmdline` is readable by every user), and the engine makes each cell the
+first choice of the kernel's OOM killer (`core/oom-guard`). The kernel enforces this; on JS cells
+node's permission model sits on top. Python cells, which have no equivalent of the permission
+model, rely on this layer alone. `packages:` for Python is still resolved against an allow-list
+and pinned to exact versions; the install runs under its own limits (`MAX_INSTALL_*`).
+
+**Enforced on Linux/Docker: the network, per uid.** The entrypoint (tini first, so PID 1 reaps
+orphaned cell processes) runs as root before the engine and puts an `iptables`/`ip6tables` chain
+on every uid in `SANDBOX_UID_BASE`..`+SANDBOX_UID_COUNT-1`. Cells may use DNS (Docker's `127.0.0.11`
+and the container's resolvers) and the internet; they are refused loopback (the engine's own port),
+`10/8`, `172.16/12`, `192.168/16`, `169.254/16` (cloud metadata), `100.64/10` and `fc00::/7`,
+`fe80::/10`, `::1`, so the database and every other container are out of reach. `CELL_EGRESS_ALLOW`
+makes named exceptions. The entrypoint then drops only `CAP_NET_ADMIN` from the bounding set
+(`setpriv`), so the engine cannot remove the rules and a cell, which has no capabilities, cannot
+either. The engine proves the firewall at start by running a probe child as a cell uid against its
+own loopback, and refuses to start if the connection succeeds, unless the operator set
+`CELL_EGRESS_FIREWALL=off` (loud warning). The probe is the engine's own fixed code, so a cell
+cannot influence the answer. `docker exec` shells get the container's full capability set: an
+operator can change the rules, a cell cannot.
 
 **Enforced: what a cell can read of storage.** The storage folder is root's and closed (0700) on
 Linux, and a JS cell is refused it by the permission model on every platform. A cell gets only
@@ -209,17 +232,23 @@ as "file not found".
 
 **Not enforced:**
 
-- **The network is open.** A cell can reach any host the server can, including the
-  database port. It cannot read the database password (that is in the engine's
-  environment, not the cell's), but an unprotected service on the same network is reachable.
-  Node's permission model has no switch for the network.
+- **The network is open to the internet, not to the inside.** On Linux/Docker an iptables firewall
+  per cell uid (S-06; installed by the image's entrypoint, see "Enforced on Linux/Docker: the
+  network" above) refuses cells loopback, the private ranges and the cloud metadata address. It
+  covers only the container's own network namespace: `network_mode: host` has no such firewall
+  for the host's services; and on Windows or a dev machine there is none at all. A cell can
+  still reach anything on the public internet, and, if the operator allowed it with
+  `CELL_EGRESS_ALLOW`, the destinations listed there. Node's permission model has no switch for
+  the network, so JS cells rely on this layer too.
 - **Python on Windows or a dev machine has no isolation.** The `SANDBOX_*` variables are
   ignored on Windows and unset in development; a Python cell there runs as the user who started
   the engine and can read storage and everything else that user can. (A JS cell is still
   confined by the permission model there.)
-- **Cells of the same owner share a uid.** Two notebooks of one account can read each other's
-  processes and files while running; the owner is one domain of trust (an editor's code already
-  holds the owner's secrets).
+- **Cells of the same owner share files, not processes.** Two notebooks of one account can read
+  and write each other's files in the owner's shared folders (temp, home, package cache); the
+  owner is one domain of trust (an editor's code already holds the owner's secrets). They cannot
+  signal or read each other's processes. A cell can also fill the shared temp folder or poison
+  the shared package cache for its owner's next cells.
 - **A notebook with no owner does not run** where cells change uid; there is no uid to give it.
 - **The engine itself runs as root in the container.** Switching a child to another uid
   needs it. A flaw in the engine is a root flaw inside the container, not on the host.

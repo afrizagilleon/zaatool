@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { jsSyntaxProblem } from "../src/core/cell-analysis.js";
 import { stripCodeFence } from "../src/core/cell-code.js";
-import { prepareOwnerHome, type WorkspaceFs } from "../src/core/cell-workspace.js";
+import { prepareOwnerHome } from "../src/core/owner-home.js";
+import { fakeWorkspaceFs } from "./fake-workspace-fs.js";
 import {
   closesFence,
   collapseTrailingBlankLines,
@@ -129,12 +130,7 @@ await check("stripCodeFence: normal fences, and hostile runs of spaces", () => {
 
 await check("prepareOwnerHome and ownerHomePath: trailing slashes on a long home", () => {
   assert.equal(ownerHomePath({ home: "/home/sandbox///", uidBase: 1, uidCount: 1, gid: 1 }, 7), "/home/sandbox/owners/7");
-  const calls: string[] = [];
-  const wfs = {
-    mkdirSync: (dir: string) => calls.push(dir),
-    chmodSync: () => {},
-    chownSync: () => {},
-  } as unknown as WorkspaceFs;
+  const wfs = fakeWorkspaceFs().fs;
   const home = within("prepareOwnerHome", () =>
     prepareOwnerHome({ home: `/h${"/".repeat(BIG)}x`, uidBase: 1, uidCount: 1, gid: 1 }, 3, wfs)
   );

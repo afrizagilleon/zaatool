@@ -12,23 +12,29 @@
 FROM node:24-bookworm-slim
 
 # Python for `runtime: python` notebooks, and the certificates uv needs to fetch wheels.
+# `tini` is PID 1 (S-15): a cell's orphaned children are adopted by PID 1, and `pnpm` (Node)
+# never wait()s for them, so every one that was killed stayed a zombie holding a pid.
+# `iptables` is for the cell firewall (S-06), installed by the entrypoint below.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates \
+    && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates tini iptables \
     && rm -rf /var/lib/apt/lists/*
 
 # Pinned: a package manager that updates itself underneath a deployment is a deployment
 # that changes without anyone deciding to change it.
 COPY --from=ghcr.io/astral-sh/uv:0.9.11 /uv /usr/local/bin/uv
 
-# The users cells run as (K-02, FX-20). The engine starts as root and spawns every cell
-# process, JavaScript and Python and the uv run that installs packages, as a uid of its own
-# *per owner*: the first time an account's notebook runs, the engine gives the account the
-# next uid from SANDBOX_UID_BASE upwards (SANDBOX_UID_COUNT of them) and makes
-# /home/sandbox/owners/<uid>, 0700 and theirs, for its HOME, temp folder and package cache.
-# A cell cannot read the engine's environment, anything root-only, another owner's files or
-# another owner's running cells' environment, and has no write access to /app. No user is
-# created here: the uids exist only as numbers, which is all the kernel needs. The group is
-# shared and gives nobody access to anybody.
+# The users cells run as (K-02, FX-20, S-16). The engine starts as root and spawns every cell
+# process, JavaScript and Python and the uv run that installs packages, in the *notebook
+# owner's group* and as a uid *of its own*: the first time an account's notebook runs, the engine
+# gives the account the next gid from SANDBOX_UID_BASE upwards (SANDBOX_UID_COUNT of them) and
+# makes /home/sandbox/owners/<gid>, root's and group-writable only in tmp/, home/ and
+# .cache/uv/, for HOME, the temp folder and the package cache the owner's cells share. Each
+# process leases a uid from the same range for as long as it runs, and it is swept clean before
+# the uid is used again. A cell cannot read the engine's environment, anything root-only,
+# another owner's files, or the environment of any other running cell (not even its own
+# owner's), and has no write access to /app. No user is created here: the ids exist only as
+# numbers, which is all the kernel needs. SANDBOX_GID is the group that owned files made
+# before every owner had one; cells do not run as it.
 #
 # The trade-off, stated plainly: the engine itself stays root inside the container, because
 # switching a child to another uid needs it. A flaw in the engine is therefore a root flaw
@@ -43,6 +49,11 @@ RUN groupadd --system --gid 10001 sandbox \
 # place to drop files for another owner's cells to find and a disk to fill without a limit
 # (S-07). /dev/shm stays writable, because multiprocessing needs it; Docker caps it at 64 MB.
 RUN chmod 0755 /tmp
+
+# Outside /app, which is closed to cells below, and root-executable. CRLF stripped in case the
+# checkout was made on Windows: a carriage return in the shebang line is "no such file".
+COPY packages/engine/docker-entrypoint.sh /usr/local/bin/zaatool-entrypoint
+RUN sed -i 's/\r$//' /usr/local/bin/zaatool-entrypoint && chmod 0755 /usr/local/bin/zaatool-entrypoint
 
 WORKDIR /app
 # Installed rather than activated through corepack. `devEngines.packageManager` in the root
@@ -73,6 +84,18 @@ COPY packages/engine packages/engine
 RUN mkdir -p /app/packages/storage && chmod 0700 /app/packages/storage
 VOLUME ["/app/packages/storage"]
 
+# Nothing in /app is for a cell to read (S-13): world-readable source let a Python cell list and
+# read the engine's code. Directories become 0711 (can be walked through, not listed) and files
+# 0600 (root only; the engine runs as root). Left alone: node_modules, whose packages a JS cell
+# may use and whose files stay world-readable; the storage folder, already 0700; and
+# cell-host.mjs, the one script of ours a JS cell has to load, which is 0644 behind the 0711
+# folders, so a cell can open that exact path and nothing beside it. Must stay after the last
+# COPY. Nothing run in the container needs the exec bit here: the scripts under
+# packages/engine/scripts are TypeScript run through `tsx` by root.
+RUN find /app -type d \( -name node_modules -o -path /app/packages/storage \) -prune -o -type d -exec chmod 0711 {} + \
+    && find /app -type d \( -name node_modules -o -path /app/packages/storage \) -prune -o -type f -exec chmod 0600 {} + \
+    && chmod 0644 /app/packages/engine/src/core/cell-host.mjs
+
 # Stamped at build time and shown on the Resources page, because "which version is this"
 # should be answerable from the app rather than from whoever last ran the deploy.
 ARG BUILD_VERSION=dev
@@ -87,4 +110,6 @@ ENV BUILD_VERSION=$BUILD_VERSION \
 
 EXPOSE 4000
 WORKDIR /app/packages/engine
+# tini first, then the entrypoint (cell firewall, then drops NET_ADMIN), then the engine.
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/zaatool-entrypoint"]
 CMD ["pnpm", "exec", "tsx", "src/server-entry.ts"]

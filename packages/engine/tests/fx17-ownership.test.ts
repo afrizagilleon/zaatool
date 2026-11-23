@@ -34,7 +34,8 @@ import { notebookAccessService } from "../src/services/notebook-access.service.j
 import { notebooksService } from "../src/services/notebooks.service.js";
 import { notebookExecutionService } from "../src/services/notebook-execution.service.js";
 import type { NotebookJson } from "@zaa-tool/shared";
-import { secretsKey } from "../src/config.js";
+import { activeSandboxConfig, secretsKey } from "../src/config.js";
+import { NotebookWithoutOwnerError } from "../src/services/cell-host.service.js";
 import { decryptValue } from "../src/core/secrets-crypto.js";
 
 /**
@@ -829,6 +830,12 @@ await check("D-12: a notebook with no owner calls nothing", async () => {
   const callee = (await pool.query("SELECT id FROM notebooks WHERE name = 'zz-fx17-callee-open'")).rows[0].id as string;
   const orphan = await caller("caller-orphan", owner, "zz-fx17-callee-open");
   await pool.query("UPDATE notebooks SET owner_id = NULL WHERE id = $1", [orphan]);
+  if (activeSandboxConfig()) {
+    // Where cells change uid there is no user to run an owner-less notebook as, so it does not
+    // run at all: it cannot call anything, which is stronger than "calls nothing it may not".
+    await assert.rejects(() => notebookExecutionService.start(orphan, () => {}, {}), NotebookWithoutOwnerError);
+    return;
+  }
   const run = await notebookExecutionService.start(orphan, () => {}, {});
   await run.completed;
   const { rows } = await pool.query("SELECT cell_results FROM notebook_runs WHERE id = $1", [run.runId]);

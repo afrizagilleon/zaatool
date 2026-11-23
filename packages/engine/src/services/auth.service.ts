@@ -1,10 +1,13 @@
 import bcrypt from "bcrypt";
+import type { PoolClient } from "pg";
 import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
 import { createHash, randomInt, timingSafeEqual } from "node:crypto";
 import { ROLES, type Role } from "@zaa-tool/shared";
 import { pool } from "../db/connection.js";
 import { jwtSecret, registrationOpen, setupCodeOverride } from "../config.js";
+import { notifySessionsEnded } from "../core/session-events.js";
+import { LOCK_KEYS, lockUntilTransactionEnds } from "../core/advisory-locks.js";
 
 const SALT_ROUNDS = 10;
 export const MIN_PASSWORD_LENGTH = 12;
@@ -39,6 +42,14 @@ export class AuthInputError extends Error {
     super(message);
     this.name = "AuthInputError";
   }
+}
+
+/** The `users.username` unique index refusing a second account of the same name. */
+function translateDuplicateUsername(err: unknown): AuthInputError | null {
+  const { code, constraint } = err as { code?: string; constraint?: string };
+  return code === "23505" && (constraint ?? "").startsWith("users_username")
+    ? new AuthInputError("Username already taken")
+    : null;
 }
 
 export class RegistrationClosedError extends Error {
@@ -129,7 +140,16 @@ export function setupCodeMatches(given: unknown): boolean {
  * — and because the first has always been that way.
  */
 export type SessionCheck =
-  | { status: "ok"; user: { id: string; username: string; role: Role } }
+  | {
+      status: "ok";
+      user: { id: string; username: string; role: Role };
+      /**
+       * What the token was minted under and when it stops being good (epoch ms), for a caller
+       * that keeps the session open — a socket — and has to end it by itself later.
+       */
+      tokenVersion: number;
+      expiresAt: number | null;
+    }
   | { status: "invalid" }
   | { status: "gone" }
   | { status: "inactive" }
@@ -137,8 +157,8 @@ export type SessionCheck =
 
 export class AuthService {
   /** How many accounts exist — the one question that decides whether the door is open. */
-  async userCount(): Promise<number> {
-    const { rows } = await pool.query("SELECT COUNT(*) FROM users");
+  async userCount(db: Pick<PoolClient, "query"> = pool): Promise<number> {
+    const { rows } = await db.query("SELECT COUNT(*) FROM users");
     return Number.parseInt(rows[0].count, 10);
   }
 
@@ -180,11 +200,32 @@ export class AuthService {
     if (existingUsers === 0 && !setupCodeMatches(setupCode)) {
       throw new SetupCodeError();
     }
+    if (existingUsers > 0) return this.createUser(username, passwordPlain, "viewer", email);
 
-    const user = await this.createUser(username, passwordPlain, existingUsers === 0 ? "creator" : "viewer", email);
-    // The code did its one job. If every account were ever deleted a new one is made.
-    if (existingUsers === 0) generatedSetupCode = null;
-    return user;
+    // Nobody has an account *as far as the count above knew*. Six requests carrying the right
+    // code all read zero, and each one would have made a creator. The decision is made again
+    // under a lock, where only one of them sees an empty table.
+    const account = await this.prepareAccount(username, passwordPlain);
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await lockUntilTransactionEnds(client, LOCK_KEYS.firstAccount);
+      const first = (await this.userCount(client)) === 0;
+      // Somebody else was first. This request now stands where a later one would have: the
+      // door is shut unless it was propped open, and what comes through it is a viewer.
+      if (!first && !registrationOpen()) throw new RegistrationClosedError();
+
+      const user = await this.insertUser(client, account, first ? "creator" : "viewer", email);
+      await client.query("COMMIT");
+      // The code did its one job. If every account were ever deleted a new one is made.
+      if (first) generatedSetupCode = null;
+      return user;
+    } catch (err: unknown) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw translateDuplicateUsername(err) ?? err;
+    } finally {
+      client.release();
+    }
   }
 
   /**
@@ -194,27 +235,48 @@ export class AuthService {
    * and because the route above it is the thing that checks the caller is a creator.
    */
   async createUser(username: string, passwordPlain: string, role: Role, email?: string) {
+    const account = await this.prepareAccount(username, passwordPlain);
+
+    const existing = await pool.query("SELECT id FROM users WHERE username = $1", [account.name]);
+    if (existing.rows.length > 0) {
+      throw new AuthInputError("Username already taken");
+    }
+
+    try {
+      return await this.insertUser(pool, account, role, email);
+    } catch (err: unknown) {
+      // The check above and this insert are two moments; the unique index is the one that
+      // cannot be raced, and what it says is turned back into the sentence a person reads.
+      throw translateDuplicateUsername(err) ?? err;
+    }
+  }
+
+  /** The checks every new account passes, and the password hashed — slow, so done before any lock. */
+  private async prepareAccount(
+    username: string,
+    passwordPlain: string
+  ): Promise<{ name: string; passwordHash: string }> {
     const name = String(username ?? "").trim();
     if (name.length === 0) throw new AuthInputError("Username is required");
     if (String(passwordPlain ?? "").length < MIN_PASSWORD_LENGTH) {
       throw new AuthInputError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
     }
+    return { name, passwordHash: await bcrypt.hash(passwordPlain, SALT_ROUNDS) };
+  }
 
-    const existing = await pool.query("SELECT id FROM users WHERE username = $1", [name]);
-    if (existing.rows.length > 0) {
-      throw new AuthInputError("Username already taken");
-    }
-
-    const passwordHash = await bcrypt.hash(passwordPlain, SALT_ROUNDS);
+  private async insertUser(
+    db: Pick<PoolClient, "query">,
+    account: { name: string; passwordHash: string },
+    role: Role,
+    email?: string
+  ) {
     const userId = uuidv4();
-
-    await pool.query(
+    await db.query(
       `INSERT INTO users (id, username, password_hash, email, role, active)
        VALUES ($1, $2, $3, $4, $5, true)`,
-      [userId, name, passwordHash, email || null, role]
+      [userId, account.name, account.passwordHash, email || null, role]
     );
-
-    return { id: userId, username: name, email, role, active: true };
+    return { id: userId, username: account.name, email, role, active: true };
   }
 
   async currentUser(
@@ -258,6 +320,8 @@ export class AuthService {
         : "UPDATE users SET active = false, token_version = token_version + 1 WHERE id = $1",
       [id]
     );
+    // Open sockets are sessions too, and they are not asked again: they have to be told.
+    if (!active && (rowCount ?? 0) > 0) notifySessionsEnded(id);
     return (rowCount ?? 0) > 0;
   }
 
@@ -267,6 +331,7 @@ export class AuthService {
       "UPDATE users SET token_version = token_version + 1 WHERE id = $1",
       [id]
     );
+    if ((rowCount ?? 0) > 0) notifySessionsEnded(id);
     return (rowCount ?? 0) > 0;
   }
 
@@ -308,7 +373,12 @@ export class AuthService {
     if (current.active === false) return { status: "inactive" };
     if (decoded.tv !== current.tokenVersion) return { status: "revoked" };
 
-    return { status: "ok", user: { id: current.id, username: current.username, role: current.role } };
+    return {
+      status: "ok",
+      user: { id: current.id, username: current.username, role: current.role },
+      tokenVersion: current.tokenVersion,
+      expiresAt: typeof decoded.exp === "number" ? decoded.exp * 1000 : null,
+    };
   }
 
   async login(username: string, passwordPlain: string) {
@@ -355,11 +425,12 @@ export class AuthService {
       throw new AuthInputError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters`);
     }
     const passwordHash = await bcrypt.hash(passwordPlain, SALT_ROUNDS);
-    const { rowCount } = await pool.query(
-      "UPDATE users SET password_hash = $1, token_version = token_version + 1 WHERE username = $2",
+    const { rows } = await pool.query(
+      "UPDATE users SET password_hash = $1, token_version = token_version + 1 WHERE username = $2 RETURNING id",
       [passwordHash, username]
     );
-    return (rowCount ?? 0) > 0;
+    for (const row of rows) notifySessionsEnded(row.id);
+    return rows.length > 0;
   }
 
   async changePassword(userId: string, currentPasswordPlain: string, newPasswordPlain: string): Promise<boolean> {
@@ -383,6 +454,7 @@ export class AuthService {
       "UPDATE users SET password_hash = $1, token_version = token_version + 1 WHERE id = $2",
       [passwordHash, userId]
     );
+    notifySessionsEnded(userId);
     return true;
   }
 
@@ -421,6 +493,7 @@ export class AuthService {
         username: string;
         role?: string;
         tv?: number;
+        exp?: number;
       };
       // A token minted before roles were checked carries whatever was there, or nothing.
       // The safe reading of "no role" is the one that can do least. A token minted before

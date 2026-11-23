@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useNotebookStore } from '../store/notebookStore.js';
-import { notebooksApi } from '../lib/notebooks-api.js';
+import { notebooksApi, SaveConflictError } from '../lib/notebooks-api.js';
 import { authenticateSocket, connectRunSocket, subscribeToRun } from '../lib/run-socket.js';
 import { scopeBefore } from '../lib/notebook-scope-replay.js';
 
@@ -31,16 +31,35 @@ export function useNotebookRun() {
 
   const save = useCallback(async (): Promise<string> => {
     const store = useNotebookStore.getState();
+    // Nothing is sent while a conflict is waiting for a decision: the person has been told
+    // somebody else saved, and a second click must not be the thing that overwrites it.
+    if (store.saveConflict) throw new Error(store.saveConflict.message);
     store.setSaving(true);
     try {
-      const { id } = await notebooksApi.save(store.getDocument());
-      store.markSaved(id);
+      const { id, revision } = await notebooksApi.save(store.getDocument());
+      store.markSaved(id, revision);
       return id;
     } catch (err) {
-      store.setSaving(false);
+      if (err instanceof SaveConflictError) {
+        store.setSaveConflict(err.message, err.currentRevision);
+      } else {
+        store.setSaving(false);
+      }
       throw err;
     }
   }, []);
+
+  /** Throws away the editor's copy and opens what is stored now: the safe way out of a conflict. */
+  const reloadFromServer = useCallback(async (): Promise<void> => {
+    const { id } = useNotebookStore.getState();
+    useNotebookStore.getState().loadNotebook(await notebooksApi.getById(id));
+  }, []);
+
+  /** Saves the editor's copy over what is stored, knowing somebody else's changes are lost. */
+  const overwriteStored = useCallback(async (): Promise<void> => {
+    useNotebookStore.getState().overwriteAfterConflict();
+    await save();
+  }, [save]);
 
   /** Runs the whole notebook, or just `cellId` seeded with the scope above it. */
   const run = useCallback(async (cellId?: string) => {
@@ -155,5 +174,5 @@ export function useNotebookRun() {
 
   const runAll = useCallback(() => run(), [run]);
 
-  return { run, runAll, save };
+  return { run, runAll, save, reloadFromServer, overwriteStored };
 }

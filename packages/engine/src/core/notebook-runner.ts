@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { NotebookScope } from "./notebook-scope.js";
 import { runJsNode } from "./js-runner.js";
 import { runPythonNode } from "./python-runner.js";
+import { withOwnerDisk } from "./owner-disk.js";
 import { selectOutputs } from "./notebook-contract.js";
 import { abortMessage } from "./run-abort.js";
 import type { NotebookCaller } from "./notebook-call.js";
@@ -31,7 +32,7 @@ export interface RunNotebookOptions {
    */
   signal?: AbortSignal;
   /**
-   * Whose processes these are: the notebook owner's uid and folders. Absent only where there
+   * Whose processes these are: the notebook owner's group and folders. Absent only where there
    * is no sandbox to speak of (a script, a test), which gets a plain temp folder.
    */
   host?: CellHost;
@@ -96,7 +97,7 @@ export async function runNotebook(
           })
       : undefined;
 
-    const result = await runCell(
+    const result = await withOwnerDisk(host, () => runCell(
       step.source,
       scope.snapshot(),
       step.timeoutMs,
@@ -113,7 +114,7 @@ export async function runNotebook(
       plan.packages ?? [],
       signal,
       host
-    );
+    ), (error) => ({ logs: [], error, ms: 0 }));
 
     if (result.error) {
       ee?.emit("cell:error", {

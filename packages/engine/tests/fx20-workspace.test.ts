@@ -2,8 +2,9 @@
  * FX-20 D-3 / D-4: an owner's home, and a folder for every cell process that is made before
  * the process starts and gone after it ends — finished, failed, timed out or cancelled.
  *
- * The chown/chmod calls only take effect as root on Linux (see T-07 for the kernel doing it);
- * here they are recorded through an injected `fs`, and the real-disk part runs everywhere.
+ * The chown/chmod calls only take effect as root on Linux (see sandbox-linux-root.test.ts for
+ * the kernel doing it); here they are recorded through an in-memory `fs`, and the real-disk
+ * part runs everywhere.
  *
  *   pnpm --filter @zaa-tool/engine test fx20-workspace
  */
@@ -11,10 +12,12 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createCellHost, prepareOwnerHome, type WorkspaceFs } from "../src/core/cell-workspace.js";
+import { createCellHost } from "../src/core/cell-workspace.js";
+import { createUidPool } from "../src/core/uid-sweep.js";
 import { runJsNode } from "../src/core/js-runner.js";
 import { runPythonNode } from "../src/core/python-runner.js";
 import type { SandboxConfig } from "../src/core/sandbox-identity.js";
+import { fakeWorkspaceFs } from "./fake-workspace-fs.js";
 
 let passed = 0;
 let failed = 0;
@@ -31,58 +34,73 @@ async function check(name: string, run: () => Promise<void> | void): Promise<voi
 }
 
 const config: SandboxConfig = { uidBase: 20000, uidCount: 40000, gid: 10001, home: "/home/sandbox" };
+const sweptNow = () => createUidPool({ base: 20000, count: 40000, sweeper: async () => true, start: 0, retryDelayMs: 0 });
 
-function recordingFs(): { fs: WorkspaceFs; calls: string[] } {
-  const calls: string[] = [];
-  return {
-    calls,
-    fs: {
-      mkdirSync: (dir) => void calls.push(`mkdir ${dir}`),
-      chmodSync: (target, mode) => void calls.push(`chmod ${mode.toString(8)} ${target}`),
-      chownSync: (target, uid, gid) => void calls.push(`chown ${uid}:${gid} ${target}`),
-      rmSync: (target) => void calls.push(`rm ${target}`),
-    },
-  };
-}
+console.log("\nprocess folder in the sandbox (recorded, as root on Linux would do it)");
 
-console.log("\nowner home (recorded, as root on Linux would do it)");
-
-await check("owners is root-only to list (0711); the owner's home and its folders are the owner's, 0700", () => {
-  const rec = recordingFs();
-  const home = prepareOwnerHome(config, 20007, rec.fs);
-  assert.equal(home, "/home/sandbox/owners/20007");
-  assert.ok(rec.calls.includes("chmod 711 /home/sandbox/owners"));
-  assert.ok(!rec.calls.some((c) => c.startsWith("chown") && c.endsWith("/home/sandbox/owners")), "owners must stay root's");
-  for (const dir of ["", "/tmp", "/.cache/uv", "/cells"]) {
-    assert.ok(rec.calls.includes(`chown 20007:10001 ${home}${dir}`), `no chown for ${dir}`);
-    assert.ok(rec.calls.includes(`chmod 700 ${home}${dir}`), `no chmod 700 for ${dir}`);
-  }
-});
-
-await check("every process folder is 128 random bits, the owner's, 0700, under the owner's cells/", () => {
-  const rec = recordingFs();
-  const host = createCellHost({ sandbox: { config, uid: 20007 }, fs: rec.fs });
+await check("every process folder is 128 random bits, its own uid's and its owner's group, 0700, under cells/", () => {
+  const rec = fakeWorkspaceFs();
+  const host = createCellHost({ sandbox: { config, gid: 20007, pool: sweptNow() }, fs: rec.fs });
   const one = host.open();
   const two = host.open();
   assert.match(one.dir, /^\/home\/sandbox\/owners\/20007\/cells\/[0-9a-f]{32}$/);
   assert.notEqual(one.dir, two.dir);
-  assert.ok(rec.calls.includes(`chown 20007:10001 ${one.dir}`));
-  assert.ok(rec.calls.includes(`chmod 700 ${one.dir}`));
-  one.dispose();
-  assert.ok(rec.calls.includes(`rm ${one.dir}`));
-  assert.deepEqual(one.spawn.options, { uid: 20007, gid: 10001 });
-  assert.equal(one.spawn.env.HOME, "/home/sandbox/owners/20007");
+  assert.deepEqual(rec.tree.get(one.dir), { kind: "dir", uid: one.spawn.options.uid, gid: 20007, mode: 0o700 });
+  assert.notEqual(one.spawn.options.uid, two.spawn.options.uid, "two processes of one owner share a uid");
+  assert.deepEqual(one.spawn.options, { uid: one.spawn.options.uid, gid: 20007, cwd: one.dir });
+  assert.equal(one.spawn.env.HOME, "/home/sandbox/owners/20007/home");
+  assert.equal(one.spawn.env.TMPDIR, "/home/sandbox/owners/20007/tmp");
   assert.equal(one.spawn.env.UV_CACHE_DIR, "/home/sandbox/owners/20007/.cache/uv");
+  assert.equal(one.spawn.env.USER, "sandbox");
+  assert.equal(one.spawn.env.LOGNAME, "sandbox");
+});
+
+await check("dispose gives the uid back only after the sweep, then removes the empty folder", async () => {
+  const rec = fakeWorkspaceFs();
+  let finish: (clean: boolean) => void = () => undefined;
+  const swept: Array<{ uid: number; dir?: string }> = [];
+  const pool = createUidPool({
+    base: 20000,
+    count: 1,
+    start: 0,
+    sweeper: (t) => {
+      swept.push({ uid: t.uid, dir: t.dir });
+      return new Promise<boolean>((resolve) => (finish = resolve));
+    },
+  });
+  const ws = createCellHost({ sandbox: { config, gid: 20007, pool }, fs: rec.fs }).open();
+  const closing = ws.dispose();
+  assert.equal(ws.dispose(), closing, "a second dispose is the same one");
+  assert.deepEqual(swept, [{ uid: 20000, dir: ws.dir }]);
+  assert.ok(!rec.calls.some((c) => c.op === "rmdir"), "removed before the sweep ended");
+  assert.throws(() => createCellHost({ sandbox: { config, gid: 20007, pool }, fs: rec.fs }).open(), /SANDBOX_UID_COUNT/);
+  finish(true);
+  await closing;
+  assert.ok(rec.calls.some((c) => c.op === "rmdir" && c.path === ws.dir));
+  assert.equal(rec.calls.filter((c) => c.op === "rm").length, 0, "root removed something recursively");
+  createCellHost({ sandbox: { config, gid: 20007, pool }, fs: rec.fs }).open();
 });
 
 await check("two owners never share a home, a cache or a folder", () => {
-  const rec = recordingFs();
-  const a = createCellHost({ sandbox: { config, uid: 20000 }, fs: rec.fs }).open();
-  const b = createCellHost({ sandbox: { config, uid: 20001 }, fs: rec.fs }).open();
+  const rec = fakeWorkspaceFs();
+  const pool = sweptNow();
+  const a = createCellHost({ sandbox: { config, gid: 20000, pool }, fs: rec.fs }).open();
+  const b = createCellHost({ sandbox: { config, gid: 20001, pool }, fs: rec.fs }).open();
   assert.notEqual(a.spawn.env.HOME, b.spawn.env.HOME);
   assert.notEqual(a.spawn.env.UV_CACHE_DIR, b.spawn.env.UV_CACHE_DIR);
-  assert.ok(!b.dir.startsWith(a.spawn.env.HOME));
+  assert.ok(!b.dir.startsWith("/home/sandbox/owners/20000"));
+  assert.notEqual(a.spawn.options.gid, b.spawn.options.gid);
 });
+
+await check("a program written for the process is its uid's, 0600, and never overwrites", () => {
+  const rec = fakeWorkspaceFs();
+  const ws = createCellHost({ sandbox: { config, gid: 20007, pool: sweptNow() }, fs: rec.fs }).open();
+  const file = ws.writeScript("cell.py", "print(1)");
+  assert.equal(file, `${ws.dir}/cell.py`);
+  assert.deepEqual(rec.tree.get(file), { kind: "file", uid: ws.spawn.options.uid, gid: 20007, mode: 0o600 });
+  assert.throws(() => ws.writeScript("cell.py", "print(2)"), /EEXIST/);
+});
+
 
 console.log("\nprocess folder (real disk, no uid change)");
 

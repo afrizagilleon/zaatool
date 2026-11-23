@@ -1,18 +1,18 @@
-import fs from "fs";
-import path from "path";
+import type { PoolClient } from "pg";
 import { pool } from "../db/connection.js";
 import { v4 as uuidv4 } from "uuid";
+import { LOCK_KEYS, lockUntilTransactionEnds, notebookLockKey } from "../core/advisory-locks.js";
 import { notebookTriggersService } from "./notebook-triggers.service.js";
-import { STORAGE_DIR } from "./storage.service.js";
-import { safeFilename } from "../core/storage-paths.js";
 import { stampAuthors } from "../core/notebook-provenance.js";
 import { toolNameFor } from "../core/notebook-tool-name.js";
 import { notifyCatalogChanged } from "../core/catalog-events.js";
 import { resolvePythonLockedPackages } from "../core/python-runner.js";
 import { cellHostForOwner } from "./cell-host.service.js";
+import { withOwnerDisk } from "../core/owner-disk.js";
 import { cronProblem } from "../core/cron.js";
 import { normaliseTags } from "@zaa-tool/shared";
 import { notebookAccessService } from "./notebook-access.service.js";
+import { notebookFilesService } from "./notebook-files.service.js";
 
 
 import type {
@@ -29,6 +29,8 @@ export interface NotebookRecord {
   document: string;
   /** Whose secrets it runs with. Null for a notebook nobody owns. */
   owner_id: string | null;
+  /** Moves on every save; what a save says it was made from. */
+  revision: number;
   created_at: Date;
   updated_at: Date;
 }
@@ -47,6 +49,64 @@ export class DeployRefusedError extends Error {
     super(message);
     this.name = "DeployRefusedError";
   }
+}
+
+/**
+ * A save made from a revision that is no longer the current one.
+ *
+ * Its own type, so the controller answers 409 with the message and the MCP tools can tell
+ * the agent to read again, and neither has to recognise it by its wording.
+ */
+export class NotebookConflictError extends Error {
+  constructor(
+    notebookName: string,
+    readonly currentRevision: number
+  ) {
+    super(
+      `"${notebookName}" was changed by someone else after you opened it (it is now at ` +
+        `revision ${currentRevision}). Nothing was saved. Reload it to see their changes, ` +
+        `then make your edit again.`
+    );
+    this.name = "NotebookConflictError";
+  }
+}
+
+/** Anything a query can be sent to: the pool, or one connection inside a transaction. */
+type Queryable = Pick<PoolClient, "query">;
+
+/** What `save` may be told about the write. */
+export interface SaveOptions {
+  /**
+   * The revision the caller's copy was read at. When given, the save only goes through if
+   * the stored revision is still that; when absent the save overwrites whatever is there,
+   * which is what every client did before revisions existed.
+   */
+  expectedRevision?: number;
+}
+
+/**
+ * Turns the database's own refusal of a duplicate into the sentence a person can act on.
+ *
+ * `deploy` checks names, slugs and ids under a lock before writing, so these should not
+ * happen; the unique indexes are the guarantee behind that check, and this is what is said
+ * if one of them is the thing that catches it (an installation whose index was added later,
+ * a second engine pointed at the same database).
+ */
+function refusalFromConstraint(err: unknown): DeployRefusedError | null {
+  const { code, constraint } = err as { code?: string; constraint?: string };
+  if (code !== "23505") return null;
+  if (constraint === "notebooks_deployed_name_idx") {
+    return new DeployRefusedError(
+      "Another deployed notebook already uses this name, so calls by name would be ambiguous. Rename one of them first."
+    );
+  }
+  if (constraint === "notebook_triggers_slug_key" || constraint === "notebook_triggers_pkey") {
+    return new DeployRefusedError(
+      "A trigger of this notebook uses a webhook slug or id that another deployed notebook already has. " +
+        "Give the trigger a new slug or id (a duplicated notebook keeps its original's)."
+    );
+  }
+  return null;
 }
 
 /** A deployed notebook as production sees it: its id, and the name and document of the version. */
@@ -230,13 +290,21 @@ export class NotebooksService {
   async save(
     document: NotebookJson,
     writer = "unknown",
-    ownerId: string | null = null
-  ): Promise<{ id: string; name: string }> {
+    ownerId: string | null = null,
+    options: SaveOptions = {}
+  ): Promise<{ id: string; name: string; revision: number }> {
     const id = document.id || uuidv4();
     const name = document.name || "Untitled Notebook";
     const runtime: NotebookRuntime = document.runtime === "python" ? "python" : "node";
+    const expected = options.expectedRevision;
 
     const existing = await this.getById(id);
+    // Refused before the authors are stamped: nothing below is work worth doing for a write
+    // that is not going to happen. The statement further down checks again, atomically —
+    // this read and that write are two moments, and somebody can save in between.
+    if (existing && expected !== undefined && existing.revision !== expected) {
+      throw new NotebookConflictError(existing.name, existing.revision);
+    }
     const stored = stampAuthors(
       existing ? this.parseDocument(existing) : null,
       { ...document, id, name, runtime },
@@ -248,7 +316,10 @@ export class NotebooksService {
     // writing the text form never passes through the editor.
     const tags = normaliseTags(stored.tags ?? []);
 
-    await pool.query(
+    // The WHERE is the guarantee: it is evaluated against the row as it is *now*, under the
+    // row lock the conflict takes, so of two saves made from the same revision exactly one
+    // finds it still current. No row back means the guard refused.
+    const { rows } = await pool.query<{ revision: number }>(
       `INSERT INTO notebooks (id, name, runtime, document, tags, owner_id)
        VALUES ($1, $2, $3, $4, $5, $6)
        ON CONFLICT (id) DO UPDATE
@@ -256,9 +327,16 @@ export class NotebooksService {
            runtime = EXCLUDED.runtime,
            document = EXCLUDED.document,
            tags = EXCLUDED.tags,
-           updated_at = CURRENT_TIMESTAMP`,
-      [id, name, runtime, JSON.stringify(stored), tags, ownerId]
+           revision = notebooks.revision + 1,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE $7::int IS NULL OR notebooks.revision = $7::int
+       RETURNING revision`,
+      [id, name, runtime, JSON.stringify(stored), tags, ownerId, expected ?? null]
     );
+    if (rows.length === 0) {
+      const current = await this.getById(id);
+      throw new NotebookConflictError(current?.name ?? name, current?.revision ?? 0);
+    }
 
     // The trigger index is deliberately **not** written here. The document is the source
     // of truth for what a notebook declares, but the index answers "what is listening in
@@ -272,7 +350,7 @@ export class NotebooksService {
     // arrangement, where each caller remembered, had announced none of them.
     notifyCatalogChanged({ change: "saved", notebookId: id });
 
-    return { id, name };
+    return { id, name, revision: rows[0].revision };
   }
 
   /**
@@ -283,37 +361,89 @@ export class NotebooksService {
    * only you could edit and became indefensible once an agent could.
    */
   async deploy(id: string, deployedBy: string): Promise<{ versionId: string } | null> {
-    const record = await this.getById(id);
-    if (!record) return null;
+    // A package lock is resolved by running `uv`, which can take minutes, so it happens with
+    // no lock and no transaction held. The packages it was resolved for are remembered, and
+    // if somebody saves different ones while it ran the lock is simply done again.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const record = await this.getById(id);
+      if (!record) return null;
+      const lockedFor = JSON.stringify(this.parseDocument(record).packages ?? []);
 
-    const doc = this.parseDocument(record);
+      // A first look before the slow part, so a deploy that is going to be refused is
+      // refused in milliseconds. It decides nothing: the check that counts is the one made
+      // below under the locks.
+      await this.assertDeployable(pool, id, this.parseDocument(record));
+      const locked = await this.lockPackagesOf(record);
 
-    // Before anything is written: a refused deploy leaves no version and no index rows.
-    await this.assertDeployable(id, doc);
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        // This notebook's deploys, undeploys and deletes go one at a time. Everything below
+        // is one transaction: a deploy that fails anywhere leaves no version row, no moved
+        // pointer and no half-written trigger index behind it.
+        await lockUntilTransactionEnds(client, notebookLockKey(id));
 
-    let lockedPackages: string[] | null = null;
-    if (record.runtime === "python" && Array.isArray(doc.packages) && doc.packages.length > 0) {
-      // As the notebook's owner, with their package cache: the same user its cells run as.
-      const host = await cellHostForOwner(record.owner_id, new Set());
-      lockedPackages = await resolvePythonLockedPackages(doc.packages, host.spawn);
+        const { rows } = await client.query<NotebookRecord>("SELECT * FROM notebooks WHERE id = $1", [id]);
+        const fresh = rows[0];
+        if (!fresh) {
+          await client.query("ROLLBACK");
+          return null;
+        }
+        const doc = this.parseDocument(fresh);
+        if (JSON.stringify(doc.packages ?? []) !== lockedFor) {
+          await client.query("ROLLBACK");
+          continue;
+        }
+
+        // The names deployed notebooks go by, and their trigger ids and slugs, are checked
+        // against one another by everyone who deploys, so that check is one at a time too.
+        // Taken after the per-notebook lock and only ever in that order, which is what
+        // keeps two deploys from waiting on each other.
+        await lockUntilTransactionEnds(client, LOCK_KEYS.deployedNames);
+        await this.assertDeployable(client, id, doc);
+
+        const versionId = uuidv4();
+        await client.query(
+          `INSERT INTO notebook_versions (id, notebook_id, document, deployed_by, locked_packages)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [versionId, id, JSON.stringify(doc), deployedBy, locked]
+        );
+        await client.query(
+          "UPDATE notebooks SET deployed_version_id = $1, deployed_name = $2 WHERE id = $3",
+          [versionId, doc.name, id]
+        );
+        // The index follows the version just pinned, from the same document that was stored as
+        // that version, so what listens and what runs cannot come from two different reads.
+        await notebookTriggersService.syncForNotebook(id, doc.triggers ?? [], client);
+        await client.query("COMMIT");
+
+        notifyCatalogChanged({ change: "deployed", notebookId: id });
+        return { versionId };
+      } catch (err: unknown) {
+        await client.query("ROLLBACK").catch(() => undefined);
+        throw refusalFromConstraint(err) ?? err;
+      } finally {
+        client.release();
+      }
     }
-
-    const versionId = uuidv4();
-    await pool.query(
-      `INSERT INTO notebook_versions (id, notebook_id, document, deployed_by, locked_packages)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [versionId, id, JSON.stringify(doc), deployedBy, lockedPackages]
+    throw new DeployRefusedError(
+      "The notebook's packages kept changing while it was being deployed. Try again once nobody is editing them."
     );
-    await pool.query("UPDATE notebooks SET deployed_version_id = $1 WHERE id = $2", [
-      versionId,
-      id,
-    ]);
-    // The index follows the version just pinned, from the same document that was stored as
-    // that version, so what listens and what runs cannot come from two different reads.
-    await notebookTriggersService.syncForNotebook(id, doc.triggers ?? []);
+  }
 
-    notifyCatalogChanged({ change: "deployed", notebookId: id });
-    return { versionId };
+  /** The exact package versions a Python notebook runs with once deployed; null when it has none. */
+  private async lockPackagesOf(record: NotebookRecord): Promise<string[] | null> {
+    const doc = this.parseDocument(record);
+    if (record.runtime !== "python" || !Array.isArray(doc.packages) || doc.packages.length === 0) {
+      return null;
+    }
+    // In the notebook's owner's group, with their package cache: the same as its cells.
+    const host = await cellHostForOwner(record.owner_id, new Set());
+    const packages = doc.packages;
+    // Installing fills the owner's package cache like a cell does, so it is held to the same disk quota.
+    return withOwnerDisk(host, () => resolvePythonLockedPackages(packages, host), (message) => {
+      throw new DeployRefusedError(message);
+    });
   }
 
   /**
@@ -332,8 +462,12 @@ export class NotebooksService {
    *    slug (a UUID) qualifies. Disabled triggers are not listening, so they are not held
    *    to it.
    */
-  private async assertDeployable(id: string, doc: NotebookJson): Promise<void> {
-    const { rows } = await pool.query(
+  private async assertDeployable(
+    db: Queryable,
+    id: string,
+    doc: NotebookJson
+  ): Promise<void> {
+    const { rows } = await db.query(
       `SELECT n.id, n.name FROM notebooks n
        JOIN notebook_versions v ON v.id = n.deployed_version_id
        WHERE n.id <> $1 AND (v.document::jsonb ->> 'name') = $2`,
@@ -357,7 +491,7 @@ export class NotebooksService {
       trigger.kind === "webhook" && trigger.slug ? [trigger.slug.trim()] : []
     );
     if (declared.length > 0) {
-      const { rows: taken } = await pool.query(
+      const { rows: taken } = await db.query(
         `SELECT t.id, t.slug, t.notebook_id FROM notebook_triggers t
          WHERE t.notebook_id <> $1 AND (t.id = ANY($2::text[]) OR t.slug = ANY($3::text[]))`,
         [id, declared.map((trigger) => trigger.id), declaredSlugs]
@@ -419,15 +553,30 @@ export class NotebooksService {
     // they are exactly the ones whose list has to be told it went.
     const audience = await notebookAccessService.audienceOf(id);
 
-    const { rowCount } = await pool.query(
-      "UPDATE notebooks SET deployed_version_id = NULL WHERE id = $1 AND deployed_version_id IS NOT NULL",
-      [id]
-    );
-    const wasDeployed = (rowCount ?? 0) > 0;
-    // Nobody is listening once nothing is deployed: the webhook answers 404 like any
-    // unknown slug and the scheduler stops seeing the cron, rather than both reaching a
-    // notebook that can only refuse.
-    await notebookTriggersService.deleteByNotebook(id);
+    // One transaction, behind any deploy of this notebook that is already running: the
+    // pointer and the trigger index move together, so a deploy racing this cannot leave a
+    // pinned version with no triggers, or triggers with no version.
+    const client = await pool.connect();
+    let wasDeployed: boolean;
+    try {
+      await client.query("BEGIN");
+      await lockUntilTransactionEnds(client, notebookLockKey(id));
+      const { rowCount } = await client.query(
+        "UPDATE notebooks SET deployed_version_id = NULL, deployed_name = NULL WHERE id = $1 AND deployed_version_id IS NOT NULL",
+        [id]
+      );
+      wasDeployed = (rowCount ?? 0) > 0;
+      // Nobody is listening once nothing is deployed: the webhook answers 404 like any
+      // unknown slug and the scheduler stops seeing the cron, rather than both reaching a
+      // notebook that can only refuse.
+      await notebookTriggersService.deleteByNotebook(id, client);
+      await client.query("COMMIT");
+    } catch (err: unknown) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw err;
+    } finally {
+      client.release();
+    }
     // Only when something actually moved. Announcing an undeploy of a notebook that was
     // never deployed would send every open screen to refetch a list that did not change.
     if (wasDeployed) notifyCatalogChanged({ change: "undeployed", notebookId: id, audience });
@@ -517,20 +666,67 @@ export class NotebooksService {
   async delete(id: string): Promise<{ success: boolean }> {
     // Before the row goes: once it has, there is nothing left to ask who could see it.
     const audience = await notebookAccessService.audienceOf(id);
-    await pool.query("UPDATE notebooks SET deployed_version_id = NULL WHERE id = $1", [id]);
-    await pool.query("DELETE FROM notebook_runs WHERE notebook_id = $1", [id]);
-    await pool.query("DELETE FROM notebook_versions WHERE notebook_id = $1", [id]);
-    await notebookTriggersService.deleteByNotebook(id);
-    await pool.query("DELETE FROM notebooks WHERE id = $1", [id]);
 
-    const seg = safeFilename(id) || id;
-    const uploadsFolder = path.join(STORAGE_DIR, "uploads", seg);
-    const notebooksFolder = path.join(STORAGE_DIR, "notebooks", seg);
-    if (fs.existsSync(uploadsFolder)) fs.rmSync(uploadsFolder, { recursive: true, force: true });
-    if (fs.existsSync(notebooksFolder)) fs.rmSync(notebooksFolder, { recursive: true, force: true });
+    // Runs that are still going are stopped first, through the same cancel a person's button
+    // uses. Otherwise a run outlives its notebook and keeps writing — into a folder this
+    // method is about to remove, or one the write itself would bring back.
+    await this.cancelActiveRuns(id);
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await lockUntilTransactionEnds(client, notebookLockKey(id));
+      await client.query("UPDATE notebooks SET deployed_version_id = NULL WHERE id = $1", [id]);
+      await client.query("DELETE FROM notebook_runs WHERE notebook_id = $1", [id]);
+      await client.query("DELETE FROM notebook_versions WHERE notebook_id = $1", [id]);
+      await notebookTriggersService.deleteByNotebook(id, client);
+      await client.query("DELETE FROM notebooks WHERE id = $1", [id]);
+      await client.query("COMMIT");
+    } catch (err: unknown) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    // Under the notebook's file lock, after the row is gone: a write that was already in the
+    // queue finds no notebook and refuses, and one that was in flight finishes before the
+    // folders are removed, so nothing is left to be recreated behind this.
+    await notebookFilesService.removeFolders(id);
 
     notifyCatalogChanged({ change: "deleted", notebookId: id, audience });
     return { success: true };
+  }
+
+  /**
+   * Cancels every root run of a notebook that is still going, and gives them a moment to end.
+   *
+   * It asks the execution service rather than keeping a list of its own: how a run is
+   * stopped is that service's business. Imported when needed because it imports this one.
+   */
+  private async cancelActiveRuns(notebookId: string): Promise<void> {
+    const { notebookExecutionService } = await import("./notebook-execution.service.js");
+    const { rows } = await pool.query<{ id: string }>(
+      "SELECT id FROM notebook_runs WHERE notebook_id = $1 AND status = 'running' AND parent_run_id IS NULL",
+      [notebookId]
+    );
+    if (rows.length === 0) return;
+    const stopped = rows.filter((run) => notebookExecutionService.cancel(run.id, "the deletion of this notebook"));
+    // A row marked running that is not active here (the engine restarted under it) has
+    // nothing to wait for.
+    if (stopped.length === 0) return;
+
+    // A cancel aborts the run's signal; the run records its end a moment later. Waited for
+    // briefly so the history that is deleted next is not being written to at the same time.
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      const { rows: still } = await pool.query(
+        "SELECT 1 FROM notebook_runs WHERE notebook_id = $1 AND status = 'running' AND parent_run_id IS NULL",
+        [notebookId]
+      );
+      if (still.length === 0) return;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
   }
 
 
