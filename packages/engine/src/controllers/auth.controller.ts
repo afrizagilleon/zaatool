@@ -2,7 +2,9 @@ import { Request, Response } from "express";
 import { AuthInputError, authService, isRole, RegistrationClosedError, SetupCodeError } from "../services/auth.service.js";
 import { cronTimezone, registrationOpen } from "../config.js";
 import { pool } from "../db/connection.js";
-import { clearSessionCookie, setSessionCookie } from "../middleware/session-cookie.js";
+import { clearSessionCookie, credentialOf, setSessionCookie } from "../middleware/session-cookie.js";
+import { setActor } from "../core/request-context.js";
+import { audit } from "../services/audit.service.js";
 
 /**
  * The one place that decides what a failure is allowed to say out loud.
@@ -48,6 +50,7 @@ export class AuthController {
         return res.status(400).json({ error: "Username and password are required" });
       }
       const user = await authService.register(username, password, email, setupCode);
+      setActor({ type: "user", userId: user.id, username: user.username });
       res.status(201).json({ success: true, user });
     } catch (err) {
       if (err instanceof RegistrationClosedError || err instanceof SetupCodeError) {
@@ -89,6 +92,7 @@ export class AuthController {
         return res.status(400).json({ error: "Username and password are required" });
       }
       const result = await authService.login(username, password);
+      setActor({ type: "user", userId: result.user.id, username: result.user.username });
       // The cookie is what the browser uses; the token in the body is for everything that
       // is not a browser (the `curl` examples in DEPLOY.md, scripts) and the web app drops it.
       setSessionCookie(res, result.token);
@@ -143,7 +147,23 @@ export class AuthController {
   }
 
   /** Signs this browser out: the cookie goes, sessions on other devices stay. */
-  async logout(_req: Request, res: Response) {
+  async logout(req: Request, res: Response) {
+    // This route is open (a browser whose session already ended must still be able to drop
+    // its cookie), so who is signing out is worked out here, if the credential still holds.
+    // Nothing is recorded for a session that was already dead: there is nobody to name.
+    try {
+      const credential = credentialOf(req);
+      const session = credential ? await authService.authenticate(credential.token) : null;
+      if (session?.status === "ok") {
+        setActor({ type: "user", userId: session.user.id, username: session.user.username });
+        await audit.record({
+          action: "auth.logout",
+          target: { type: "user", id: session.user.id, ownerId: session.user.id, name: session.user.username },
+        });
+      }
+    } catch {
+      // Signing out must work even when the database does not.
+    }
     clearSessionCookie(res);
     res.json({ success: true });
   }

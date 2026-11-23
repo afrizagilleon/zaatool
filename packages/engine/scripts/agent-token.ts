@@ -12,6 +12,7 @@
  * A token is shown once, at creation. Only its hash is stored, so a lost one is
  * replaced rather than recovered.
  */
+import { asOperator } from "./operator-context.js";
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
 import { agentTokensService, type AgentScope } from "../src/services/agent-tokens.service.js";
@@ -80,7 +81,7 @@ async function main(): Promise<void> {
   throw new Error("Usage: agent-token.ts <issue|list|revoke> …");
 }
 
-main()
+asOperator("agent-token", main)
   .then(() => pool.end())
   .catch(async (err: unknown) => {
     console.error(`\n  ${(err as Error).message}\n`);

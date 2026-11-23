@@ -3,6 +3,16 @@ import { v4 as uuidv4 } from "uuid";
 import { secretsKey } from "../config.js";
 import { decryptValue, encryptValue, isEncrypted } from "../core/secrets-crypto.js";
 import { LOCK_KEYS } from "../core/advisory-locks.js";
+import { audit } from "./audit.service.js";
+
+/**
+ * A secret as the audit trail names it: its key and its owner, never its value. The name of
+ * a variable is something an owner is entitled to see a history of; what it holds is not
+ * something any log may carry.
+ */
+function secretTarget(ownerId: string, id: string, key: string) {
+  return { type: "secret", id, ownerId, name: key };
+}
 
 /** The key does not open what the database holds. Never "fixed" by overwriting. */
 export class SecretsKeyMismatchError extends Error {
@@ -128,20 +138,41 @@ export class SecretsService {
       "INSERT INTO secrets (id, key, value, is_secret, owner_id) VALUES ($1, $2, $3, $4, $5) RETURNING id, key, value, is_secret, created_at",
       [id, key, sealSecret(ownerId, key, value), isSecret, ownerId]
     );
+    await audit.record({
+      action: "secret.create",
+      target: secretTarget(ownerId, id, key),
+      meta: { sensitive: isSecret },
+    });
     return present(ownerId, rows[0]);
   }
 
   /** Undefined when the id is not one of this owner's — which is also when it is not there. */
   async update(ownerId: string, id: string, key: string, value: string, isSecret: boolean) {
+    const { rows: previous } = await pool.query<{ key: string }>(
+      "SELECT key FROM secrets WHERE id = $1 AND owner_id = $2",
+      [id, ownerId]
+    );
     const { rows } = await pool.query<SecretRow>(
       "UPDATE secrets SET key = $1, value = $2, is_secret = $3 WHERE id = $4 AND owner_id = $5 RETURNING id, key, value, is_secret, created_at",
       [key, sealSecret(ownerId, key, value), isSecret, id, ownerId]
     );
+    if (rows[0]) {
+      await audit.record({
+        action: "secret.update",
+        target: secretTarget(ownerId, id, key),
+        // Only said when the name changed; whether the *value* did is deliberately not recorded.
+        meta: { sensitive: isSecret, ...(previous[0] && previous[0].key !== key ? { renamedFrom: previous[0].key } : {}) },
+      });
+    }
     return rows[0] ? present(ownerId, rows[0]) : undefined;
   }
 
   async delete(ownerId: string, id: string) {
-    await pool.query("DELETE FROM secrets WHERE id = $1 AND owner_id = $2", [id, ownerId]);
+    const { rows } = await pool.query<{ key: string }>(
+      "DELETE FROM secrets WHERE id = $1 AND owner_id = $2 RETURNING key",
+      [id, ownerId]
+    );
+    if (rows[0]) await audit.record({ action: "secret.delete", target: secretTarget(ownerId, id, rows[0].key) });
     return { success: true };
   }
 
@@ -233,6 +264,8 @@ export class SecretsService {
         ]);
       }
       await client.query("COMMIT");
+      // Neither key, only that it happened and how many rows it touched.
+      await audit.record({ action: "secrets_key.rotate", target: { type: "secrets_key" }, meta: { rows: rows.length } });
       return rows.length;
     } catch (err) {
       await client.query("ROLLBACK").catch(() => undefined);

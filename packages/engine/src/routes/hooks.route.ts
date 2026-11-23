@@ -16,6 +16,9 @@ import { NotebookCompileError } from "../core/notebook-compiler.js";
 import { ContractError } from "../core/notebook-contract.js";
 import { secretsService } from "../services/secrets.service.js";
 import { notebookAccessService } from "../services/notebook-access.service.js";
+import { notebooksService } from "../services/notebooks.service.js";
+import { audit } from "../services/audit.service.js";
+import { setActor } from "../core/request-context.js";
 import type { RunEventSink } from "../core/run-emitter.js";
 
 /** Long enough for a real API call, short enough that a caller is not left hanging. */
@@ -84,6 +87,14 @@ export const hookLimiter = async (req: Request, res: Response, next: NextFunctio
   const key = req.ip ?? "unknown";
   const made = hookAttempts.count(key);
   const refuse = () => {
+    // Which hook is not known yet (and its slug is a credential, so it is never recorded):
+    // the address is what identifies the caller, and the audit service rations a burst.
+    void audit.record({
+      action: "webhook.received",
+      outcome: "denied",
+      target: { type: "webhook" },
+      meta: { reason: "rate_limited" },
+    });
     res
       .status(429)
       .set("Retry-After", String(hookAttempts.retryAfterSeconds(key)))
@@ -174,10 +185,26 @@ export function createHooksRouter(publishRunEvent: RunEventSink): Router {
   const router = Router();
 
   router.post("/:slug", hookLimiter, multipartFields, async (req: Request, res: Response) => {
+    // Set once the trigger is known, so a failure further down can still say whose it was.
+    let received: { target: Awaited<ReturnType<typeof notebooksService.auditTarget>>; triggerId: string } | null = null;
     try {
       const trigger = await notebookTriggersService.findEnabledWebhook(String(req.params.slug));
       // Same answer for "no such hook" and "disabled hook", so probing tells nothing.
-      if (!trigger) return res.status(404).json({ error: "Unknown webhook" });
+      if (!trigger) {
+        await audit.record({
+          action: "webhook.received",
+          outcome: "failure",
+          target: { type: "webhook" },
+          meta: { reason: "unknown_webhook" },
+        });
+        return res.status(404).json({ error: "Unknown webhook" });
+      }
+
+      // Named by the trigger's row, never by the slug, which is the credential. From here on
+      // the run this starts, and every log line and audit event, carries it.
+      setActor({ type: "webhook", triggerId: trigger.id, notebookId: trigger.notebook_id });
+      const target = await notebooksService.auditTarget(trigger.notebook_id);
+      received = { target, triggerId: trigger.id };
 
       const attached = (req as Request & { files?: MultipartFile[] }).files ?? [];
 
@@ -189,6 +216,12 @@ export function createHooksRouter(publishRunEvent: RunEventSink): Router {
        * you send it* is free disk space on a stranger's server.
        */
       if (attached.length > 0 && !trigger.secret_key) {
+        await audit.record({
+          action: "webhook.received",
+          outcome: "denied",
+          target,
+          meta: { triggerId: trigger.id, reason: "files_without_secret" },
+        });
         return res.status(401).json({
           error:
             "This webhook accepts no files because it has no secret. Give the trigger a " +
@@ -200,6 +233,12 @@ export function createHooksRouter(publishRunEvent: RunEventSink): Router {
         const secretHeader = typeof req.headers["x-webhook-secret"] === "string" ? req.headers["x-webhook-secret"] : undefined;
         const valid = await isSecretAuthenticatedWebhook(trigger.slug || "", secretHeader);
         if (!valid) {
+          await audit.record({
+            action: "webhook.received",
+            outcome: "denied",
+            target,
+            meta: { triggerId: trigger.id, reason: "bad_secret" },
+          });
           return res.status(401).json({ error: "Invalid webhook secret" });
         }
       }
@@ -240,6 +279,12 @@ export function createHooksRouter(publishRunEvent: RunEventSink): Router {
       });
 
       const { runId, declaredOutputs, completed } = started;
+      await audit.record({
+        action: "webhook.received",
+        target,
+        meta: { triggerId: trigger.id, runId, files: attached.length },
+      });
+      received = null;
 
       if (declaredOutputs.length === 0) {
         return res.status(202).json({ status: "started", runId });
@@ -280,6 +325,15 @@ export function createHooksRouter(publishRunEvent: RunEventSink): Router {
 
       res.status(200).json({ status: "success", runId, outputs: outcome.outputs });
     } catch (err: unknown) {
+      // The hook was valid and the caller proved it, but the run could not start.
+      if (received) {
+        await audit.record({
+          action: "webhook.received",
+          outcome: "failure",
+          target: received.target,
+          meta: { triggerId: received.triggerId, reason: err instanceof Error ? err.name : "error" },
+        });
+      }
       if (err instanceof TooManyRunsError) {
         return res.status(429).json({ error: err.message });
       }

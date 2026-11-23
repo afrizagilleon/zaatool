@@ -1,5 +1,7 @@
 import { pool } from "../db/connection.js";
 import { resignStorageLinks } from "../core/storage-links.js";
+import type { Actor } from "../core/actor.js";
+import { currentContext } from "../core/request-context.js";
 import type {
 
   NotebookRunDetail,
@@ -25,7 +27,47 @@ const MAX_RUNS_PER_NOTEBOOK = 50;
 export const INTERRUPTED_RUN_ERROR = "the engine restarted while this run was in progress";
 
 const SUMMARY_COLUMNS =
-  "id, notebook_id, status, trigger_source, cell_id, parent_run_id, started_by, error, started_at, finished_at";
+  "id, notebook_id, status, trigger_source, cell_id, parent_run_id, started_by, actor_type, agent_token_id, agent_client, trigger_id, error, started_at, finished_at";
+
+/** What the run row says about who set it off, beyond `started_by`. */
+export interface RunAttribution {
+  actorType: string | null;
+  agentTokenId: string | null;
+  agentClient: string | null;
+  triggerId: string | null;
+}
+
+/**
+ * Who started a run, from the actor the request was authenticated as.
+ *
+ * `started_by` alone cannot tell a person pressing Run from their agent calling
+ * `notebook_run` (both carry the owner's id), nor name the webhook or cron trigger behind
+ * a run that has no user. With no context (a service called from a script or a test) or an
+ * actor that was never established, it falls back to what the options themselves say.
+ * A nested call inherits the root's actor: the context travels with the work.
+ */
+export function attributionOf(
+  actor: Actor | undefined,
+  fallback: { startedBy?: string; triggerSource?: string }
+): RunAttribution {
+  const none: RunAttribution = { actorType: null, agentTokenId: null, agentClient: null, triggerId: null };
+  if (actor && actor.type !== "anonymous") {
+    switch (actor.type) {
+      case "agent":
+        return { ...none, actorType: "agent", agentTokenId: actor.tokenId, agentClient: actor.client ?? null };
+      case "webhook":
+      case "cron":
+        return { ...none, actorType: actor.type, triggerId: actor.triggerId };
+      default:
+        return { ...none, actorType: actor.type };
+    }
+  }
+  if (fallback.startedBy) return { ...none, actorType: "user" };
+  if (fallback.triggerSource === "cron" || fallback.triggerSource === "webhook") {
+    return { ...none, actorType: fallback.triggerSource };
+  }
+  return none;
+}
 
 function truncateLogs(result: RecordedCellResult): RecordedCellResult {
   if (!result.logs || result.logs.length === 0) return result;
@@ -49,9 +91,12 @@ export class NotebookRunsService {
     /** The account that asked, if one did. Absent for a schedule, a webhook or a share link. */
     startedBy?: string;
   }): Promise<void> {
+    const who = attributionOf(currentContext()?.actor, run);
     await pool.query(
-      `INSERT INTO notebook_runs (id, notebook_id, status, trigger_source, cell_id, parent_run_id, started_by)
-       VALUES ($1, $2, 'running', $3, $4, $5, $6)`,
+      `INSERT INTO notebook_runs
+         (id, notebook_id, status, trigger_source, cell_id, parent_run_id, started_by,
+          actor_type, agent_token_id, agent_client, trigger_id)
+       VALUES ($1, $2, 'running', $3, $4, $5, $6, $7, $8, $9, $10)`,
       [
         run.runId,
         run.notebookId,
@@ -59,6 +104,10 @@ export class NotebookRunsService {
         run.cellId ?? null,
         run.parentRunId ?? null,
         run.startedBy ?? null,
+        who.actorType,
+        who.agentTokenId,
+        who.agentClient,
+        who.triggerId,
       ]
     );
 

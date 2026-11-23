@@ -18,6 +18,12 @@ import { notebookRunsService } from "./services/notebook-runs.service.js";
 import { sandboxWarnings } from "./core/sandbox-identity.js";
 import { egressFirewallProblems, egressFirewallWarnings } from "./core/egress-firewall.js";
 import { windowsProductionWarnings } from "./core/windows-production.js";
+import { withContext } from "./core/request-context.js";
+import { audit } from "./services/audit.service.js";
+
+/** Boot steps that change data run as the engine itself, so what they log and record is not anonymous. */
+const asSystem = <T>(component: string, run: () => Promise<T>): Promise<T> =>
+  withContext({ actor: { type: "system", component } }, run);
 
 /**
  * Addresses on this machine another device could actually dial.
@@ -125,7 +131,7 @@ export async function startServer(port = 4000) {
   // engine rather than letting it write new secrets nobody could read back. Not in
   // `initDb()`, which creates tables and never touches rows.
   try {
-    const encrypted = await secretsService.protectAtStart();
+    const encrypted = await asSystem("secrets-protect", () => secretsService.protectAtStart());
     if (encrypted > 0) console.log(`🔐 Encrypted ${encrypted} secret(s) that were stored in plaintext.`);
   } catch (err: unknown) {
     if (err instanceof SecretsKeyMismatchError) {
@@ -142,7 +148,7 @@ export async function startServer(port = 4000) {
   // process stopped will never be finished by anyone, so its row is closed rather than left
   // saying `running`. Not in `initDb()`, which creates tables and never touches rows.
   try {
-    const interrupted = await notebookRunsService.failInterrupted();
+    const interrupted = await asSystem("run-reconcile", () => notebookRunsService.failInterrupted());
     if (interrupted > 0) console.warn(`⚠️  Marked ${interrupted} run(s) that were in progress at shutdown as failed.`);
   } catch (err: unknown) {
     console.error("❌ Failed to close interrupted runs:", (err as Error).message);
@@ -155,7 +161,7 @@ export async function startServer(port = 4000) {
   // never rows. Each change is logged because it is a visible change of behaviour — a
   // trigger that was only ever saved stops firing until its notebook is deployed again.
   try {
-    for (const change of await notebookTriggersService.rebuildTriggerIndex()) {
+    for (const change of await asSystem("trigger-index", () => notebookTriggersService.rebuildTriggerIndex())) {
       console.warn(
         `⚠️  Trigger index: ${change.change} ${change.triggerId} (notebook ${change.notebookId}) — ${change.detail}`
       );
@@ -164,6 +170,23 @@ export async function startServer(port = 4000) {
     console.error("❌ Failed to rebuild the trigger index:", (err as Error).message);
     process.exit(1);
   }
+
+  // The reconciliation above is done: this is the moment the engine is, for the trail, started.
+  await asSystem("boot", () =>
+    audit.record({
+      action: "engine.start",
+      target: { type: "engine" },
+      meta: {
+        version: process.env.BUILD_VERSION || "dev",
+        commit: process.env.BUILD_COMMIT || "unknown",
+        port,
+        registrationOpen: registrationOpen(),
+        encryptionAtRest: secretsKey() !== null,
+      },
+    })
+  );
+  // Old audit rows are removed daily, as the retention setting says.
+  audit.startRetention();
 
   const server = http.createServer();
   const runEventHub = new RunEventHub();

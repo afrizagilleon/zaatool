@@ -1,6 +1,7 @@
 import { pool } from "../db/connection.js";
 import { v4 as uuidv4 } from "uuid";
 import { openSecret, sealSecret } from "./secrets.service.js";
+import { audit } from "./audit.service.js";
 
 /**
  * The one place that decides who may touch a notebook.
@@ -356,6 +357,11 @@ export class NotebookAccessService {
     const editors = await resolve(change.editors, true, "editors");
     const appUsers = await resolve(change.appUsers, false, "app users");
 
+    // What the grants were, so the trail can say who gained, lost or changed a role. Read
+    // before the write: the write replaces whole lists, so afterwards there is no "before".
+    const grantsBefore = await this.grantMap(notebookId);
+    const visibilityBefore = await this.visibilityOf(notebookId);
+
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -398,6 +404,70 @@ export class NotebookAccessService {
       throw err;
     } finally {
       client.release();
+    }
+
+    await this.recordGrantChanges(notebookId, owner, grantsBefore, visibilityBefore);
+  }
+
+  /** Who holds which grant on a notebook, by user id. */
+  private async grantMap(notebookId: string): Promise<Map<string, string>> {
+    const { rows } = await pool.query<{ user_id: string; permission: string }>(
+      "SELECT user_id, permission FROM notebook_access WHERE notebook_id = $1",
+      [notebookId]
+    );
+    return new Map(rows.map((row) => [row.user_id, row.permission]));
+  }
+
+  private async visibilityOf(notebookId: string): Promise<string | null> {
+    const { rows } = await pool.query<{ app_visibility: string }>(
+      "SELECT app_visibility FROM notebooks WHERE id = $1",
+      [notebookId]
+    );
+    return rows[0]?.app_visibility ?? null;
+  }
+
+  /**
+   * One event per person whose access changed, with the role before and after, and one for a
+   * change of who may use the page. Role names ("editor", "app") and usernames only.
+   */
+  private async recordGrantChanges(
+    notebookId: string,
+    owner: string | null,
+    before: Map<string, string>,
+    visibilityBefore: string | null
+  ): Promise<void> {
+    const after = await this.grantMap(notebookId);
+    const visibilityAfter = await this.visibilityOf(notebookId);
+    const { rows: named } = await pool.query<{ name: string }>("SELECT name FROM notebooks WHERE id = $1", [notebookId]);
+    const target = { type: "notebook", id: notebookId, ownerId: owner, name: named[0]?.name ?? null };
+
+    const ids = [...new Set([...before.keys(), ...after.keys()])];
+    const names = new Map<string, string>();
+    if (ids.length > 0) {
+      const { rows } = await pool.query<{ id: string; username: string }>(
+        "SELECT id, username FROM users WHERE id = ANY($1)",
+        [ids]
+      );
+      for (const row of rows) names.set(row.id, row.username);
+    }
+
+    for (const userId of ids) {
+      const was = before.get(userId) ?? null;
+      const now = after.get(userId) ?? null;
+      if (was === now) continue;
+      const action = was === null ? "access.grant" : now === null ? "access.revoke" : "access.change";
+      await audit.record({
+        action,
+        target,
+        meta: { userId, username: names.get(userId) ?? null, roleBefore: was, roleAfter: now },
+      });
+    }
+    if (visibilityBefore !== visibilityAfter) {
+      await audit.record({
+        action: "access.change",
+        target,
+        meta: { appVisibility: { before: visibilityBefore, after: visibilityAfter } },
+      });
     }
   }
 
@@ -457,11 +527,12 @@ export class NotebookAccessService {
 
     const { rows: moved } = await pool.query<{
       id: string;
+      name: string;
       document: unknown;
       deployed_document: unknown;
       owner_id: string | null;
     }>(
-      `SELECT n.id, n.document, v.document AS deployed_document, n.owner_id
+      `SELECT n.id, n.name, n.document, v.document AS deployed_document, n.owner_id
        FROM notebooks n LEFT JOIN notebook_versions v ON v.id = n.deployed_version_id
        WHERE ($1::text IS NULL OR n.owner_id = $1)
          AND ($2::text IS NULL OR n.id = $2)
@@ -506,6 +577,12 @@ export class NotebookAccessService {
         "DELETE FROM notebook_access WHERE notebook_id = $1 AND user_id = $2",
         [notebook.id, target[0].id]
       );
+      // The new owner is the target's owner: they are the one this notebook is now whose.
+      await audit.record({
+        action: "notebook.transfer_owner",
+        target: { type: "notebook", id: notebook.id, ownerId: target[0].id, name: notebook.name },
+        meta: { fromUserId: notebook.owner_id, toUserId: target[0].id, toUsername },
+      });
     }
 
     return { notebooks: moved.map((notebook) => notebook.id), copiedSecrets: [...copied] };

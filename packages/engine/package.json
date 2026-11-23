@@ -12,7 +12,8 @@
     "create-user": "tsx scripts/create-user.ts",
     "agent-token": "tsx scripts/agent-token.ts",
     "transfer-owner": "tsx scripts/transfer-owner.ts",
-    "rotate-secrets-key": "tsx scripts/rotate-secrets-key.ts"
+    "rotate-secrets-key": "tsx scripts/rotate-secrets-key.ts",
+    "audit-verify": "tsx scripts/audit-verify.ts"
 
   },
   "keywords": [],

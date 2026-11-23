@@ -3,7 +3,10 @@ import { pool } from "../db/connection.js";
 import { v4 as uuidv4 } from "uuid";
 import { LOCK_KEYS, lockUntilTransactionEnds, notebookLockKey } from "../core/advisory-locks.js";
 import { notebookTriggersService } from "./notebook-triggers.service.js";
-import { stampAuthors } from "../core/notebook-provenance.js";
+import { stampAuthors, writerFor } from "../core/notebook-provenance.js";
+import { actingUserId } from "../core/actor.js";
+import { currentContext } from "../core/request-context.js";
+import { audit } from "./audit.service.js";
 import { toolNameFor } from "../core/notebook-tool-name.js";
 import { notifyCatalogChanged } from "../core/catalog-events.js";
 import { resolvePythonLockedPackages } from "../core/python-runner.js";
@@ -305,10 +308,12 @@ export class NotebooksService {
     if (existing && expected !== undefined && existing.revision !== expected) {
       throw new NotebookConflictError(existing.name, existing.revision);
     }
+    // `writer` is the name to show; who it really is comes from the actor the request was
+    // authenticated as, so a token labelled like a username is still typed as an agent.
     const stored = stampAuthors(
       existing ? this.parseDocument(existing) : null,
       { ...document, id, name, runtime },
-      writer
+      writerFor(writer, currentContext()?.actor)
     );
 
     // The column is an index of the document, written from it on every save, exactly as
@@ -350,6 +355,12 @@ export class NotebooksService {
     // arrangement, where each caller remembered, had announced none of them.
     notifyCatalogChanged({ change: "saved", notebookId: id });
 
+    await audit.record({
+      action: existing ? "notebook.save" : "notebook.create",
+      target: { type: "notebook", id, ownerId: existing ? existing.owner_id : ownerId, name },
+      meta: { revision: rows[0].revision, ...(existing ? { previousRevision: existing.revision } : {}) },
+    });
+
     return { id, name, revision: rows[0].revision };
   }
 
@@ -360,7 +371,11 @@ export class NotebooksService {
    * notebook at 2pm changed what its webhook did at 2:01, which was survivable while
    * only you could edit and became indefensible once an agent could.
    */
-  async deploy(id: string, deployedBy: string): Promise<{ versionId: string } | null> {
+  async deploy(
+    id: string,
+    deployedBy: string,
+    deployedByUserId: string | null = actingUserId(currentContext()?.actor)
+  ): Promise<{ versionId: string } | null> {
     // A package lock is resolved by running `uv`, which can take minutes, so it happens with
     // no lock and no transaction held. The packages it was resolved for are remembered, and
     // if somebody saves different ones while it ran the lock is simply done again.
@@ -404,9 +419,9 @@ export class NotebooksService {
 
         const versionId = uuidv4();
         await client.query(
-          `INSERT INTO notebook_versions (id, notebook_id, document, deployed_by, locked_packages)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [versionId, id, JSON.stringify(doc), deployedBy, locked]
+          `INSERT INTO notebook_versions (id, notebook_id, document, deployed_by, deployed_by_user_id, locked_packages)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [versionId, id, JSON.stringify(doc), deployedBy, deployedByUserId, locked]
         );
         await client.query(
           "UPDATE notebooks SET deployed_version_id = $1, deployed_name = $2 WHERE id = $3",
@@ -417,6 +432,11 @@ export class NotebooksService {
         await notebookTriggersService.syncForNotebook(id, doc.triggers ?? [], client);
         await client.query("COMMIT");
 
+        await audit.record({
+          action: "notebook.deploy",
+          target: { type: "notebook", id, ownerId: fresh.owner_id, name: doc.name },
+          meta: { versionId, revision: fresh.revision },
+        });
         notifyCatalogChanged({ change: "deployed", notebookId: id });
         return { versionId };
       } catch (err: unknown) {
@@ -579,7 +599,13 @@ export class NotebooksService {
     }
     // Only when something actually moved. Announcing an undeploy of a notebook that was
     // never deployed would send every open screen to refetch a list that did not change.
-    if (wasDeployed) notifyCatalogChanged({ change: "undeployed", notebookId: id, audience });
+    if (wasDeployed) {
+      await audit.record({
+        action: "notebook.undeploy",
+        target: { type: "notebook", id, ownerId: record.owner_id, name: record.name },
+      });
+      notifyCatalogChanged({ change: "undeployed", notebookId: id, audience });
+    }
     return { wasDeployed };
   }
 
@@ -664,8 +690,10 @@ export class NotebooksService {
    * be deleted and no error anyone reads.
    */
   async delete(id: string): Promise<{ success: boolean }> {
-    // Before the row goes: once it has, there is nothing left to ask who could see it.
+    // Before the row goes: once it has, there is nothing left to ask who could see it, or
+    // what it was called and whose it was — which is what the audit event keeps.
     const audience = await notebookAccessService.audienceOf(id);
+    const doomed = await this.getById(id);
 
     // Runs that are still going are stopped first, through the same cancel a person's button
     // uses. Otherwise a run outlives its notebook and keeps writing — into a folder this
@@ -694,6 +722,13 @@ export class NotebooksService {
     // folders are removed, so nothing is left to be recreated behind this.
     await notebookFilesService.removeFolders(id);
 
+    if (doomed) {
+      await audit.record({
+        action: "notebook.delete",
+        target: { type: "notebook", id, ownerId: doomed.owner_id, name: doomed.name },
+        meta: { revision: doomed.revision },
+      });
+    }
     notifyCatalogChanged({ change: "deleted", notebookId: id, audience });
     return { success: true };
   }
@@ -774,6 +809,15 @@ export class NotebooksService {
     };
 
     return this.save(duplicatedDoc, writer, ownerId);
+  }
+
+  /** A notebook as the audit trail names it: its id, whose it is, and what it was called. */
+  async auditTarget(id: string): Promise<{ type: string; id: string; ownerId: string | null; name: string | null }> {
+    const { rows } = await pool.query<{ name: string; owner_id: string | null }>(
+      "SELECT name, owner_id FROM notebooks WHERE id = $1",
+      [id]
+    );
+    return { type: "notebook", id, ownerId: rows[0]?.owner_id ?? null, name: rows[0]?.name ?? null };
   }
 
   parseDocument(record: NotebookRecord): NotebookJson {

@@ -22,6 +22,7 @@ import {
   TooManyRunsError,
 } from "../services/notebook-execution.service.js";
 import { NotebookCompileError } from "../core/notebook-compiler.js";
+import { audit } from "../services/audit.service.js";
 import { ContractError } from "../core/notebook-contract.js";
 import { normaliseTags } from "@zaa-tool/shared";
 import type { RunEventSink } from "../core/run-emitter.js";
@@ -504,6 +505,12 @@ export class NotebooksController {
       return null;
     }
     if (access !== "owner") {
+      await audit.record({
+        action: "access.change",
+        outcome: "denied",
+        target: await notebooksService.auditTarget(id),
+        meta: { reason: "not_owner" },
+      });
       res.status(403).json({ error: "Only the owner can change who has access to a notebook." });
       return null;
     }
@@ -632,6 +639,12 @@ export class NotebooksController {
       const access = await notebookAccessService.accessFor(callerOf(req).id, id);
       if (!isEditAccess(access)) return res.status(404).json(NOT_FOUND);
       if (access !== "owner") {
+        await audit.record({
+          action: "notebook.delete",
+          outcome: "denied",
+          target: await notebooksService.auditTarget(id),
+          meta: { reason: "not_owner" },
+        });
         return res.status(403).json({ error: "Only the owner can delete a notebook." });
       }
       const result = await notebooksService.delete(id);
@@ -805,6 +818,11 @@ export class NotebooksController {
           status: result.status,
         });
       }
+      await audit.record({
+        action: "run.cancel",
+        target: await notebooksService.auditTarget(notebookId),
+        meta: { runId },
+      });
       res.status(202).json({ cancelled: true });
     } catch (err: unknown) {
       respondWithError(res, err);

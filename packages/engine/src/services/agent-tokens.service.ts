@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { pool } from "../db/connection.js";
+import { audit } from "./audit.service.js";
 
 /**
  * Credentials for agents, kept apart from the browser's session.
@@ -52,6 +53,12 @@ export class AgentTokensService {
       [id, label, scope, hashToken(token), userId]
     );
 
+    // The token itself is never recorded: the id is what every later event names it by.
+    await audit.record({
+      action: "agent_token.issue",
+      target: { type: "agent_token", id, ownerId: userId, name: label },
+      meta: { scope },
+    });
     return { token, record: rows[0] };
   }
 
@@ -72,12 +79,32 @@ export class AgentTokensService {
 
   /** Somebody else's token is not revoked — and is not found, which is what the caller is told. */
   async revoke(id: string, userId?: string): Promise<{ revoked: boolean }> {
-    const { rowCount } = await pool.query(
+    const { rows } = await pool.query<{ label: string; user_id: string | null }>(
       `UPDATE agent_tokens SET revoked_at = CURRENT_TIMESTAMP
-       WHERE id = $1 AND revoked_at IS NULL AND ($2::text IS NULL OR user_id = $2)`,
+       WHERE id = $1 AND revoked_at IS NULL AND ($2::text IS NULL OR user_id = $2)
+       RETURNING label, user_id`,
       [id, userId ?? null]
     );
-    return { revoked: (rowCount ?? 0) > 0 };
+    if (rows[0]) {
+      await audit.record({
+        action: "agent_token.revoke",
+        target: { type: "agent_token", id, ownerId: rows[0].user_id, name: rows[0].label },
+      });
+    }
+    return { revoked: rows.length > 0 };
+  }
+
+  /**
+   * Who a presented token was, revoked or not, so a refusal can name the token that was
+   * refused. Never used to let anything in.
+   */
+  async identify(token: string): Promise<{ id: string; label: string; user_id: string | null; revoked: boolean } | null> {
+    if (!token.startsWith(TOKEN_PREFIX)) return null;
+    const { rows } = await pool.query(
+      "SELECT id, label, user_id, revoked_at IS NOT NULL AS revoked FROM agent_tokens WHERE token_hash = $1",
+      [hashToken(token)]
+    );
+    return rows[0] ?? null;
   }
 
   /**

@@ -36,12 +36,23 @@ export interface CellFolding {
  * Who last changed a cell, and when.
  *
  * Stamped by the engine from the identity that authenticated the write — a person's
- * username, or the label on an agent's token. Never taken from the request body, so it
- * cannot be claimed.
+ * username, or the label on an agent's token, with `kind` and ids saying which. Never taken
+ * from the request body, so it cannot be claimed.
  */
 export interface CellAuthor {
+  /** The name to show: a username, or the label on an agent's token. Display only. */
   by: string;
   at: string;
+  /**
+   * What `by` is. A token label and a username share one namespace, so an agent labelled
+   * "alice" and the user `alice` read the same in `by`; `kind` is what tells them apart.
+   * Absent on cells stamped before this existed.
+   */
+  kind?: "user" | "agent";
+  /** The account: the person who wrote it, or the person the agent's token acts for. */
+  userId?: string;
+  /** Set when `kind` is "agent": the token that wrote it. */
+  tokenId?: string;
 }
 
 export interface NotebookCell {
