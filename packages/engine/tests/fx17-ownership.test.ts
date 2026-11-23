@@ -607,7 +607,8 @@ await check("saving over a notebook you cannot see is answered like saving a new
 });
 
 await check("an editor saves over the owner's notebook and the owner stays the owner", async () => {
-  const res = await call(editor, "POST", "/api/notebooks", { ...(JSON.parse((await pool.query("SELECT document FROM notebooks WHERE id = $1", [draft])).rows[0].document)), tags: ["zz-fx17-tag"] });
+  const row = (await pool.query("SELECT document, revision FROM notebooks WHERE id = $1", [draft])).rows[0];
+  const res = await call(editor, "POST", "/api/notebooks", { ...JSON.parse(row.document), revision: row.revision, tags: ["zz-fx17-tag"] });
   assert.equal(res.status, 200);
   assert.equal(await access.ownerOf(draft), owner.id);
 });
@@ -1139,7 +1140,7 @@ await check("catalog changes reach only the people who could see that notebook â
   await settle();
   const notices = (socket: Socket, id: string) => socket.messages.filter((message) => message.type === "catalog:changed" && message.notebookId === id);
 
-  await notebooksService.save({ ...(JSON.parse((await pool.query("SELECT document FROM notebooks WHERE id = $1", [picked])).rows[0].document) as NotebookJson), tags: ["zz-fx17-tag-2"] }, "test");
+  await notebooksService.save({ ...(JSON.parse((await pool.query("SELECT document FROM notebooks WHERE id = $1", [picked])).rows[0].document) as NotebookJson), tags: ["zz-fx17-tag-2"] }, "test", undefined, { expectedRevision: "any" });
   await settle();
   assert.ok(notices(watchers.owner, picked).length > 0, "the owner missed a save");
   assert.equal(notices(watchers.chosen, picked).length, 0, "a page user was told the author saved");
@@ -1157,7 +1158,9 @@ await check("catalog changes reach only the people who could see that notebook â
   assert.ok(notices(watchers.chosen, doomed).some((message) => message.change === "deleted"), "the people who used it were not told it is gone");
   assert.equal(notices(watchers.other, doomed).length, 0, "a stranger was told about a delete");
   for (const message of watchers.owner.messages.filter((entry) => entry.type === "catalog:changed")) {
-    assert.deepEqual(Object.keys(message).sort(), ["change", "notebookId", "type"], "the audience list leaked to the client");
+    // `revision` and `by` are display facts about the save; the audience list is not.
+    assert.ok(!("audience" in message), "the audience list leaked to the client");
+    assert.ok(Object.keys(message).every((key) => ["change", "notebookId", "type", "revision", "by"].includes(key)), "an unexpected field reached the client");
   }
   for (const socket of Object.values(watchers)) socket.close();
 });

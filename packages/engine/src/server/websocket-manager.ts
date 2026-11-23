@@ -298,6 +298,8 @@ export class WebSocketManager {
                   type: "catalog:changed",
                   change: notice.change,
                   notebookId: notice.notebookId,
+                  ...(notice.revision !== undefined ? { revision: notice.revision } : {}),
+                  ...(notice.by ? { by: notice.by } : {}),
                 };
                 ws.send(JSON.stringify(event));
               });

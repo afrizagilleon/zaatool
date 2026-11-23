@@ -47,7 +47,7 @@ const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 const created: string[] = [];
 
 async function store(document: Omit<NotebookJson, "version">): Promise<string> {
-  const { id } = await notebooksService.save({ version: "1.0", ...document }, "test", OWNER);
+  const { id } = await notebooksService.save({ version: "1.0", ...document }, "test", OWNER, { expectedRevision: "any" });
   if (!created.includes(id)) created.push(id);
   return id;
 }
@@ -257,7 +257,7 @@ await check("saving without changing anything does not ask to be deployed again"
   await notebooksService.deploy(found.id, "afriza");
 
   const document = notebooksService.parseDocument(found);
-  await notebooksService.save({ ...document });
+  await notebooksService.save({ ...document }, undefined, undefined, { expectedRevision: "any" });
 
   const state = await notebooksService.getDeployState(found.id);
   assert.equal(state?.hasUndeployedChanges, false);

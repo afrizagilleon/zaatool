@@ -48,6 +48,13 @@ export interface NotebookState {
   revision: number | null;
   /** Set when a save was refused because the stored notebook moved on; the editor offers a way out. */
   saveConflict: { message: string; currentRevision: number | null } | null;
+  /**
+   * Set when the engine announced a save made elsewhere while this copy had unsaved edits.
+   * Not a conflict yet — nothing was refused — only a warning that one is coming.
+   */
+  remoteChange: { revision: number; by: string } | null;
+  /** A short, dismissible line saying the copy was refreshed because of a save made elsewhere. */
+  remoteNotice: string | null;
   name: string;
   runtime: NotebookRuntime;
   secrets: string[];
@@ -142,6 +149,8 @@ export interface NotebookState {
   markSaved: (id: string, revision?: number) => void;
   /** A refused save: keeps the message and the revision the engine says is current, and saves nothing until resolved. */
   setSaveConflict: (message: string, currentRevision: number | null) => void;
+  setRemoteChange: (change: { revision: number; by: string } | null) => void;
+  setRemoteNotice: (notice: string | null) => void;
   /** "Save anyway": takes the engine's current revision as the base, knowingly, and clears the conflict. */
   overwriteAfterConflict: () => void;
 

@@ -14,6 +14,8 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   id: '',
   revision: null,
   saveConflict: null,
+  remoteChange: null,
+  remoteNotice: null,
   name: 'Untitled Notebook',
   runtime: 'node',
   secrets: [],
@@ -43,6 +45,8 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
       id: uuidv4(),
       revision: null,
       saveConflict: null,
+      remoteChange: null,
+      remoteNotice: null,
       name: 'Untitled Notebook',
       runtime,
       secrets: [],
@@ -71,6 +75,8 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
       id: document.id,
       revision: document.revision ?? null,
       saveConflict: null,
+      remoteChange: null,
+      remoteNotice: null,
       name: document.name,
       runtime: document.runtime,
       secrets: document.secrets ?? [],
@@ -301,7 +307,10 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
 
   setSaving: (isSaving) => set({ isSaving }),
   markSaved: (id, revision) =>
-    set({ id, isDirty: false, isSaving: false, saveConflict: null, ...(revision !== undefined ? { revision } : {}) }),
+    set({ id, isDirty: false, isSaving: false, saveConflict: null, remoteChange: null, ...(revision !== undefined ? { revision } : {}) }),
+
+  setRemoteChange: (remoteChange) => set({ remoteChange }),
+  setRemoteNotice: (remoteNotice) => set({ remoteNotice }),
 
   setSaveConflict: (message, currentRevision) =>
     set({ saveConflict: { message, currentRevision }, isSaving: false }),

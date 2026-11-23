@@ -68,7 +68,7 @@ async function store(name: string, triggers: NotebookTrigger[] = [], id = ""): P
     triggers,
     steps: [{ id: `${name}-cell`, kind: "cell", code: "return {};" }],
   };
-  return (await notebooksService.save({ version: "1.0", ...doc }, "test", OWNER)).id;
+  return (await notebooksService.save({ version: "1.0", ...doc }, "test", OWNER, { expectedRevision: "any" })).id;
 }
 
 async function versionsOf(id: string): Promise<number> {
@@ -203,7 +203,7 @@ await check("the slug made automatically for a webhook that names none passes", 
       "```",
     ].join("\n")
   );
-  const { id } = await notebooksService.save(document, "test", OWNER);
+  const { id } = await notebooksService.save(document, "test", OWNER, { expectedRevision: "any" });
   const slug = document.triggers?.[0]?.slug ?? "";
   assert.ok(slug.length >= MIN_OPEN_SLUG_LENGTH, `automatic slug "${slug}" is too short to be unguessable`);
 

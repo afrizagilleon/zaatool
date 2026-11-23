@@ -3,6 +3,7 @@ import { Navbar } from './components/layout/Navbar.js';
 import { SystemMap } from './components/map/SystemMap.js';
 import { ResourcesPage } from './components/pages/ResourcesPage.js';
 import { NotebooksPage } from './components/pages/NotebooksPage.js';
+import { AuditPage } from './components/pages/AuditPage.js';
 import { Login } from './components/pages/Login.js';
 import { AppsPage } from './components/pages/AppsPage.js';
 import { SharedPage } from './components/pages/SharedPage.js';
@@ -69,6 +70,8 @@ function App() {
             <AppsPage />
           ))}
         {activeTab === 'resources' && (isCreator ? <ResourcesPage /> : <AppsPage />)}
+        {/* Every signed-in user: the engine scopes which events each one is shown. */}
+        {activeTab === 'audit' && <AuditPage />}
         {activeTab === 'gallery' && <RendererGallery />}
       </main>
     </div>

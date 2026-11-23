@@ -43,7 +43,7 @@ const OWNER = (await testOwner("notebookcatalog")).id;
 const created: string[] = [];
 
 async function store(document: Omit<NotebookJson, "version">): Promise<string> {
-  const { id } = await notebooksService.save({ version: "1.0", ...document }, "test", OWNER);
+  const { id } = await notebooksService.save({ version: "1.0", ...document }, "test", OWNER, { expectedRevision: "any" });
   if (!created.includes(id)) created.push(id);
   return id;
 }

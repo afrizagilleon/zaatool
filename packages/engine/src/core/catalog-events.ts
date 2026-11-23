@@ -21,6 +21,10 @@ import type { CatalogChange } from "@zaa-tool/shared";
 export interface CatalogChangeNotice {
   change: CatalogChange;
   notebookId: string;
+  /** On `saved`: the revision the save produced, so an open editor can tell it from its own. */
+  revision?: number;
+  /** On `saved`: who saved, when known. Display only. */
+  by?: { kind: "user" | "agent"; name: string };
   /**
    * Who may be told, as account ids, when that cannot be looked up afterwards — a delete,
    * or an undeploy that took the page away from the people who used it. `null` is

@@ -23,6 +23,7 @@ import assert from "node:assert/strict";
 import { pool } from "../src/db/connection.js";
 import { initDb } from "../src/db/initializer.js";
 import { notebooksService } from "../src/services/notebooks.service.js";
+import { withContext } from "../src/core/request-context.js";
 import { onCatalogChanged, type CatalogChangeNotice } from "../src/core/catalog-events.js";
 import type { NotebookJson } from "@zaa-tool/shared";
 
@@ -64,7 +65,7 @@ async function save(name: string, over: Partial<NotebookJson> = {}): Promise<str
     runtime: "node",
     steps: [],
     ...over,
-  } as NotebookJson);
+  } as NotebookJson, undefined, undefined, { expectedRevision: "any" });
   if (!made.includes(saved.id)) made.push(saved.id);
   return saved.id;
 }
@@ -79,7 +80,7 @@ async function main(): Promise<void> {
     const seen = await noticesDuring(async () => {
       firstId = await save("announce");
     });
-    assert.deepEqual(seen, [{ change: "saved", notebookId: firstId }]);
+    assert.deepEqual(seen, [{ change: "saved", notebookId: firstId, revision: 1 }]);
   });
 
   await check("saving an existing one says so too", async () => {
@@ -88,7 +89,19 @@ async function main(): Promise<void> {
     const seen = await noticesDuring(async () => {
       await save("announce", { id: firstId, steps: [] });
     });
-    assert.deepEqual(seen, [{ change: "saved", notebookId: firstId }]);
+    // The revision is what lets an open editor tell this save from its own.
+    assert.deepEqual(seen, [{ change: "saved", notebookId: firstId, revision: 2 }]);
+  });
+
+  await check("a save names who made it, as a kind and a name and nothing more", async () => {
+    const seen = await noticesDuring(async () => {
+      await withContext(
+        { actor: { type: "agent", tokenId: "tok-secret-id", label: "claude code", userId: "u1" } },
+        () => save("announce", { id: firstId, steps: [] })
+      );
+    });
+    assert.deepEqual(seen[0].by, { kind: "agent", name: "claude code" });
+    assert.ok(!JSON.stringify(seen[0]).includes("tok-secret-id"), "the token id reached the notice");
   });
 
   console.log("\nand so does every other way a notebook moves");
@@ -136,7 +149,7 @@ async function main(): Promise<void> {
     const seen = await noticesDuring(async () => {
       await save("shape", { id: firstId });
     });
-    assert.deepEqual(Object.keys(seen[0]).sort(), ["change", "notebookId"]);
+    assert.deepEqual(Object.keys(seen[0]).sort(), ["change", "notebookId", "revision"]);
   });
 }
 

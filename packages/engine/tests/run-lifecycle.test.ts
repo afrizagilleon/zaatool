@@ -156,7 +156,7 @@ await check("a deploy mid-run does not change the callee a production run alread
         redeploy = (async () => {
           const doc = notebooksService.parseDocument((await notebooksService.getById(callee))!);
           (doc.steps[0] as { code: string }).code = "return {v:'v2'};";
-          await notebooksService.save(doc, "test", A.id);
+          await notebooksService.save(doc, "test", A.id, { expectedRevision: "any" });
           await notebooksService.deploy(callee, "test");
         })();
       }

@@ -6,6 +6,7 @@ import { notebookTriggersService } from "./notebook-triggers.service.js";
 import { stampAuthors } from "../core/notebook-provenance.js";
 import { toolNameFor } from "../core/notebook-tool-name.js";
 import { notifyCatalogChanged } from "../core/catalog-events.js";
+import { currentContext } from "../core/request-context.js";
 import { resolvePythonLockedPackages } from "../core/python-runner.js";
 import { cellHostForOwner } from "./cell-host.service.js";
 import { withOwnerDisk } from "../core/owner-disk.js";
@@ -71,17 +72,51 @@ export class NotebookConflictError extends Error {
   }
 }
 
+/**
+ * A save over a notebook that exists, from a caller that did not say which revision it read.
+ *
+ * Its own type so the controller can answer 428 (the caller can fix it by reading first)
+ * rather than 409 (somebody else changed it), and an agent is told what to do next.
+ */
+export class NotebookRevisionRequiredError extends Error {
+  constructor(
+    notebookName: string,
+    readonly currentRevision: number
+  ) {
+    super(
+      `"${notebookName}" already exists, and this save did not say which revision it was made ` +
+        `from. Nothing was saved. Read the notebook, then send its revision with your save.`
+    );
+    this.name = "NotebookRevisionRequiredError";
+  }
+}
+
+/**
+ * Who made the save, as the browser may be told: a kind and a name, never an id or a token.
+ * Read from the request context, so every way into `save` is covered without each passing it.
+ */
+function savedBy(): { kind: "user" | "agent"; name: string } | undefined {
+  const actor = currentContext()?.actor;
+  if (actor?.type === "user") return { kind: "user", name: actor.username };
+  if (actor?.type === "agent") return { kind: "agent", name: actor.label };
+  return undefined;
+}
+
 /** Anything a query can be sent to: the pool, or one connection inside a transaction. */
 type Queryable = Pick<PoolClient, "query">;
 
 /** What `save` may be told about the write. */
 export interface SaveOptions {
   /**
-   * The revision the caller's copy was read at. When given, the save only goes through if
-   * the stored revision is still that; when absent the save overwrites whatever is there,
-   * which is what every client did before revisions existed.
+   * The revision the caller's copy was read at. The save only goes through if the stored
+   * revision is still that. Saving over a notebook that exists without naming one is refused
+   * (`NotebookRevisionRequiredError`): a blind overwrite is how one person's edit silently
+   * erased another's. Creating a new notebook needs none.
+   *
+   * `"any"` is for server-side writes that are deliberately not based on a read the caller
+   * made (a restore, a transfer, a test fixture); the caller says so, and why, at the call.
    */
-  expectedRevision?: number;
+  expectedRevision?: number | "any";
 }
 
 /**
@@ -296,9 +331,12 @@ export class NotebooksService {
     const id = document.id || uuidv4();
     const name = document.name || "Untitled Notebook";
     const runtime: NotebookRuntime = document.runtime === "python" ? "python" : "node";
-    const expected = options.expectedRevision;
+    const expected = options.expectedRevision === "any" ? undefined : options.expectedRevision;
 
     const existing = await this.getById(id);
+    if (existing && options.expectedRevision === undefined) {
+      throw new NotebookRevisionRequiredError(existing.name, existing.revision);
+    }
     // Refused before the authors are stamped: nothing below is work worth doing for a write
     // that is not going to happen. The statement further down checks again, atomically —
     // this read and that write are two moments, and somebody can save in between.
@@ -348,7 +386,12 @@ export class NotebooksService {
     // Announced here rather than by the caller. There are four ways into this method —
     // the editor, an import, `notebook_write`, `notebook_edit_cell` — and the old
     // arrangement, where each caller remembered, had announced none of them.
-    notifyCatalogChanged({ change: "saved", notebookId: id });
+    notifyCatalogChanged({
+      change: "saved",
+      notebookId: id,
+      revision: rows[0].revision,
+      ...(savedBy() ? { by: savedBy() } : {}),
+    });
 
     return { id, name, revision: rows[0].revision };
   }

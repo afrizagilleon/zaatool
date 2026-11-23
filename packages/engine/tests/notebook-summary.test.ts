@@ -144,7 +144,7 @@ async function main(): Promise<void> {
     await notebooksService.save({
       ...(JSON.parse(document.document) as NotebookJson),
       tags: [],
-    });
+    }, undefined, undefined, { expectedRevision: "any" });
 
     const after = (await notebooksService.getSummary()).find((row) => row.id === taggedId);
     assert.deepEqual(after?.tags, []);

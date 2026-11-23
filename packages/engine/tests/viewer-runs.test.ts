@@ -72,7 +72,7 @@ async function store(name: string, marker: string, id = ""): Promise<string> {
     outputs: ["marker"],
     steps: [{ id: "k11-cell", kind: "cell", code: `return { marker: '${marker}' };` }],
   };
-  const saved = await notebooksService.save(doc, "test", creatorId);
+  const saved = await notebooksService.save(doc, "test", creatorId, { expectedRevision: "any" });
   if (!created.includes(saved.id)) created.push(saved.id);
   return saved.id;
 }

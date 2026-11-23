@@ -27,6 +27,9 @@ const navTabs = [
   { id: 'map' as const, label: 'Map', creatorOnly: false },
   { id: 'notebooks' as const, label: 'Notebooks', creatorOnly: true },
   { id: 'resources' as const, label: 'Resources', creatorOnly: true },
+  // Last: it is looked at after the fact, not worked in. Open to everyone; the engine
+  // narrows what a non-creator sees to their own actions and their own notebooks.
+  { id: 'audit' as const, label: 'Audit', creatorOnly: false },
 ] as const;
 
 const hiddenTabsLabel = navTabs.filter((t) => t.creatorOnly).map((t) => t.label).join(', ');
@@ -40,6 +43,7 @@ const COLUMNS: Record<number, string> = {
   2: 'grid-cols-2',
   3: 'grid-cols-3',
   4: 'grid-cols-4',
+  5: 'grid-cols-5',
 };
 
 export function Navbar() {
@@ -131,7 +135,7 @@ export function Navbar() {
       <Tabs
         value={activeTab}
         onValueChange={(val: string) => setActiveTab(val as LocationTab)}
-        className="hidden lg:block w-[380px]"
+        className="hidden lg:block w-[440px]"
       >
         <TabsList className={`grid w-full ${COLUMNS[tabs.length]} h-7 p-0.5`}>
           {tabs.map((tab) => (

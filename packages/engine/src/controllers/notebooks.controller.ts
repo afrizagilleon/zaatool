@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { randomUUID } from "crypto";
 import { fromMarkdown, toMarkdown } from "../core/notebook-text.js";
-import { notebooksService, DeployRefusedError, NotebookConflictError } from "../services/notebooks.service.js";
+import { notebooksService, DeployRefusedError, NotebookConflictError, NotebookRevisionRequiredError } from "../services/notebooks.service.js";
 import { notebookFilesService } from "../services/notebook-files.service.js";
 import { buildNotebookMap } from "../core/notebook-map.js";
 import { outputSpecs } from "../core/notebook-outputs.js";
@@ -199,6 +199,14 @@ function respondWithError(res: Response, err: unknown) {
   }
   // Somebody else saved first. `code` is what a client keys on to offer a reload instead of
   // showing the sentence as a failure.
+  // Not a conflict yet: the save never said what it was based on. Reading first fixes it.
+  if (err instanceof NotebookRevisionRequiredError) {
+    return res.status(428).json({
+      error: err.message,
+      code: "revision_required",
+      currentRevision: err.currentRevision,
+    });
+  }
   if (err instanceof NotebookConflictError) {
     return res.status(409).json({
       error: err.message,
@@ -317,7 +325,8 @@ export class NotebooksController {
       if (taken && !(await notebookAccessService.canEdit(user.id, taken.id))) {
         return res.status(404).json(NOT_FOUND);
       }
-      // A client that predates revisions sends none and still overwrites, as it always did.
+      // A save over an existing notebook must name the revision it read; the service answers
+      // 428 otherwise. Creating a new notebook needs none.
       const { revision, ...document } = req.body as NotebookJson & { revision?: unknown };
       res.json(
         await notebooksService.save(document, user.username, user.id, {

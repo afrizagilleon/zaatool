@@ -46,7 +46,7 @@ const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 const created: string[] = [];
 
 async function store(document: Omit<NotebookJson, "version">): Promise<string> {
-  const { id } = await notebooksService.save({ version: "1.0", ...document }, "test", OWNER);
+  const { id } = await notebooksService.save({ version: "1.0", ...document }, "test", OWNER, { expectedRevision: "any" });
   if (!created.includes(id)) created.push(id);
   return id;
 }
@@ -165,7 +165,7 @@ await check("a link runs the deployed version, not the draft", async () => {
   const share = await notebookSharesService.create(id, "afriza");
 
   const draft = { ...notebook("zz-share-pinned"), id, name: "renamed in the draft" };
-  await notebooksService.save({ version: "1.0", ...draft }, "test", OWNER);
+  await notebooksService.save({ version: "1.0", ...draft }, "test", OWNER, { expectedRevision: "any" });
 
   const page = await (await open(share.token!)).json();
   assert.equal(page.name, "zz-share-pinned", "the link served the draft");

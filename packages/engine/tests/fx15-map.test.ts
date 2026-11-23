@@ -203,7 +203,7 @@ await check("the map's triggers follow a deploy, not a save", async () => {
     runtime: "node",
     triggers: [{ ...live, cron: "30 6 * * *" }],
     steps: [],
-  }, "test", OWNER);
+  }, "test", OWNER, { expectedRevision: "any" });
 
   const res = await fetch(`${base}/api/notebooks/map`, {
     headers: { Authorization: `Bearer ${token}` },

@@ -59,7 +59,7 @@ await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 
 async function store(document: Omit<NotebookJson, "version">): Promise<string> {
-  const { id } = await notebooksService.save({ version: "1.0", ...document }, "test", OWNER);
+  const { id } = await notebooksService.save({ version: "1.0", ...document }, "test", OWNER, { expectedRevision: "any" });
   return id;
 }
 

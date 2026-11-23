@@ -19,4 +19,8 @@ export interface CatalogChangedEvent {
   type: "catalog:changed";
   change: CatalogChange;
   notebookId: string;
+  /** On `saved`: the revision the save produced. Lets an open editor ignore its own saves. */
+  revision?: number;
+  /** On `saved`: who saved it, when known. A kind and a name for display; never an id. */
+  by?: { kind: "user" | "agent"; name: string };
 }

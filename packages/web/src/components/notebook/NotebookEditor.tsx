@@ -18,6 +18,8 @@ import { ExportButton } from './ExportButton';
 import { AccessButton } from './AccessDialog';
 import { RunErrorBanner } from './RunErrorBanner';
 import { SaveConflictBanner } from './SaveConflictBanner';
+import { RemoteChangeBanner } from './RemoteChangeBanner';
+import { useRemoteSaveWatch } from '../../hooks/useRemoteSaveWatch';
 import { TriggerPanel } from './TriggerPanel';
 import { ContractPanel } from './ContractPanel';
 import { OutlinePanel } from './OutlinePanel';
@@ -85,6 +87,11 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
 
   const { run, runAll, save, reloadFromServer, overwriteStored } = useNotebookRun();
   const saveConflict = useNotebookStore((s) => s.saveConflict);
+  const remoteChange = useNotebookStore((s) => s.remoteChange);
+  const remoteNotice = useNotebookStore((s) => s.remoteNotice);
+  const setRemoteNotice = useNotebookStore((s) => s.setRemoteNotice);
+  // A save made elsewhere is announced over the workspace socket; see the hook for what is done.
+  useRemoteSaveWatch(Boolean(notebookId), reloadFromServer);
   // What this notebook is doing when it is not this browser doing it: a schedule firing,
   // an agent calling the deployed tool. Only used to know when the run history is out of
   // date, which is the one thing the editor could not previously find out.
@@ -431,6 +438,16 @@ export function NotebookEditor({ onBack }: NotebookEditorProps) {
           message={saveConflict.message}
           onReload={reloadFromServer}
           onOverwrite={overwriteStored}
+        />
+      )}
+
+      {/* The conflict banner already says the notebook moved; two would say it twice. */}
+      {!saveConflict && (
+        <RemoteChangeBanner
+          change={remoteChange}
+          notice={remoteNotice}
+          onReload={reloadFromServer}
+          onDismissNotice={() => setRemoteNotice(null)}
         />
       )}
 

@@ -6,8 +6,9 @@
  * covered: the service, the editor's REST door, and the MCP tools (which use the revision
  * they read, so an edit made while they were working is refused rather than lost).
  *
- * A save that names no revision still overwrites: that is what clients written before this
- * did, and the last case below pins it so nobody removes it by accident.
+ * A save over a notebook that exists must name the revision it read: without one it is
+ * refused (428 `revision_required`), because a blind overwrite is how an edit gets lost. A
+ * server-side write that really is blind says so with `expectedRevision: "any"`.
  *
  * Everything it makes is prefixed `zz-w2rev-` and removed at the start and the end.
  *
@@ -23,7 +24,7 @@ import { registerNotebookTools } from "../src/mcp/notebook-tools.js";
 import { createApp } from "../src/server/app.js";
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
-import { notebooksService, NotebookConflictError } from "../src/services/notebooks.service.js";
+import { notebooksService, NotebookConflictError, NotebookRevisionRequiredError } from "../src/services/notebooks.service.js";
 import { dropOwner, testOwner } from "./owners.js";
 import type { NotebookJson } from "@zaa-tool/shared";
 
@@ -119,13 +120,29 @@ await check("two saves made from the same revision at once: one wins, one is ref
   assert.equal((await notebooksService.getById(first.id))!.revision, 2);
 });
 
-await check("a save that names no revision still overwrites, as clients written before did", async () => {
+await check("a save that names no revision is refused when the notebook exists, and changes nothing", async () => {
   const first = await notebooksService.save(twoCells("zz-w2rev-legacy"), "test", owner.id);
   const base = { ...(await stored(first.id)), id: first.id };
   await notebooksService.save(withCode(base, "c1", "return 'new';"), "editor", owner.id, { expectedRevision: 1 });
-  const overwritten = await notebooksService.save(withCode(base, "c2", "return 'old client';"), "old", owner.id);
-  assert.equal(overwritten.revision, 3);
-  assert.equal(codeOf(await stored(first.id), "c1"), "return { one: 1 };", "the old client's copy replaced the newer one");
+  await assert.rejects(
+    notebooksService.save(withCode(base, "c2", "return 'old client';"), "old", owner.id),
+    (err: unknown) => err instanceof NotebookRevisionRequiredError && err.currentRevision === 2
+  );
+  const row = (await notebooksService.getById(first.id))!;
+  assert.equal(row.revision, 2, "a refused save still bumped the revision");
+  assert.equal(codeOf(await stored(first.id), "c1"), "return 'new';", "the blind save replaced the newer copy");
+});
+
+await check("creating a notebook needs no revision", async () => {
+  const made = await notebooksService.save(twoCells("zz-w2rev-new"), "test", owner.id);
+  assert.equal(made.revision, 1);
+});
+
+await check('"any" is the explicit way to write without having read', async () => {
+  const first = await notebooksService.save(twoCells("zz-w2rev-any"), "test", owner.id);
+  const base = { ...(await stored(first.id)), id: first.id };
+  const forced = await notebooksService.save(withCode(base, "c1", "return 'forced';"), "cli", owner.id, { expectedRevision: "any" });
+  assert.equal(forced.revision, 2);
 });
 
 console.log("\nthe editor's door");
@@ -153,7 +170,8 @@ await check("a notebook is handed out with its revision, which is never stored i
 await check("a stale save is a 409 that says so, and the editor can tell it from a failure", async () => {
   const first = await notebooksService.save(twoCells("zz-w2rev-409"), "test", owner.id);
   const mine = (await (await fetch(`${base}/api/notebooks/${first.id}`, { headers })).json()) as NotebookJson;
-  await notebooksService.save({ ...(await stored(first.id)), id: first.id }, "agent", owner.id);
+  // Somebody else saves in between, which is the point of the case.
+  await notebooksService.save({ ...(await stored(first.id)), id: first.id }, "agent", owner.id, { expectedRevision: 1 });
 
   const refused = await fetch(`${base}/api/notebooks`, { method: "POST", headers, body: JSON.stringify(withCode(mine, "c1", "return 'mine';")) });
   assert.equal(refused.status, 409);
@@ -164,11 +182,32 @@ await check("a stale save is a 409 that says so, and the editor can tell it from
   assert.notEqual(codeOf(await stored(first.id), "c1"), "return 'mine';");
 });
 
-await check("a client that sends no revision is still accepted", async () => {
+await check("a client that sends no revision for an existing notebook gets 428 revision_required", async () => {
   const first = await notebooksService.save(twoCells("zz-w2rev-http-old"), "test", owner.id);
   const { revision: _dropped, ...legacy } = (await (await fetch(`${base}/api/notebooks/${first.id}`, { headers })).json()) as NotebookJson;
-  const res = await fetch(`${base}/api/notebooks`, { method: "POST", headers, body: JSON.stringify(legacy) });
+  const res = await fetch(`${base}/api/notebooks`, { method: "POST", headers, body: JSON.stringify(withCode(legacy as NotebookJson, "c1", "return 'blind';")) });
+  assert.equal(res.status, 428);
+  const body = (await res.json()) as { code: string; error: string };
+  assert.equal(body.code, "revision_required");
+  assert.match(body.error, /revision/);
+  assert.notEqual(codeOf(await stored(first.id), "c1"), "return 'blind';");
+});
+
+await check("creating a notebook over the REST door needs no revision", async () => {
+  const res = await fetch(`${base}/api/notebooks`, { method: "POST", headers, body: JSON.stringify(twoCells("zz-w2rev-http-new")) });
   assert.equal(res.status, 200);
+});
+
+await check("the text endpoint refuses a blind overwrite too, but an import as new is exempt", async () => {
+  const first = await notebooksService.save(twoCells("zz-w2rev-text"), "test", owner.id);
+  const text = await (await fetch(`${base}/api/notebooks/${first.id}/text`, { headers })).text();
+  const blind = await fetch(`${base}/api/notebooks/text`, { method: "POST", headers, body: JSON.stringify({ text }) });
+  assert.equal(blind.status, 428);
+  assert.equal(((await blind.json()) as { code: string }).code, "revision_required");
+  const named = await fetch(`${base}/api/notebooks/text`, { method: "POST", headers, body: JSON.stringify({ text, revision: 1 }) });
+  assert.equal(named.status, 200);
+  const asNew = await fetch(`${base}/api/notebooks/text`, { method: "POST", headers, body: JSON.stringify({ text: text.replace("name: zz-w2rev-text", "name: zz-w2rev-text-imported"), asNew: true }) });
+  assert.equal(asNew.status, 200);
 });
 
 console.log("\nthe MCP tools");

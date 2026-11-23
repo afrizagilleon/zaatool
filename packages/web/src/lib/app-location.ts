@@ -10,7 +10,7 @@
  * a path-based route would 404 on a hard refresh without server rewrites.
  */
 
-export type LocationTab = 'apps' | 'map' | 'notebooks' | 'resources' | 'gallery';
+export type LocationTab = 'apps' | 'map' | 'notebooks' | 'resources' | 'audit' | 'gallery';
 
 export interface AppLocation {
   tab: LocationTab;
@@ -26,7 +26,7 @@ export interface AppLocation {
  * `gallery` is deliberately absent from the navbar: it is a workbench for checking
  * every renderer against awkward values, reachable only by typing `#/gallery`.
  */
-const TABS: LocationTab[] = ['apps', 'map', 'notebooks', 'resources', 'gallery'];
+const TABS: LocationTab[] = ['apps', 'map', 'notebooks', 'resources', 'audit', 'gallery'];
 
 /**
  * Hashes that used to mean something, kept working.
