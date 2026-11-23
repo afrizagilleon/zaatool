@@ -181,7 +181,7 @@ the engine copied in) and the `node_modules` of the packages it declared; it can
 or a thread, or load a native addon. The runtime refuses these, so `module._load` and every
 other route around the `require` list ends in `ERR_ACCESS_DENIED` — the list is only the
 friendly message that comes first. Its environment is a small allow-list plus the secrets
-it declared, never the engine's. Its heap is capped (`MAX_CELL_MEMORY_MB`, default 512);
+it declared, never the engine's. Its heap is capped (`MAX_CELL_MEMORY_MB`, default 512), and on Linux the kernel caps the whole process (`core/cell-limits`);
 a cell that outgrows it fails and the engine, a different process, carries on. Timeout,
 deadline and cancel kill the whole tree.
 

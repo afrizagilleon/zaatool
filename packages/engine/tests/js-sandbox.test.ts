@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -227,6 +228,54 @@ await check("a table input: filter and map hand the callback the row, its index 
   assert.equal(res.error, undefined);
   assert.deepEqual(res.output, { kept: 2, mapped: [10, 21, 32] });
 });
+
+// S-11: the permission model does not cover signals. A cell that could `process.kill` ends
+// the engine on Windows and any other cell of the same owner on Linux. The victim here is a
+// real process the test owns; each route below must fail and leave it running.
+const victim = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+const alive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const KILL_ROUTES: Record<string, string> = {
+  "process.kill": "process.kill(inputs.pid, 'SIGKILL');",
+  "process._kill": "process._kill(inputs.pid, 9);",
+  "process.getBuiltinModule('process').kill": "process.getBuiltinModule('process').kill(inputs.pid, 'SIGKILL');",
+  "require('process').kill": "require('process').kill(inputs.pid, 'SIGKILL');",
+  "require('node:process')._kill": "require('node:process')._kill(inputs.pid, 9);",
+  "import('node:process')": "(await import('node:process')).default.kill(inputs.pid, 'SIGKILL');",
+  "import('process') named export": "(await import('node:process')).kill(inputs.pid, 'SIGKILL');",
+  "the prototype's kill": "Object.getPrototypeOf(process).kill.call(process, inputs.pid, 'SIGKILL');",
+  "putting the original back": "delete process.kill; process.kill(inputs.pid, 'SIGKILL');",
+  "redefining it": "Object.defineProperty(process, 'kill', { value: () => 1 }); process.kill(inputs.pid, 'SIGKILL');",
+};
+
+for (const [route, snippet] of Object.entries(KILL_ROUTES)) {
+  await check(`a cell cannot signal another process through ${route}`, async () => {
+    const res = await runJsNode(`${snippet} return 'signalled';`, { pid: victim.pid }, 20000);
+    // A route that does not exist at all (an undefined function) fails just as well.
+    assert.ok(res.error, `expected the cell to fail, but it returned ${JSON.stringify(res.output)}`);
+    assert.ok(alive(victim.pid!), "the other process was killed");
+  });
+}
+
+await check("a cell cannot kill its parent, which is this process", async () => {
+  const res = await runJsNode("process.kill(process.ppid, 'SIGKILL'); return 'signalled';", {}, 20000);
+  assert.match(res.error ?? "", /not available/i);
+});
+
+await check("the host still ends the cell by itself", async () => {
+  const res = await runJsNode("return 1;", {}, 20000);
+  assert.equal(res.error, undefined);
+  assert.equal(res.output, 1 as unknown as Record<string, unknown>);
+});
+
+victim.kill();
 
 await check("the engine is still running", () => {
   assert.equal(typeof process.pid, "number");

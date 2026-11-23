@@ -38,6 +38,12 @@ RUN groupadd --system --gid 10001 sandbox \
     && chmod 0755 /home/sandbox \
     && chmod 0711 /home/sandbox/owners
 
+# Nothing a cell does needs /tmp: each owner's TMPDIR is their own folder, and Python's
+# tempfile, uv, numpy, pandas and matplotlib all follow it. A world-writable /tmp was a
+# place to drop files for another owner's cells to find and a disk to fill without a limit
+# (S-07). /dev/shm stays writable, because multiprocessing needs it; Docker caps it at 64 MB.
+RUN chmod 0755 /tmp
+
 WORKDIR /app
 # Installed rather than activated through corepack. `devEngines.packageManager` in the root
 # manifest carries a *range* (^11.6.0), and corepack refuses to run against anything that is

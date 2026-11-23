@@ -73,6 +73,11 @@ services:
       # The one time zone cron triggers are read in. See DEPLOY.md.
       CRON_TZ: ${CRON_TZ:-UTC}
       UV_LOCK_TIMEOUT_SECONDS: ${UV_LOCK_TIMEOUT_SECONDS:-120}
+      # Per-cell hard limits (memory, processes per owner, largest file). Empty means the
+      # engine's own default; see .env.example.
+      MAX_CELL_MEMORY_MB: ${MAX_CELL_MEMORY_MB:-}
+      MAX_CELL_PROCESSES: ${MAX_CELL_PROCESSES:-}
+      MAX_CELL_FILE_MB: ${MAX_CELL_FILE_MB:-}
       # Read by the login and webhook limiters to tell clients apart behind nginx. One hop:
       # nginx, and nobody behind it. Not the engine's own default (private networks), because
       # nginx can see a client on a private address too (Docker Desktop, rootless Docker, a
@@ -87,6 +92,10 @@ services:
     # services on this machine. Change them in .env.
     mem_limit: ${ENGINE_MEMORY_LIMIT:-2g}
     cpus: ${ENGINE_CPU_LIMIT:-2}
+    # Processes and threads in the whole container, the engine's and every cell's. Without a
+    # bound, one fork bomb in a cell exhausts the host's pids rather than this container's.
+    # Each owner's cells are bounded separately by MAX_CELL_PROCESSES (256).
+    pids_limit: ${ENGINE_PIDS_LIMIT:-4096}
     volumes:
       # Everything notebooks write, and everything sent to them. Without this, every file
       # produced since the last deploy disappears on the next one.

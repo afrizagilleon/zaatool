@@ -706,9 +706,19 @@ engine, reviewed like any other, because a JavaScript package is read from the e
 Each cell is a process of its own. These settings shape it (all optional; the image sets the
 `SANDBOX_*` ones):
 
-- **`MAX_CELL_MEMORY_MB`** (default `512`) — heap limit of one JavaScript cell. A cell that
-  exceeds it fails; the engine does not. It does not cap Python cells or memory held outside
-  the JS heap.
+- **`MAX_CELL_MEMORY_MB`** (default `512`) — memory limit of one cell. A cell that exceeds it
+  fails; the engine does not. JavaScript: the V8 heap everywhere, and on Linux with the
+  sandbox on the kernel also caps the whole process (large `Buffer`s included) at this plus
+  the roughly 640 MB a bare Node reserves. Python: on Linux with the sandbox on, the cell's
+  private memory (`RLIMIT_DATA`). Numeric libraries are held to four threads there, because
+  each thread costs about 40 MB.
+- **`MAX_CELL_PROCESSES`** (default `256`) — processes and threads one owner's uid may have,
+  all of that owner's running cells together (`RLIMIT_NPROC`; Linux, sandbox on). A fork bomb
+  stops here, for that owner only. **`MAX_CELL_FILE_MB`** (default `1024`) is the largest
+  single file a cell may write. Cells never dump core. **`ENGINE_PIDS_LIMIT`** (default
+  `4096`, compose) bounds the whole container the same way.
+- `/tmp` in the image is not writable by cells; they use their own `TMPDIR`. `/dev/shm`
+  (64 MB by default in Docker, shared by every cell) is left writable for `multiprocessing`.
 - **`SANDBOX_UID_BASE`, `SANDBOX_UID_COUNT`, `SANDBOX_GID`, `SANDBOX_HOME`** — the
   unprivileged users cells (and the `uv` run that installs packages) are spawned as, **one
   per notebook owner**. The first time an account's notebook runs, the engine gives the account

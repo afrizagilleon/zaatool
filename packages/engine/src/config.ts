@@ -16,6 +16,7 @@
  */
 
 import { activeSandbox, sandboxProblems, type SandboxConfig } from "./core/sandbox-identity.js";
+import { prlimitAvailable } from "./core/cell-limits.js";
 import { isValidTimeZone } from "./core/cron.js";
 import { parseSecretsKey } from "./core/secrets-crypto.js";
 
@@ -210,6 +211,30 @@ export function maxCellMemoryMb(): number {
   return positiveInt("MAX_CELL_MEMORY_MB", 512);
 }
 
+/**
+ * The hard limits a cell process gets on Linux when the sandbox uid is on (see
+ * `core/cell-limits`): memory is `MAX_CELL_MEMORY_MB` again, now enforced by the kernel on
+ * the whole process (V8 heap, Buffers, numpy arrays), not only the V8 heap.
+ *
+ * `MAX_CELL_PROCESSES` is the number of processes *and threads* one owner's uid may have, all
+ * of that owner's running cells together (the kernel counts per uid, and every owner has
+ * their own since FX-20). A Node cell is about a dozen threads and a Python cell with numpy
+ * a handful, so the default leaves room for about twenty concurrent cells of one owner while
+ * stopping a fork bomb long before it matters to anyone else: with the run gate's four
+ * concurrent runs, four owners at the limit stay well inside the container's ENGINE_PIDS_LIMIT.
+ *
+ * `MAX_CELL_FILE_MB` is the largest single file a cell may write. It is generous on purpose:
+ * it stops one runaway `write` from filling the disk in a single file, not a notebook
+ * that legitimately produces a big output (use `MAX_NOTEBOOK_STORAGE_MB` for what is kept).
+ */
+export function cellLimits(): { memoryMb: number; processes: number; fileMb: number } {
+  return {
+    memoryMb: maxCellMemoryMb(),
+    processes: positiveInt("MAX_CELL_PROCESSES", 256),
+    fileMb: positiveInt("MAX_CELL_FILE_MB", 1024),
+  };
+}
+
 export function maxNotebookStorageBytes(): number {
   const raw = Number(process.env.MAX_NOTEBOOK_STORAGE_MB);
   const megabytes = Number.isFinite(raw) && raw > 0 ? raw : 500;
@@ -236,6 +261,15 @@ export function configProblems(): string[] {
   // Not behind the production check: a half-set sandbox is wrong in development too, and
   // the cost of finding out is every cell failing.
   const problems: string[] = sandboxProblems(process.platform, process.env, process.getuid?.bind(process));
+  // Cells are started under `prlimit` whenever they are dropped to an owner's uid; without
+  // it every one of them would fail to start, so this is as much a startup error as a
+  // half-set sandbox.
+  if (activeSandboxConfig() && !prlimitAvailable()) {
+    problems.push(
+      "prlimit (util-linux) is not installed at /usr/bin/prlimit, and cells cannot be started " +
+        "under their resource limits without it. The official image has it."
+    );
+  }
   if (!isValidTimeZone(cronTimezone())) {
     problems.push(
       `CRON_TZ is "${cronTimezone()}", which is not an IANA time zone name. Use a name like ` +

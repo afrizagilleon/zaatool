@@ -135,6 +135,26 @@ export class ImageObject extends FileObject {
   }
 }
 
+/**
+ * A cell must not signal other processes (S-11).
+ *
+ * Node's permission model does not cover signals. On Linux a cell could kill another cell of
+ * the same owner; on Windows `process.kill(process.ppid)` ends the engine. Every route to
+ * `kill` goes through this one `process` object (`require("process")`,
+ * `getBuiltinModule`, `import("node:process")` all return it), so replacing the two
+ * properties and locking them covers them. The host ends itself with `process.exit`, which
+ * does not use either.
+ */
+function refuseSignals() {
+  const refuse = () => {
+    throw new Error("process.kill is not available in a notebook cell.");
+  };
+  for (const name of ["kill", "_kill"]) {
+    Object.defineProperty(process, name, { value: refuse, writable: false, configurable: false });
+  }
+}
+refuseSignals();
+
 const send = (msg, callback) => process.send(msg, undefined, undefined, callback);
 
 // catch console.log from user's code → send as event log
@@ -252,6 +272,8 @@ const files = {
 async function run(init) {
   try {
     const { code, inputs, inputsSchema, packages } = init;
+    // Installed before any user code runs; see js-runner for why they are not in the spawn env.
+    for (const [key, value] of Object.entries(init.secrets ?? {})) process.env[key] = String(value);
     canCall = Boolean(init.canCall);
     canWriteFile = Boolean(init.canWriteFile);
     for (const [key, copy] of Object.entries(init.staged ?? {})) staged.set(key, copy);

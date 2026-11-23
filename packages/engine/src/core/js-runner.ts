@@ -6,7 +6,9 @@ import { killTree, TREE_SPAWN_OPTIONS } from "./kill-tree.js";
 import type { NotebookCaller } from "./notebook-call.js";
 import type { FileWriter } from "./notebook-files.js";
 import { abortMessage } from "./run-abort.js";
-import { maxCellMemoryMb } from "../config.js";
+import { cellLimits, maxCellMemoryMb } from "../config.js";
+import { explainMemoryRefusal, limitedCommand } from "./cell-limits.js";
+import { withUidLease } from "./uid-sweep.js";
 import { defaultCellHost, type CellHost, type CellWorkspace } from "./cell-workspace.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -63,7 +65,8 @@ export function runJsNode(
   /** Whose process this is: its uid and its folders. Without one, a plain temp folder. */
   host: CellHost = defaultCellHost()
 ): Promise<RunResult> {
-  return new Promise((resolve) => {
+  // Holds a lease on the owner's uid for the life of the run; the last one out sweeps (uid-sweep).
+  return withUidLease(host.spawn.options, () => new Promise<RunResult>((resolve) => {
     const startTime = Date.now();
     const logs: RunResult["logs"] = [];
     const memoryMb = maxCellMemoryMb();
@@ -81,20 +84,32 @@ export function runJsNode(
 
     // `process.execPath`, not `process.execArgv`: the engine may be running under `tsx`,
     // and the cell must not inherit its loader (or any other flag of the engine's).
+    // On Linux with the sandbox on, `prlimit` goes in front (see `core/cell-limits`).
+    const command = limitedCommand(
+      {
+        bin: process.execPath,
+        args: [
+          "--permission",
+          `--allow-fs-read=${CELL_HOST}`,
+          `--allow-fs-read=${workspace.dir}`,
+          ...PACKAGE_DIRS.map((dir) => `--allow-fs-read=${dir}`),
+          `--max-old-space-size=${memoryMb}`,
+          CELL_HOST,
+        ],
+      },
+      "js",
+      cellLimits(),
+      identity.options.uid !== undefined
+    );
     const proc = spawn(
-      process.execPath,
-      [
-        "--permission",
-        `--allow-fs-read=${CELL_HOST}`,
-        `--allow-fs-read=${workspace.dir}`,
-        ...PACKAGE_DIRS.map((dir) => `--allow-fs-read=${dir}`),
-        `--max-old-space-size=${memoryMb}`,
-        CELL_HOST,
-      ],
+      command.bin,
+      command.args,
       {
         // The cell gets its own environment rather than a copy of the engine's, so user
         // code cannot read the server's credentials.
-        env: { ...buildSandboxEnv(secrets), ...identity.env },
+        // Secrets are not in it: the initial environment is readable as /proc/<pid>/environ by
+        // any process with the same uid. They go over the channel below (S-04).
+        env: { ...buildSandboxEnv({}), ...identity.env },
         stdio: ["ignore", "pipe", "pipe", "ipc"],
         windowsHide: true,
         ...TREE_SPAWN_OPTIONS,
@@ -237,7 +252,7 @@ export function runJsNode(
       if (msg?.type === "done") {
         finish({ output: msg.output }, { graceful: true });
       } else if (msg?.type === "error") {
-        finish({ error: msg.error }, { graceful: true });
+        finish({ error: explainMemoryRefusal(String(msg.error), memoryMb) }, { graceful: true });
       }
     });
 
@@ -275,6 +290,7 @@ export function runJsNode(
       canWriteFile: Boolean(onFile),
       packages,
       staged: workspace.staged,
+      secrets,
     });
-  });
+  }));
 }

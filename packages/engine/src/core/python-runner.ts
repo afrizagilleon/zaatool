@@ -5,7 +5,10 @@ import { abortMessage } from "./run-abort.js";
 import { randomBytes } from "node:crypto";
 import { PY_RPC_PREFIX, pyRpcPrefix, type NotebookCaller } from "./notebook-call.js";
 import type { FileWriter } from "./notebook-files.js";
+import { withUidLease } from "./uid-sweep.js";
 import { defaultCellHost, type CellHost, type CellWorkspace } from "./cell-workspace.js";
+import { cellLimits } from "../config.js";
+import { limitedCommand } from "./cell-limits.js";
 import type { CellSpawnIdentity } from "./sandbox-identity.js";
 
 /** What a cell runs as when there is no sandbox: no uid switch, nothing added to the environment. */
@@ -63,6 +66,9 @@ export function definesMain(code: string): boolean {
   return false;
 }
 
+/** How long a cell that announced its result may take to exit before its tree is killed. */
+const GRACE_MS = 2000;
+
 /**
  * How long a deploy waits for `uv` to resolve a notebook's packages. A cold install of a
  * large package can take a while, but a hung network must not hang the deploy forever.
@@ -84,7 +90,7 @@ export function resolvePythonLockedPackages(
     return Promise.resolve([]);
   }
 
-  return new Promise((resolve, reject) => {
+  return withUidLease(identity.options, () => new Promise<string[]>((resolve, reject) => {
     const pyScript = `import json, importlib.metadata, re
 reqs = ${JSON.stringify(packages)}
 locked = []
@@ -114,6 +120,8 @@ print(json.dumps(locked))
     // so it gets what the cell itself gets: no engine environment, and not root.
     const proc = spawn(bin, args, {
       env: { ...buildSandboxEnv({}), ...identity.env },
+      // Its own process group, so a timeout takes down the build scripts and python too.
+      ...TREE_SPAWN_OPTIONS,
       ...identity.options,
     });
     let stdout = "";
@@ -157,7 +165,7 @@ print(json.dumps(locked))
       }
       resolve(packages);
     });
-  });
+  }));
 }
 
 
@@ -176,7 +184,8 @@ export function runPythonNode(
   /** Whose process this is: its uid and its folders. Without one, a plain temp folder. */
   host: CellHost = defaultCellHost()
 ): Promise<{ output?: Record<string, unknown>; logs: any[]; error?: string; ms: number }> {
-  return new Promise((resolve) => {
+  // Holds a lease on the owner's uid for the life of the run; the last one out sweeps (uid-sweep).
+  return withUidLease(host.spawn.options, () => new Promise<{ output?: Record<string, unknown>; logs: any[]; error?: string; ms: number }>((resolve) => {
     const startTime = Date.now();
     const logs: any[] = [];
 
@@ -369,6 +378,10 @@ class _Files:
 files = _Files()
 
 payload = _zaa_receive()
+# Secrets are installed here, not in the process's initial environment: setenv writes outside
+# the block /proc/<pid>/environ exposes, and subprocesses of the cell still inherit them.
+for _k, _v in (payload.pop("secrets", None) or {}).items():
+    os.environ[str(_k)] = str(_v)
 _ZAA = ${JSON.stringify(PY_RPC_PREFIX)} + str(payload.get("marker", "")) + "@@"
 _STAGED.update(payload.get("staged") or {})
 inputs = payload.get("inputs", {})
@@ -398,9 +411,18 @@ ${finalCode}
 try:
     result = main(wrapped_inputs)
     _zaa_send({"type": "done", "output": result})
+except MemoryError:
+    _zaa_send({"type": "error", "error": "MemoryError: the cell ran out of memory (limit ${cellLimits().memoryMb} MB)."})
 except Exception as err:
     _zaa_send({"type": "error", "error": "".join(traceback.format_exception_only(type(err), err)).strip()})
 `;
+
+    const identity = workspace.spawn;
+    // Under `uv` the limits go on the interpreter, not on `uv` itself: installing a large
+    // wheel is not the notebook's own memory. `prlimit` and `uv run` both replace
+    // themselves with what they run, so the pid is still the group leader.
+    const interpreter = (bin: string) =>
+      limitedCommand({ bin, args: ["-c", wrapper] }, "python", cellLimits(), identity.options.uid !== undefined);
 
     /**
      * A notebook that declares packages runs under `uv`, which builds the environment it
@@ -424,19 +446,15 @@ except Exception as err:
               "--quiet",
               ...packages.flatMap((requirement) => ["--with", requirement]),
               "--",
-              "python",
-              "-c",
-              wrapper,
+              ...[interpreter("python")].flatMap((inner) => [inner.bin, ...inner.args]),
             ],
           }
-        : {
-            bin: process.platform === "win32" ? "python" : "python3",
-            args: ["-c", wrapper],
-          };
+        : interpreter(process.platform === "win32" ? "python" : "python3");
 
-    const identity = workspace.spawn;
     const proc = spawn(command.bin, command.args, {
-      env: { PYTHONIOENCODING: "utf-8", ...buildSandboxEnv(secrets), ...identity.env },
+      // No secrets here: the initial environment is readable as /proc/<pid>/environ by any
+      // process with the same uid. They arrive in the first stdin payload instead (S-04).
+      env: { PYTHONIOENCODING: "utf-8", ...buildSandboxEnv({}), ...identity.env },
       ...TREE_SPAWN_OPTIONS,
       ...identity.options,
     });
@@ -453,14 +471,29 @@ except Exception as err:
     let finalOutput: Record<string, unknown> | undefined;
     let finalError: string | undefined;
 
-    const finish = (result: { output?: Record<string, unknown>; error?: string }): void => {
+    const finish = (
+      result: { output?: Record<string, unknown>; error?: string },
+      opts: { graceful?: boolean } = {}
+    ): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
-      // Whenever the engine gives up on the run (timeout, spawn error, ...) and the
-      // process is still alive, take down the whole tree, not just `uv`.
-      if (!exited) killTree(proc);
+      if (exited) {
+        // The main process is gone but what it started may not be: the group outlives its
+        // leader for as long as it has members, so the sweep is still worth sending (POSIX).
+        if (process.platform !== "win32") killTree(proc);
+      } else if (opts.graceful) {
+        // The cell announced its own end and is exiting; this only covers one that hangs
+        // (a non-daemon thread, a child holding stdout) and whatever it left in its group.
+        setTimeout(() => {
+          if (!exited) killTree(proc);
+        }, GRACE_MS).unref();
+      } else {
+        // Whenever the engine gives up on the run (timeout, spawn error, ...) and the
+        // process is still alive, take down the whole tree, not just `uv`.
+        killTree(proc);
+      }
       workspace.dispose();
       resolve({ ...result, logs, ms: Date.now() - startTime });
     };
@@ -492,6 +525,9 @@ except Exception as err:
         if (!terminalSeen) {
           terminalSeen = true;
           finalOutput = frame.output ?? undefined;
+          // The result is in: settle now rather than at `close`, which a non-daemon thread
+          // or a child holding stdout could hold back until the timeout and turn into one.
+          finish({ output: finalOutput }, { graceful: true });
         }
         return;
       }
@@ -499,6 +535,7 @@ except Exception as err:
         if (!terminalSeen) {
           terminalSeen = true;
           finalError = frame.error || "Python raised an error";
+          finish({ error: finalError }, { graceful: true });
         }
         return;
       }
@@ -589,6 +626,7 @@ except Exception as err:
       inputsSchema,
       canCall: Boolean(onCall),
       canWriteFile: Boolean(onFile),
+      secrets,
     });
 
     proc.on("error", (err) => {
@@ -607,11 +645,14 @@ except Exception as err:
       exited = true;
       // Again: whatever the process wrote after `finish` took the folder goes with it.
       workspace.dispose();
+      // A cell that settled on its frame is exiting only now; sweep what it left in its group
+      // while the group id is certainly still ours.
+      if (settled && process.platform !== "win32") killTree(proc);
       if (finalError) return finish({ error: finalError });
       if (finalOutput !== undefined) return finish({ output: finalOutput });
       if (code !== 0) return finish({ error: stderr.trim() || "Python process failed" });
       // Exited cleanly without a result frame: main returned nothing at all.
       finish({ output: undefined });
     });
-  });
+  }));
 }
