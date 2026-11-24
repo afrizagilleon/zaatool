@@ -19,6 +19,7 @@ import { registerNotebookTools } from "../src/mcp/notebook-tools.js";
 import { registerConventions } from "../src/mcp/conventions.js";
 import { agentTokensService, type AgentScope } from "../src/services/agent-tokens.service.js";
 import { notebooksService } from "../src/services/notebooks.service.js";
+import { notebookExecutionService } from "../src/services/notebook-execution.service.js";
 import { initDb } from "../src/db/initializer.js";
 import { pool } from "../src/db/connection.js";
 import { testOwner, dropOwner } from "./owners.js";
@@ -104,6 +105,11 @@ await check("an author sees the writing tools", async () => {
   ]) {
     assert.ok(names.includes(expected), `missing tool ${expected}`);
   }
+});
+
+await check("no tool deploys, rolls back, or changes production versions", async () => {
+  const names = (await author.listTools()).tools.map((tool) => tool.name);
+  assert.deepEqual(names.filter((name) => /deploy|rollback|version/i.test(name)), []);
 });
 
 await check("a reader is not offered a way to write or delete", async () => {
@@ -352,6 +358,25 @@ await check("run_list shows the runs newest first", async () => {
     new Date(runs[0].started_at) >= new Date(runs[1].started_at),
     "runs are not newest first"
   );
+});
+
+await check("run_list includes the version id of a production run", async () => {
+  const record = await notebooksService.findByIdOrName("zz-mcp-steps");
+  assert.ok(record && record !== "ambiguous", "the production fixture is missing");
+  const deployed = await notebooksService.deploy(record.id, "test", OWNER);
+  assert.ok(deployed);
+  const started = await notebookExecutionService.start(record.id, () => {}, {
+    triggerSource: "webhook",
+    startedBy: OWNER,
+  });
+  const result = await started.completed;
+  assert.equal(result.status, "success", result.errors.join("\n"));
+
+  const runs = JSON.parse(
+    textOf(await call(author, "run_list", { notebook: "zz-mcp-steps", limit: 1 }))
+  ) as { id: string; version_id: string | null }[];
+  assert.equal(runs[0]?.id, started.runId);
+  assert.equal(runs[0]?.version_id, deployed.versionId);
 });
 
 await check("listing shows contracts and triggers so an agent can reuse instead of rewrite", async () => {
