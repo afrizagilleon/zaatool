@@ -427,73 +427,116 @@ export class NotebooksService {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const record = await this.getById(id);
       if (!record) return null;
-      const lockedFor = JSON.stringify(this.parseDocument(record).packages ?? []);
+      const doc = this.parseDocument(record);
+      const lockedFor = JSON.stringify(doc.packages ?? []);
 
       // A first look before the slow part, so a deploy that is going to be refused is
       // refused in milliseconds. It decides nothing: the check that counts is the one made
       // below under the locks.
-      await this.assertDeployable(pool, id, this.parseDocument(record));
+      await this.assertDeployable(pool, id, doc);
       const locked = await this.lockPackagesOf(record);
-
-      const client = await pool.connect();
-      try {
-        await client.query("BEGIN");
-        // This notebook's deploys, undeploys and deletes go one at a time. Everything below
-        // is one transaction: a deploy that fails anywhere leaves no version row, no moved
-        // pointer and no half-written trigger index behind it.
-        await lockUntilTransactionEnds(client, notebookLockKey(id));
-
-        const { rows } = await client.query<NotebookRecord>("SELECT * FROM notebooks WHERE id = $1", [id]);
-        const fresh = rows[0];
-        if (!fresh) {
-          await client.query("ROLLBACK");
-          return null;
-        }
-        const doc = this.parseDocument(fresh);
-        if (JSON.stringify(doc.packages ?? []) !== lockedFor) {
-          await client.query("ROLLBACK");
-          continue;
-        }
-
-        // The names deployed notebooks go by, and their trigger ids and slugs, are checked
-        // against one another by everyone who deploys, so that check is one at a time too.
-        // Taken after the per-notebook lock and only ever in that order, which is what
-        // keeps two deploys from waiting on each other.
-        await lockUntilTransactionEnds(client, LOCK_KEYS.deployedNames);
-        await this.assertDeployable(client, id, doc);
-
-        const versionId = uuidv4();
-        await client.query(
-          `INSERT INTO notebook_versions (id, notebook_id, document, deployed_by, deployed_by_user_id, locked_packages)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [versionId, id, JSON.stringify(doc), deployedBy, deployedByUserId, locked]
-        );
-        await client.query(
-          "UPDATE notebooks SET deployed_version_id = $1, deployed_name = $2 WHERE id = $3",
-          [versionId, doc.name, id]
-        );
-        // The index follows the version just pinned, from the same document that was stored as
-        // that version, so what listens and what runs cannot come from two different reads.
-        await notebookTriggersService.syncForNotebook(id, doc.triggers ?? [], client);
-        await client.query("COMMIT");
-
-        await audit.record({
-          action: "notebook.deploy",
-          target: { type: "notebook", id, ownerId: fresh.owner_id, name: doc.name },
-          meta: { versionId, revision: fresh.revision },
-        });
-        notifyCatalogChanged({ change: "deployed", notebookId: id });
-        return { versionId };
-      } catch (err: unknown) {
-        await client.query("ROLLBACK").catch(() => undefined);
-        throw refusalFromConstraint(err) ?? err;
-      } finally {
-        client.release();
-      }
+      const result = await this.pinVersion(
+        id,
+        {
+          doc,
+          lockedPackages: locked,
+          deployedBy,
+          deployedByUserId,
+          sourceVersionId: null,
+        },
+        lockedFor
+      );
+      if (result === "retry") continue;
+      return result;
     }
     throw new DeployRefusedError(
       "The notebook's packages kept changing while it was being deployed. Try again once nobody is editing them."
     );
+  }
+
+  /** The single transaction through which an ordinary deploy and a rollback pin a version. */
+  private async pinVersion(
+    id: string,
+    input: {
+      doc: NotebookJson;
+      lockedPackages: string[] | null;
+      deployedBy: string;
+      deployedByUserId: string | null;
+      sourceVersionId: string | null;
+    },
+    expectedDraftPackages?: string
+  ): Promise<{ versionId: string } | null | "retry"> {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      // This notebook's deploys, undeploys and deletes go one at a time. Everything below
+      // is one transaction: a deploy that fails anywhere leaves no version row, no moved
+      // pointer and no half-written trigger index behind it.
+      await lockUntilTransactionEnds(client, notebookLockKey(id));
+
+      const { rows } = await client.query<NotebookRecord>("SELECT * FROM notebooks WHERE id = $1", [id]);
+      const fresh = rows[0];
+      if (!fresh) {
+        await client.query("ROLLBACK");
+        return null;
+      }
+      let doc = input.doc;
+      if (expectedDraftPackages !== undefined) {
+        doc = this.parseDocument(fresh);
+        if (JSON.stringify(doc.packages ?? []) !== expectedDraftPackages) {
+          await client.query("ROLLBACK");
+          return "retry";
+        }
+      }
+
+      // The names deployed notebooks go by, and their trigger ids and slugs, are checked
+      // against one another by everyone who deploys, so that check is one at a time too.
+      // Taken after the per-notebook lock and only ever in that order, which is what
+      // keeps two deploys from waiting on each other.
+      await lockUntilTransactionEnds(client, LOCK_KEYS.deployedNames);
+      await this.assertDeployable(client, id, doc);
+
+      const versionId = uuidv4();
+      await client.query(
+        `INSERT INTO notebook_versions
+           (id, notebook_id, document, deployed_by, deployed_by_user_id, locked_packages, source_version_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          versionId,
+          id,
+          JSON.stringify(doc),
+          input.deployedBy,
+          input.deployedByUserId,
+          input.lockedPackages,
+          input.sourceVersionId,
+        ]
+      );
+      await client.query(
+        "UPDATE notebooks SET deployed_version_id = $1, deployed_name = $2 WHERE id = $3",
+        [versionId, doc.name, id]
+      );
+      // The index follows the version just pinned, from the same document that was stored as
+      // that version, so what listens and what runs cannot come from two different reads.
+      await notebookTriggersService.syncForNotebook(id, doc.triggers ?? [], client);
+      await client.query("COMMIT");
+
+      await audit.record({
+        action: "notebook.deploy",
+        target: { type: "notebook", id, ownerId: fresh.owner_id, name: doc.name },
+        meta: {
+          versionId,
+          revision: fresh.revision,
+          ...(input.sourceVersionId ? { rollbackOf: input.sourceVersionId } : {}),
+        },
+      });
+      notifyCatalogChanged({ change: "deployed", notebookId: id });
+      return { versionId };
+    } catch (err: unknown) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw refusalFromConstraint(err) ?? err;
+    } finally {
+      client.release();
+    }
   }
 
   /** The exact package versions a Python notebook runs with once deployed; null when it has none. */
