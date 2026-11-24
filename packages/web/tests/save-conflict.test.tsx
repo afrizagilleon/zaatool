@@ -116,7 +116,11 @@ describe('SaveConflictBanner', () => {
 
     fireEvent.click(screen.getByText('Reload theirs'));
     await waitFor(() => expect(onReload).toHaveBeenCalledOnce());
-    fireEvent.click(screen.getByText('Save mine anyway'));
+    // Both buttons stay disabled until the first way out has finished; a click before that is
+    // ignored, so wait for it rather than for the call alone.
+    const overwrite = screen.getByText('Save mine anyway').closest('button') as HTMLButtonElement;
+    await waitFor(() => expect(overwrite.disabled).toBe(false));
+    fireEvent.click(overwrite);
     await waitFor(() => expect(onOverwrite).toHaveBeenCalledOnce());
   });
 
