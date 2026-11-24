@@ -698,7 +698,7 @@ export class NotebooksService {
     if (!record) return null;
 
     const { rows } = await pool.query(
-      `SELECT v.document, v.created_at, v.deployed_by, v.deployed_by_user_id
+      `SELECT v.id AS version_id, v.document, v.created_at, v.deployed_by, v.deployed_by_user_id
        FROM notebooks n
        JOIN notebook_versions v ON v.id = n.deployed_version_id
        WHERE n.id = $1`,
@@ -706,7 +706,7 @@ export class NotebooksService {
     );
 
     if (rows.length === 0) {
-      return { isDeployed: false, deployedAt: null, deployedBy: null, hasUndeployedChanges: true };
+      return { isDeployed: false, versionId: null, deployedAt: null, deployedBy: null, hasUndeployedChanges: true };
     }
 
     const deployed = typeof rows[0].document === "string" ? rows[0].document : JSON.stringify(rows[0].document);
@@ -714,6 +714,7 @@ export class NotebooksService {
 
     return {
       isDeployed: true,
+      versionId: String(rows[0].version_id),
       deployedAt: new Date(rows[0].created_at).toISOString(),
       deployedBy: rows[0].deployed_by ?? null,
       // Production runs hand a version's cells the secrets of whoever deployed it, so when

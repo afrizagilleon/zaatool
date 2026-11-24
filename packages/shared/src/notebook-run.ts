@@ -59,6 +59,11 @@ export interface NotebookRunSummary {
    */
   parent_run_id: string | null;
   /**
+   * The deployed version this run executed, or null for a draft and runs recorded before
+   * versions were tracked. It ties production behaviour to its version, deployer and diff.
+   */
+  version_id?: string | null;
+  /**
    * The account that started it, when one did — a person in the editor or an agent acting
    * for one. Null for a schedule, a webhook or a share link, which no account started.
    * What decides whether somebody who only uses the page may read this run.

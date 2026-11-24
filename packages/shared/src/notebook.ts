@@ -414,6 +414,8 @@ export interface NotebookJson {
  */
 export interface NotebookDeployState {
   isDeployed: boolean;
+  /** The version currently pinned to production, or null when nothing is deployed. */
+  versionId: string | null;
   deployedAt: string | null;
   deployedBy: string | null;
   /**
@@ -441,6 +443,21 @@ export interface NotebookServing {
   packages: string[];
   /** Triggers that would start refusing: cron expressions and webhook slugs. */
   triggers: Array<{ kind: "cron" | "webhook"; label: string }>;
+}
+
+/** One immutable deployment in a notebook's production history. */
+export interface NotebookVersionSummary {
+  id: string;
+  /** Its position in deployment order, calculated when the history is read. */
+  number: number;
+  createdAt: string;
+  deployedBy: string | null;
+  sourceVersionId: string | null;
+  sourceNumber: number | null;
+  isCurrent: boolean;
+  /** The deployed name at this point in history, which may differ from the draft's. */
+  name: string;
+  triggers: NotebookServing["triggers"];
 }
 
 /**

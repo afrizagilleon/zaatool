@@ -451,6 +451,7 @@ export class NotebookExecutionService {
     let document: NotebookJson;
     // Who deployed the version this callee runs as, pinned with it: its secrets are theirs.
     let deployedBy: string | null = null;
+    let versionId: string | null = null;
 
     if (context.useDeployed) {
       const deployed = await notebooksService.findDeployedByIdOrName(reference, among);
@@ -475,6 +476,7 @@ export class NotebookExecutionService {
       };
       if (!pinned) context.pinned.set(deployed.id, version);
       document = version.document;
+      versionId = version.versionId;
       deployedBy = deployerHolderFor(deployed.id, version.versionId, version.deployedByUserId);
     } else {
       const draft = await notebooksService.findByIdOrName(reference, among);
@@ -528,6 +530,7 @@ export class NotebookExecutionService {
       notebookId: found.id,
       triggerSource: "call",
       parentRunId: context.parentRunId,
+      versionId,
       startedBy: context.startedBy,
     });
 
@@ -746,6 +749,7 @@ export class NotebookExecutionService {
       notebookId,
       triggerSource: options.triggerSource ?? (options.cellId ? "cell" : "manual"),
       cellId: options.cellId,
+      versionId: useDeployed ? deployedVersion?.versionId ?? null : null,
       startedBy: options.startedBy,
       shareId: options.shareId,
     });

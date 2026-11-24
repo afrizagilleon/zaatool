@@ -33,7 +33,7 @@ const SCRUB_BATCH = 100;
 export const INTERRUPTED_RUN_ERROR = "the engine restarted while this run was in progress";
 
 const SUMMARY_COLUMNS =
-  "id, notebook_id, status, trigger_source, cell_id, parent_run_id, started_by, actor_type, agent_token_id, agent_client, trigger_id, error, started_at, finished_at";
+  "id, notebook_id, status, trigger_source, cell_id, parent_run_id, version_id, started_by, actor_type, agent_token_id, agent_client, trigger_id, error, started_at, finished_at";
 
 /** What the run row says about who set it off, beyond `started_by`. */
 export interface RunAttribution {
@@ -94,6 +94,8 @@ export class NotebookRunsService {
     cellId?: string;
     /** Set when another notebook's run asked for this one. */
     parentRunId?: string;
+    /** The deployed version being executed; null for a draft run. */
+    versionId: string | null;
     /** The account that asked, if one did. Absent for a schedule, a webhook or a share link. */
     startedBy?: string;
     /** The share link that asked, if one did: what lets a socket opened with it follow this run and no other. */
@@ -102,15 +104,16 @@ export class NotebookRunsService {
     const who = attributionOf(currentContext()?.actor, run);
     await pool.query(
       `INSERT INTO notebook_runs
-         (id, notebook_id, status, trigger_source, cell_id, parent_run_id, started_by,
+         (id, notebook_id, status, trigger_source, cell_id, parent_run_id, version_id, started_by,
           actor_type, agent_token_id, agent_client, trigger_id, share_id)
-       VALUES ($1, $2, 'running', $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+       VALUES ($1, $2, 'running', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
       [
         run.runId,
         run.notebookId,
         run.triggerSource,
         run.cellId ?? null,
         run.parentRunId ?? null,
+        run.versionId,
         run.startedBy ?? null,
         who.actorType,
         who.agentTokenId,

@@ -87,6 +87,17 @@ export async function initDb() {
       END $$;
     `);
 
+    // A rollback is a new version, and this names the older version whose document it pinned.
+    // No foreign key: the history remains an audit record rather than a deletion constraint.
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE notebook_versions ADD COLUMN source_version_id VARCHAR(255);
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
+
 
     // Adding the column and backfilling in one block, so the backfill happens exactly
     // once: every notebook that existed before deploys came along keeps running what it
@@ -565,6 +576,17 @@ export async function initDb() {
         END $$;
       `);
     }
+
+    // The exact deployed version each production run executed. Draft runs and history from
+    // before this column existed stay null rather than guessing a version from timestamps.
+    await client.query(`
+      DO $$
+      BEGIN
+        ALTER TABLE notebook_runs ADD COLUMN version_id VARCHAR(255);
+      EXCEPTION
+        WHEN duplicate_column THEN null;
+      END $$;
+    `);
 
     // Ids beside the usernames `deployed_by` and `created_by` hold. A username can be
     // reused; an id cannot. The old columns stay for display, and there is no foreign key
