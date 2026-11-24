@@ -159,6 +159,10 @@ in [DEPLOY.md](DEPLOY.md)). **The first account you create becomes the creator**
 the setup code from the log to create it, and open registration is closed after that by design. Full instructions, backup, restore and upgrade
 procedures live in [DEPLOY.md](DEPLOY.md). Logs, the audit trail and what each run exposes to whom are described in [ARCHITECTURE.md](ARCHITECTURE.md#logs-and-audit) and [DEPLOY.md](DEPLOY.md#logs).
 
+> **Release note:** `releases/latest` currently installs v0.1.0 (2026-11-23). The structured
+> operational log and audit trail linked above are on `dev` and are not in that release;
+> [build from a `dev` checkout](DEPLOY.md#building-from-source) to use them before the next release.
+
 Look at it with `scripts/status.sh`; remove it with `scripts/uninstall.sh` (data stays unless you
 add `--purge`). Running from source instead? See [DEVELOPMENT.md](DEVELOPMENT.md).
 

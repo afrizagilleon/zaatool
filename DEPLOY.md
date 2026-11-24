@@ -602,6 +602,10 @@ curl http://localhost:8080/api/health
 zaatool keeps three different records, on purpose, because they answer different questions
 and have different readers.
 
+> **Release note:** the JSON operational log and audit trail described here are on `dev`;
+> they are not in v0.1.0 (2026-11-23), which `releases/latest` currently installs. See
+> [Building from source](#building-from-source) to run them from a `dev` checkout.
+
 | Stream | Answers | Where it lives |
 |---|---|---|
 | **Operational log** | What did the engine do, and what went wrong? | The engine's stdout and stderr: `docker compose logs engine` |
