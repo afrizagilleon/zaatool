@@ -132,6 +132,13 @@ Four readers, one source. A feature that satisfies only the page is not finished
 Saving writes the **draft**. Deploying pins the current draft into `notebook_versions` and
 points the notebook at it. Triggers, callers and agents all execute the *deployed* version.
 
+Rolling back deploys an old document as a **new** version through that same pinning path: the
+old rows stay immutable, the trigger index and package lock follow the selected version, and
+`source_version_id` records where the rollback came from. It never copies anything into the
+draft, so an editor's newer work is not overwritten. The person confirming the rollback becomes
+its deployer, and production uses that person's secrets. Production runs record `version_id`;
+draft runs leave it null, as do older runs whose version cannot be known honestly.
+
 Before this existed, saving was publishing: editing a notebook at 2pm changed what its
 webhook did at 2:01. Survivable while only one person could edit; indefensible once an
 agent could.
@@ -310,9 +317,9 @@ are unrestricted by name.
 | Table | Holds |
 |---|---|
 | `notebooks` | the draft document, name, runtime, tags, `updated_at`, `owner_id`, `app_visibility` |
-| `notebook_versions` | deployed snapshots, with `deployed_by_user_id` (whose secrets a production run uses) |
+| `notebook_versions` | deployed snapshots, with `deployed_by_user_id` (whose secrets a production run uses) and nullable `source_version_id` when a rollback created the version |
 | `notebook_access` | who a notebook is shared with: `editor` or `app` rows |
-| `notebook_runs` | run history, logs, outputs, `started_by`, and who really started it (`actor_type`, `agent_token_id`, `agent_client`, `trigger_id`, `share_id`) |
+| `notebook_runs` | run history, logs, outputs, nullable `version_id` for the deployed document actually executed, `started_by`, and who really started it (`actor_type`, `agent_token_id`, `agent_client`, `trigger_id`, `share_id`) |
 | `notebook_triggers` | index of triggers, rebuilt from the document on every save |
 | `notebook_shares` | shared page links and password hashes |
 | `secrets` | secret values, referenced by name from notebooks; each belongs to one account (`owner_id`) |

@@ -412,6 +412,17 @@ Nothing deletes the contents of `backups/`. Prune old ones by hand occasionally.
 
 ---
 
+## Rolling back a notebook
+
+Open the notebook in the editor, choose **Production history**, select an earlier version, and
+review the document, trigger, name and secret changes before choosing **Make vN production**.
+This deploys a new copy of that version through the normal deployment path: triggers and locked
+packages follow the selected version, the audit trail records the rollback, and production uses
+the confirming user's secrets. The draft is not changed. Do not move `deployed_version_id` with
+SQL — that bypasses trigger synchronization, deployment checks and the audit record.
+
+---
+
 ## Updating
 
 Two modes, same order: **the backup comes first**, because the engine migrates the schema on
