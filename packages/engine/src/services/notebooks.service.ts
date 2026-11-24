@@ -23,6 +23,7 @@ import type {
   NotebookJson,
   NotebookRuntime,
   NotebookSummary,
+  NotebookVersionSummary,
 } from "@zaa-tool/shared";
 
 export interface NotebookRecord {
@@ -51,6 +52,14 @@ export class DeployRefusedError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "DeployRefusedError";
+  }
+}
+
+/** A rollback that would only duplicate the version already serving production. */
+export class VersionAlreadyDeployedError extends Error {
+  constructor() {
+    super("This version is already in production.");
+    this.name = "VersionAlreadyDeployedError";
   }
 }
 
@@ -537,6 +546,103 @@ export class NotebooksService {
     } finally {
       client.release();
     }
+  }
+
+  /** Every deployment, newest first, with numbers derived from the immutable history. */
+  async listVersions(id: string): Promise<NotebookVersionSummary[]> {
+    const { rows } = await pool.query<{
+      id: string;
+      number: number;
+      created_at: Date;
+      deployed_by: string | null;
+      source_version_id: string | null;
+      source_number: number | null;
+      is_current: boolean;
+      document: string | NotebookJson;
+    }>(
+      `WITH numbered AS (
+         SELECT v.*,
+                ROW_NUMBER() OVER (PARTITION BY v.notebook_id ORDER BY v.created_at, v.id)::int AS number
+         FROM notebook_versions v
+         WHERE v.notebook_id = $1
+       )
+       SELECT v.id, v.number, v.created_at, v.deployed_by, v.source_version_id,
+              source.number AS source_number, (n.deployed_version_id = v.id) AS is_current,
+              v.document
+       FROM numbered v
+       JOIN notebooks n ON n.id = v.notebook_id
+       LEFT JOIN numbered source
+         ON source.notebook_id = v.notebook_id AND source.id = v.source_version_id
+       WHERE v.notebook_id = $1
+       ORDER BY v.number DESC`,
+      [id]
+    );
+
+    return rows.map((row) => {
+      const doc = typeof row.document === "string" ? (JSON.parse(row.document) as NotebookJson) : row.document;
+      return {
+        id: row.id,
+        number: Number(row.number),
+        createdAt: new Date(row.created_at).toISOString(),
+        deployedBy: row.deployed_by,
+        sourceVersionId: row.source_version_id,
+        sourceNumber: row.source_number === null ? null : Number(row.source_number),
+        isCurrent: row.is_current,
+        name: doc.name,
+        triggers: (doc.triggers ?? [])
+          .filter((trigger) => trigger.enabled !== false)
+          .map((trigger) =>
+            trigger.kind === "cron"
+              ? { kind: "cron" as const, label: trigger.cron }
+              : { kind: "webhook" as const, label: `/hooks/${trigger.slug}` }
+          ),
+      };
+    });
+  }
+
+  /** The full document of one version, only when it belongs to this notebook. */
+  async getVersion(id: string, versionId: string): Promise<NotebookJson | null> {
+    const { rows } = await pool.query<{ document: string | NotebookJson }>(
+      "SELECT document FROM notebook_versions WHERE notebook_id = $1 AND id = $2",
+      [id, versionId]
+    );
+    if (rows.length === 0) return null;
+    return typeof rows[0].document === "string"
+      ? (JSON.parse(rows[0].document) as NotebookJson)
+      : rows[0].document;
+  }
+
+  /** Pins a historical document as a new version, without resolving its packages again. */
+  async redeployVersion(
+    id: string,
+    versionId: string,
+    deployedBy: string,
+    deployedByUserId: string | null = actingUserId(currentContext()?.actor)
+  ): Promise<{ versionId: string } | null> {
+    const { rows } = await pool.query<{
+      document: string | NotebookJson;
+      locked_packages: string[] | null;
+      deployed_version_id: string | null;
+    }>(
+      `SELECT v.document, v.locked_packages, n.deployed_version_id
+       FROM notebook_versions v
+       JOIN notebooks n ON n.id = v.notebook_id
+       WHERE v.notebook_id = $1 AND v.id = $2`,
+      [id, versionId]
+    );
+    const source = rows[0];
+    if (!source) return null;
+    if (source.deployed_version_id === versionId) throw new VersionAlreadyDeployedError();
+    const doc = typeof source.document === "string" ? (JSON.parse(source.document) as NotebookJson) : source.document;
+    const result = await this.pinVersion(id, {
+      doc,
+      lockedPackages: source.locked_packages,
+      deployedBy,
+      deployedByUserId,
+      sourceVersionId: versionId,
+    });
+    if (result === "retry") throw new Error("A rollback cannot require a draft package retry");
+    return result;
   }
 
   /** The exact package versions a Python notebook runs with once deployed; null when it has none. */

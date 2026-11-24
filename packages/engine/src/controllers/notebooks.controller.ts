@@ -1,7 +1,13 @@
 import { Request, Response } from "express";
 import { randomUUID } from "crypto";
 import { fromMarkdown, toMarkdown } from "../core/notebook-text.js";
-import { notebooksService, DeployRefusedError, NotebookConflictError, NotebookRevisionRequiredError } from "../services/notebooks.service.js";
+import {
+  notebooksService,
+  DeployRefusedError,
+  NotebookConflictError,
+  NotebookRevisionRequiredError,
+  VersionAlreadyDeployedError,
+} from "../services/notebooks.service.js";
 import { notebookFilesService } from "../services/notebook-files.service.js";
 import { buildNotebookMap } from "../core/notebook-map.js";
 import { outputSpecs } from "../core/notebook-outputs.js";
@@ -193,6 +199,9 @@ function respondWithError(res: Response, err: unknown) {
   // Not a bad request and not a missing one: the notebook exists, but nobody has said
   // this version may run unattended.
   if (err instanceof NotebookNotDeployedError || err instanceof OwnerInactiveError) {
+    return res.status(409).json({ error: err.message });
+  }
+  if (err instanceof VersionAlreadyDeployedError) {
     return res.status(409).json({ error: err.message });
   }
   // The author can fix this one — a clashing name or an unguarded, guessable webhook —
@@ -397,6 +406,55 @@ export class NotebooksController {
       const result = await notebooksService.deploy(String(req.params.id), user.username);
       if (!result) return res.status(404).json(NOT_FOUND);
 
+      res.json(result);
+    } catch (err: unknown) {
+      respondWithError(res, err);
+    }
+  };
+
+  /** Every deployed version, for editors choosing what production should run. */
+  listVersions = async (req: Request, res: Response) => {
+    try {
+      const id = String(req.params.id);
+      if (!(await notebookAccessService.canEdit(callerOf(req).id, id))) {
+        return res.status(404).json(NOT_FOUND);
+      }
+      res.json(await notebooksService.listVersions(id));
+    } catch (err: unknown) {
+      respondWithError(res, err);
+    }
+  };
+
+  /** One version's complete document, for an editor's rollback review. */
+  getVersion = async (req: Request, res: Response) => {
+    try {
+      const id = String(req.params.id);
+      if (!(await notebookAccessService.canEdit(callerOf(req).id, id))) {
+        return res.status(404).json(NOT_FOUND);
+      }
+      const document = await notebooksService.getVersion(id, String(req.params.versionId));
+      if (!document) return res.status(404).json(NOT_FOUND);
+      res.json(document);
+    } catch (err: unknown) {
+      respondWithError(res, err);
+    }
+  };
+
+  /** Makes a historical version production again by deploying a new copy of it. */
+  redeployVersion = async (req: Request, res: Response) => {
+    try {
+      const user = callerOf(req);
+      const id = String(req.params.id);
+      if (!(await notebookAccessService.canEdit(user.id, id))) {
+        return res.status(404).json(NOT_FOUND);
+      }
+      const result = await notebooksService.redeployVersion(
+        id,
+        String(req.params.versionId),
+        user.username,
+        user.id
+      );
+      if (!result) return res.status(404).json(NOT_FOUND);
       res.json(result);
     } catch (err: unknown) {
       respondWithError(res, err);
