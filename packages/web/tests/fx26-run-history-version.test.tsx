@@ -1,12 +1,16 @@
-/** FX-26 — production, draft and pre-version runs say which document they executed. */
+/**
+ * FX-26 — production, draft and pre-version runs say which document they executed.
+ *
+ *   pnpm --filter @zaa-tool/web test fx26-run-history-version
+ */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { NotebookRunSummary, NotebookRunTrigger, NotebookVersionSummary } from '@zaa-tool/shared';
-import { RunHistory } from './RunHistory';
-import { notebooksApi } from '../../lib/notebooks-api';
+import { RunHistory } from '../src/components/notebook/RunHistory';
+import { notebooksApi } from '../src/lib/notebooks-api';
 
-vi.mock('../../lib/notebooks-api', () => ({
+vi.mock('../src/lib/notebooks-api', () => ({
   notebooksApi: {
     clearRuns: vi.fn(),
     listRuns: vi.fn(),

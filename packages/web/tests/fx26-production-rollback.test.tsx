@@ -3,15 +3,17 @@
  *
  * The API is mocked, but the version list, behavioural diff, trigger warnings and
  * confirmation button are the components the editor renders. Fixtures use `zz-fx26-ui-`.
+ *
+ *   pnpm --filter @zaa-tool/web test fx26-production-rollback
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { NotebookJson, NotebookVersionSummary } from '@zaa-tool/shared';
-import { ProductionDialog } from './ProductionDialog';
-import { notebooksApi } from '../../lib/notebooks-api';
+import { ProductionDialog } from '../src/components/notebook/ProductionDialog';
+import { notebooksApi } from '../src/lib/notebooks-api';
 
-vi.mock('../../lib/notebooks-api', () => ({
+vi.mock('../src/lib/notebooks-api', () => ({
   notebooksApi: {
     deployedDocument: vi.fn(),
     getVersion: vi.fn(),
