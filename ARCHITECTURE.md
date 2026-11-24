@@ -574,7 +574,7 @@ current notebook" was, depending on render order.
 | | |
 |---|---|
 | `packages/engine/tests` | 98 files — `node:test` + `tsx`, against a real Postgres |
-| `packages/web/tests` | 25 files, 179 tests — Vitest + Testing Library |
+| `packages/web/tests` | 34 files, 237 tests — Vitest + Testing Library |
 
 Conventions that exist because their absence cost something real:
 
