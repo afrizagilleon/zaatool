@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { RocketLaunch, CheckCircle } from '@phosphor-icons/react';
+import { RocketLaunch, CheckCircle, ClockCounterClockwise } from '@phosphor-icons/react';
 import type { NotebookDeployState } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { notebooksApi } from '../../lib/notebooks-api';
@@ -109,6 +109,17 @@ export function DeployButton({ notebookId, refreshKey, hasTriggers, isDirty }: D
       {needsDeploy ? 'Deploy' : 'Deployed'}
     </Button>
 
+    <Button
+      variant="ghost"
+      size="sm"
+      className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+      title="Production history and rollback"
+      aria-label="Production history"
+      onClick={() => setIsInspecting(true)}
+    >
+      <ClockCounterClockwise size={13} />
+    </Button>
+
     {/* Deploying goes through the review rather than straight from the button: the gate
         is only worth having if the decision behind it is informed. */}
     <DeployReviewDialog
@@ -122,9 +133,11 @@ export function DeployButton({ notebookId, refreshKey, hasTriggers, isDirty }: D
       notebookId={notebookId}
       serving={state?.serving}
       deployedAt={state?.deployedAt ?? null}
+      isDeployed={state?.isDeployed ?? false}
       open={isInspecting}
       onOpenChange={setIsInspecting}
       onUndeployed={() => void refresh()}
+      onChanged={() => void refresh()}
     />
     </>
   );

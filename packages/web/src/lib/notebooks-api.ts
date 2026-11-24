@@ -9,6 +9,7 @@ import type {
   NotebookRunSummary,
   NotebookShare,
   NotebookSummary,
+  NotebookVersionSummary,
   RunStartedResponse,
 } from "@zaa-tool/shared";
 
@@ -152,6 +153,18 @@ export const notebooksApi = {
   /** Pins the current draft as what triggers run. */
   deploy: (id: string): Promise<{ versionId: string }> =>
     request(`/api/notebooks/${id}/deploy`, { method: "POST" }),
+
+  /** Every immutable deployment, newest first, with its calculated version number. */
+  listVersions: (id: string): Promise<NotebookVersionSummary[]> =>
+    request(`/api/notebooks/${id}/versions`),
+
+  /** One historical document, for reviewing a rollback before confirming it. */
+  getVersion: (id: string, versionId: string): Promise<NotebookJson> =>
+    request(`/api/notebooks/${id}/versions/${versionId}`),
+
+  /** Deploys a historical document as a new version; the draft stays untouched. */
+  redeployVersion: (id: string, versionId: string): Promise<{ versionId: string }> =>
+    request(`/api/notebooks/${id}/versions/${versionId}/deploy`, { method: "POST" }),
 
   /** Links that let someone without an account use this notebook's page. */
   shares: (id: string): Promise<NotebookShare[]> => request(`/api/notebooks/${id}/shares`),

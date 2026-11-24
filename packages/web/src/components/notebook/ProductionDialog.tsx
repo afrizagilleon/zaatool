@@ -18,6 +18,7 @@ import {
 } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { notebooksApi } from '../../lib/notebooks-api';
+import { VersionList } from './VersionList';
 
 /**
  * What this notebook is serving right now, and how to stop it.
@@ -35,9 +36,11 @@ interface ProductionDialogProps {
   notebookId: string;
   serving: NotebookServing | undefined;
   deployedAt: string | null;
+  isDeployed: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onUndeployed: () => void;
+  onChanged: () => void;
 }
 
 function Line({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
@@ -53,9 +56,11 @@ export function ProductionDialog({
   notebookId,
   serving,
   deployedAt,
+  isDeployed,
   open,
   onOpenChange,
   onUndeployed,
+  onChanged,
 }: ProductionDialogProps) {
   const [isWorking, setIsWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,17 +84,23 @@ export function ProductionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-h-[85vh] w-[calc(100vw-2rem)] max-w-3xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-sm">In production</DialogTitle>
+          <DialogTitle className="text-sm">{isDeployed ? 'In production' : 'Production history'}</DialogTitle>
           <DialogDescription className="text-xs">
-            {deployedAt
-              ? `Live since ${new Date(deployedAt).toLocaleString()}.`
-              : 'Live.'}{' '}
-            Taking it out stops all of this. The draft, its history and its versions stay.
+            {isDeployed ? (
+              <>
+                {deployedAt ? `Live since ${new Date(deployedAt).toLocaleString()}.` : 'Live.'}{' '}
+                Taking it out stops all of this. The draft, its history and its versions stay.
+              </>
+            ) : (
+              'Nothing is deployed now. The draft and every earlier version are still here.'
+            )}
           </DialogDescription>
         </DialogHeader>
 
+        {isDeployed && (
+          <>
         {nothingServed ? (
           <p className="text-xs text-muted-foreground">
             Nothing is currently served by it: no contract, so no tool and no page, and no
@@ -127,6 +138,10 @@ export function ProductionDialog({
             ))}
           </ul>
         )}
+          </>
+        )}
+
+        <VersionList notebookId={notebookId} open={open} onChanged={onChanged} />
 
         {error && (
           <p className="flex items-start gap-1.5 text-xs text-status-error">
@@ -135,20 +150,22 @@ export function ProductionDialog({
           </p>
         )}
 
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => onOpenChange(false)}>
-            Leave it running
+            {isDeployed ? 'Leave it running' : 'Close'}
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 border-status-error/40 text-xs text-status-error hover:bg-status-error/10"
-            disabled={isWorking}
-            onClick={() => void undeploy()}
-          >
-            {isWorking && <Spinner size={12} className="mr-1.5 animate-spin" />}
-            Take out of production
-          </Button>
+          {isDeployed && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 border-status-error/40 text-xs text-status-error hover:bg-status-error/10"
+              disabled={isWorking}
+              onClick={() => void undeploy()}
+            >
+              {isWorking && <Spinner size={12} className="mr-1.5 animate-spin" />}
+              Take out of production
+            </Button>
+          )}
         </div>
       </DialogContent>
     </Dialog>
