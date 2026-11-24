@@ -656,8 +656,8 @@ on a schedule, if you need that guarantee. A failed audit write is logged as
 container, then the oldest is overwritten. How long that is depends on traffic; check
 `docker compose logs --since 24h engine | wc -c` and scale `LOG_MAX_SIZE` / `LOG_MAX_FILE` up
 if a day is more than a tenth of it. For a retention you can state (30 days, a year), ship the
-logs; the audit trail already lives in Postgres and is covered by the `pg_dump` in
-`./scripts/update.sh`.
+logs; the audit trail already lives in Postgres, so use [Backing up, any time](#backing-up-any-time)
+for scheduled database backups; `./scripts/update.sh` also takes a dump before every update.
 
 ---
 
