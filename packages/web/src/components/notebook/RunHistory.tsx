@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ClockCounterClockwise, ArrowClockwise, Trash } from '@phosphor-icons/react';
-import type { NotebookRunSummary } from '@zaa-tool/shared';
+import type { NotebookRunSummary, NotebookRunTrigger, NotebookVersionSummary } from '@zaa-tool/shared';
 import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
 import { notebooksApi } from '../../lib/notebooks-api';
@@ -25,6 +25,16 @@ const STATUS_STYLES: Record<string, string> = {
   failed: 'bg-status-error',
 };
 
+const PRODUCTION_TRIGGERS = new Set<NotebookRunTrigger>(['cron', 'webhook', 'call', 'tool', 'page']);
+
+function versionLabel(run: NotebookRunSummary, versions: NotebookVersionSummary[]): string {
+  if (run.version_id) {
+    const version = versions.find((candidate) => candidate.id === run.version_id);
+    return version ? `v${version.number}` : run.version_id.slice(0, 8);
+  }
+  return PRODUCTION_TRIGGERS.has(run.trigger_source) ? '—' : 'draft';
+}
+
 /**
  * Recent runs for this notebook.
  *
@@ -34,6 +44,7 @@ const STATUS_STYLES: Record<string, string> = {
  */
 export function RunHistory({ notebookId, activeRunId, refreshKey, onOpenRun }: RunHistoryProps) {
   const [runs, setRuns] = useState<NotebookRunSummary[]>([]);
+  const [versions, setVersions] = useState<NotebookVersionSummary[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -76,6 +87,24 @@ export function RunHistory({ notebookId, activeRunId, refreshKey, onOpenRun }: R
       cancelled = true;
     };
   }, [isOpen, notebookId, refreshKey]);
+
+  useEffect(() => {
+    if (!isOpen || !notebookId) return;
+    let cancelled = false;
+    notebooksApi
+      .listVersions(notebookId)
+      .then((data) => {
+        if (!cancelled) setVersions(data);
+      })
+      .catch(() => {
+        // Runs predate version history, and an older engine may not offer the endpoint.
+        // Their ids still give a useful fallback rather than hiding the run list.
+        if (!cancelled) setVersions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, notebookId]);
 
   return (
     <div className="relative">
@@ -161,6 +190,12 @@ export function RunHistory({ notebookId, activeRunId, refreshKey, onOpenRun }: R
                   {new Date(run.started_at).toLocaleString()}
                 </span>
                 <span className="text-[9px] text-muted-foreground/70 shrink-0">{duration(run)}</span>
+                <span
+                  className="text-[9px] px-1 bg-muted text-muted-foreground shrink-0"
+                  title={run.version_id ? `Deployed version ${run.version_id}` : PRODUCTION_TRIGGERS.has(run.trigger_source) ? 'Run recorded before versions were tracked' : 'Draft run'}
+                >
+                  {versionLabel(run, versions)}
+                </span>
                 {run.cell_id && (
                   <span
                     className="text-[9px] px-1 bg-muted text-muted-foreground shrink-0"
